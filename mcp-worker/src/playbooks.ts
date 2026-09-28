@@ -57,17 +57,19 @@ function grams(text: string): Set<string> {
   return out;
 }
 
-function similarity(q: Set<string>, d: Set<string>): number {
-  if (!q.size || !d.size) return 0;
-  let hit = 0;
-  for (const g of q) if (d.has(g)) hit++;
-  return hit / Math.sqrt(q.size * d.size);
+// 重なった2-gram を、型の中での珍しさ (idf) で重み付けして足す。「導入」「確認」のようにどの型にも
+// 出る語は軽く、「LINE」「CSV」「採用」のような語は重くなる。長い文を投げても薄まらない。
+function overlapScore(q: Set<string>, d: Set<string>, idf: (g: string) => number): number {
+  let w = 0;
+  for (const g of q) if (d.has(g)) w += idf(g);
+  return w;
 }
 
 // 型の数が増えても毎回全件は読まない。新しい順に一定数だけ見る (見ている範囲は ORDER BY で決定的)。
 const SCAN_LIMIT = 400;
-// 実データで、同じ種類の仕事は 0.2 以上、語が1つ重なっただけのものは 0.12〜0.15 に出た (2026-09-28)。
-const MIN_SCORE = 0.16;
+// idf は log(1+N/df) を log(1+N) で割ったもの (0〜1)。型の数が増えても尺度が変わらないようにしている。
+// 実データ (型59件) で、同じ種類の仕事は 2.8 以上、関係の薄いものは 2.6 以下に出た (2026-09-28)。
+const MIN_SCORE = 2.7;
 
 /**
  * text に似た型を最大 limit 件返す。excludeSourceId はそのタスク自身から起こした型を除くため。
@@ -91,9 +93,13 @@ export async function findPrecedents(
     .all<PlaybookRow>();
   const rows = res.results ?? [];
   const exclude = new Set(opts.excludeSourceIds ?? []);
+  const docs = rows.map((r) => grams(`${r.title}\n${r.keywords ?? ""}`));
+  const df = new Map<string, number>();
+  for (const d of docs) for (const g of d) df.set(g, (df.get(g) ?? 0) + 1);
+  const idf = (g: string) => Math.log(1 + docs.length / (df.get(g) ?? 1)) / Math.log(1 + docs.length);
   const scored = rows
-    .filter((r) => !r.source_goal_id || !exclude.has(r.source_goal_id))
-    .map((r) => ({ r, s: similarity(q, grams(`${r.title}\n${r.title}\n${r.keywords ?? ""}`)) }))
+    .map((r, i) => ({ r, s: overlapScore(q, docs[i], idf) }))
+    .filter(({ r }) => !r.source_goal_id || !exclude.has(r.source_goal_id))
     .filter((x) => x.s >= MIN_SCORE)
     .sort((a, b) => b.s - a.s)
     .slice(0, opts.limit ?? 3);
@@ -128,8 +134,9 @@ export async function findPrecedents(
 
 /** 返り値に添える説明。型をどう扱うかを AI に毎回伝える。 */
 export const PRECEDENTS_NOTE =
-  "precedents は、同じ種類の仕事を以前メンバーがやったときの型 (手順・気をつけたこと・コミット)。" +
-  "作業ステップを組む前に読み、使える手順はそのまま使う。合わない所は変えてよいが、変えた理由を現状に一言書く。" +
+  "precedents は、似た仕事を以前メンバーがやったときの型 (手順・気をつけたこと・コミット)。言葉の重なりで選んでいるので、" +
+  "このタスクと関係ないものは黙って無視してよい。関係あるものは作業ステップを組む前に読み、使える手順はそのまま使う。" +
+  "合わない所は変えてよいが、変えた理由を現状に一言書く。" +
   "commits があればそのコミットの差分を見てから着手すると早い。";
 
 // 全員に見せる前提なので、明らかな個人情報・金額は入口で止める。
