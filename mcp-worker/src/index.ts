@@ -163,11 +163,11 @@ const SERVER_INFO = {
   name: "kotsukotsu-mcp",
   title: "こつこつ",
   version: "1.0.0",
-  websiteUrl: "https://kotsukotsu.YOUR_SUBDOMAIN.workers.dev",
+  websiteUrl: "https://your-app-name.YOUR_SUBDOMAIN.workers.dev",
   icons: [
-    { src: "https://kotsukotsu.YOUR_SUBDOMAIN.workers.dev/icon-512.png", mimeType: "image/png", sizes: ["512x512"] },
-    { src: "https://kotsukotsu.YOUR_SUBDOMAIN.workers.dev/icon-192.png", mimeType: "image/png", sizes: ["192x192"] },
-    { src: "https://kotsukotsu.YOUR_SUBDOMAIN.workers.dev/icon.svg", mimeType: "image/svg+xml", sizes: ["any"] },
+    { src: "https://your-app-name.YOUR_SUBDOMAIN.workers.dev/icon-512.png", mimeType: "image/png", sizes: ["512x512"] },
+    { src: "https://your-app-name.YOUR_SUBDOMAIN.workers.dev/icon-192.png", mimeType: "image/png", sizes: ["192x192"] },
+    { src: "https://your-app-name.YOUR_SUBDOMAIN.workers.dev/icon.svg", mimeType: "image/svg+xml", sizes: ["any"] },
   ],
 } as const;
 
@@ -1493,7 +1493,7 @@ const tools: Record<string, ToolDef> = {
         .run();
       return {
         token,
-        url: (env.PUSH_URL ?? "https://kotsukotsu.YOUR_SUBDOMAIN.workers.dev") + "/login?invite=" + token,
+        url: (env.PUSH_URL ?? "https://your-app-name.YOUR_SUBDOMAIN.workers.dev") + "/login?invite=" + token,
       };
     },
   },

@@ -25,7 +25,7 @@ import {
   type MyProfile,
 } from "../lib/addness";
 import type { OrgSettings } from "../lib/db";
-import { WORKERS_DEV } from "../lib/hosts";
+import { MCP_HOST } from "../lib/hosts";
 
 type Tab = "team" | "api";
 
@@ -967,7 +967,7 @@ function InviteLinkTab({
 /* =========================================================
    APIキー
    ========================================================= */
-const MCP_WORKERS_DEV = `https://kotsukotsu-mcp.${WORKERS_DEV}/mcp`;
+const MCP_WORKERS_DEV = `https://${MCP_HOST}/mcp`;
 
 // キー入りURLの接続先。独自ドメインから開いていれば mcp.kotukotu.app、pages.dev の入口から
 // 開いていれば同じアドレスの /mcp を渡す (Pages が service binding で kotsukotsu-mcp へ渡す)。

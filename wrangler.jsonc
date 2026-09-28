@@ -1,10 +1,10 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "kotsukotsu",
+  "name": "your-app-name",
   "main": ".open-next/worker.js",
   "compatibility_date": "2025-03-25",
   "compatibility_flags": ["nodejs_compat"],
-  // https://kotsukotsu.<サブドメイン>.workers.dev で公開する。
+  // https://your-app-name.<サブドメイン>.workers.dev で公開する。
   "workers_dev": true,
   "assets": {
     "directory": ".open-next/assets",
@@ -13,22 +13,22 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "kotsukotsu-db",
+      "database_name": "your-app-name-db",
       "database_id": "YOUR_D1_DATABASE_ID",
       "migrations_dir": "d1-migrations"
     }
   ],
   "r2_buckets": [
-    { "binding": "FILES", "bucket_name": "kotsukotsu-files" }
+    { "binding": "FILES", "bucket_name": "your-app-name-files" }
   ],
   // 同じアカウントの *.workers.dev 同士の fetch は塞がれるので、リアルタイム通知は binding で渡す
   "services": [
-    { "binding": "RT", "service": "kotsukotsu-rt" }
+    { "binding": "RT", "service": "your-app-name-rt" }
   ],
   "vars": {
     "APP_ENV": "production",
     "VAPID_PUBLIC_KEY": "YOUR_VAPID_PUBLIC_KEY",
     "VAPID_SUBJECT": "mailto:you@example.com",
-    "RT_URL": "https://kotsukotsu-rt.YOUR_SUBDOMAIN.workers.dev"
+    "RT_URL": "https://your-app-name-rt.YOUR_SUBDOMAIN.workers.dev"
   }
 }

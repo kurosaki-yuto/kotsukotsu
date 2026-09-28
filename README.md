@@ -42,15 +42,16 @@
 
 ## セットアップ
 
-データベース・デプロイ先は、使う人がそれぞれ自分の Cloudflare アカウントに作る。
+データベース・デプロイ先は、使う会社・人がそれぞれ自分の Cloudflare アカウントに作る。
 `npm run setup` が D1 の作成からシークレット、3 つの Worker のデプロイまで1回でやる。
+同じ名前の Worker・データベースが既にあれば上書きせずに止まる。
 無料プランで動く。
 
 ```bash
 git clone https://github.com/kurosaki-yuto/kotsukotsu.git
 cd kotsukotsu
 npm install
-npm run setup     # 終わると https://kotsukotsu.<サブドメイン>.workers.dev が出る
+npm run setup -- --name acme-kotsukotsu   # 名前は会社・チームごとに決める。終わると URL が出る
 ```
 
 Claude Code などの AI に「立ち上げて」と頼めば、`AGENTS.md` の手順どおりに進めてくれる。

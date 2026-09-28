@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { WORKERS_DEV } from "../lib/hosts";
+import { RT_HOST } from "../lib/hosts";
 
-const RT_WS = `wss://kotsukotsu-rt.${WORKERS_DEV}/ws`;
+const RT_WS = `wss://${RT_HOST}/ws`;
 
 // リアルタイム Worker の宛先。Pages の入口 (pages.dev / 独自ドメイン kotukotu.app) から
 // 開いた画面は同じアドレスの /ws を使う (Pages が service binding で kotsukotsu-rt へ渡す)。

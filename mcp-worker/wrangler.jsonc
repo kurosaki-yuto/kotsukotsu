@@ -1,28 +1,28 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "kotsukotsu-mcp",
+  "name": "your-app-name-mcp",
   "main": "src/index.ts",
   "compatibility_date": "2025-03-25",
   "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [
     {
-      // SAME database as the main app (database_name "kotsukotsu-db").
+      // SAME database as the main app (database_name "your-app-name-db").
       // Run `wrangler d1 list` (or check the main app deploy) and paste the
       // real id below — it must match the main app's wrangler.jsonc.
       "binding": "DB",
-      "database_name": "kotsukotsu-db",
+      "database_name": "your-app-name-db",
       "database_id": "YOUR_D1_DATABASE_ID"
     }
   ],
   "r2_buckets": [
     // SAME bucket as the main app (app/lib/server/files.ts) — file resources
     // uploaded via MCP land in the same place the app's /api/files reads from.
-    { "binding": "FILES", "bucket_name": "kotsukotsu-files" }
+    { "binding": "FILES", "bucket_name": "your-app-name-files" }
   ],
   "vars": {
-    "RT_URL": "https://kotsukotsu-rt.YOUR_SUBDOMAIN.workers.dev",
+    "RT_URL": "https://your-app-name-rt.YOUR_SUBDOMAIN.workers.dev",
     // Main app — holds the VAPID keys, so phone pushes are a callback there.
-    "PUSH_URL": "https://kotsukotsu.YOUR_SUBDOMAIN.workers.dev"
+    "PUSH_URL": "https://your-app-name.YOUR_SUBDOMAIN.workers.dev"
   },
   // Worker-to-worker fetches to *.workers.dev URLs are blocked by Cloudflare
   // (they 404 without ever reaching the target), so the push/realtime
@@ -30,8 +30,8 @@
   // URLs stay as vars because the bindings still need an absolute URL to
   // route the request path).
   "services": [
-    { "binding": "APP", "service": "kotsukotsu" },
-    { "binding": "RT", "service": "kotsukotsu-rt" }
+    { "binding": "APP", "service": "your-app-name" },
+    { "binding": "RT", "service": "your-app-name-rt" }
   ],
   // Sweeps due-date reminders (scheduled() handler in src/index.ts) every 5min.
   "triggers": {
