@@ -6,6 +6,7 @@ import { getGoal, updateGoal, archiveGoal, createResource, updateResource, delet
 import type { Goal, Resource, Member, ChatMessage } from "../../lib/db";
 import type { Me, GoalMember } from "../../lib/addness";
 import Linkified from "../../components/Linkified";
+import AgentLaunch from "../../components/AgentLaunch";
 import { Assignees, Avatar } from "../../components/Assignees";
 import { useAutoRefresh } from "../../lib/useAutoRefresh";
 
@@ -756,6 +757,9 @@ export default function GoalDetail() {
             <div className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide" style={{ color: selfDone ? "var(--done-strong)" : "var(--accent)" }}>
               <I d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 8v4M12 12l3 2" />大ゴール（クリックで編集）
             </div>
+            <div className="flex items-center gap-2 shrink-0">
+            {/* Claude / Codex をこのゴールの指示文入りで開く */}
+            <AgentLaunch goalId={id} goalName={goal.name} />
             {selfDone ? (
               <div className="flex items-center gap-2 shrink-0">
                 <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-bold text-white" style={{ background: "var(--done)" }}>
@@ -775,6 +779,7 @@ export default function GoalDetail() {
                 完了にする
               </button>
             )}
+            </div>
           </div>
           <div className="flex items-start gap-2">
             {selfDone && (
