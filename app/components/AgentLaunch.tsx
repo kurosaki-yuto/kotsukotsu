@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { mcpConnectHint } from "../lib/hosts";
 
 // ゴール詳細の「完了にする」の横に置く「AIで進める」プルダウン。
 // Claude / Codex のデスクトップアプリを、このゴールの指示文入りで開く (送信は本人がアプリ側で Enter)。
@@ -16,7 +17,7 @@ function promptFor(id: string, name: string): string {
     `こつこつのタスク「${name}」を進めてください。`,
     `id: ${id}`,
     "",
-    "1. こつこつのツールが読み (get_goal) と書き (add_subtask・update_goal・send_chat) の両方使えるか確かめる。どちらかが無ければ何もせず「こつこつが未接続です。https://mcp.kotukotu.app/mcp を追加してログインしてください」とだけ返す",
+    `1. こつこつのツールが読み (get_goal) と書き (add_subtask・update_goal・send_chat) の両方使えるか確かめる。どちらかが無ければ何もせず「こつこつが未接続です。${mcpConnectHint()}」とだけ返す`,
     "2. get_goal・list_subtasks・list_comments で、このタスクの完了の基準・現状・未完了の作業・最新のコメントを読む。親を最上位まで辿り、上位の完了の基準に寄与しないならそこで止めて理由を伝える",
     "3. 完了の基準が空か曖昧なら、分かる事実で書き直す。分からない点は質問して止まる",
     "4. 作業に要るファイルやコードの場所は、今いるフォルダと、タスクの現状・リソース・コメントに書かれたパスだけを見る。ホームフォルダ全体を探し回らず、書かれていなければ聞く",
