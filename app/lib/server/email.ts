@@ -1,5 +1,5 @@
 import "server-only";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { platformEnv } from "@/app/lib/server/platform";
 
 // Outbound mail via Resend's REST API. Deliberately a direct fetch rather than
 // the SDK: the worker runtime has no Node mail transport, and the whole surface
@@ -21,7 +21,7 @@ type MailEnv = { RESEND_API_KEY?: string; MAIL_FROM?: string };
 const DEFAULT_FROM = "こつこつ <noreply@mochimotsu.co.jp>";
 
 function mailEnv(): MailEnv {
-  const { env } = getCloudflareContext();
+  const env = platformEnv();
   return (env ?? {}) as MailEnv;
 }
 

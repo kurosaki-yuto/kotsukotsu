@@ -1,0 +1,6 @@
+# 独自ドメイン ({$DOMAIN}) で受けて、こつこつへ渡す。証明書は Caddy が自動で取る。
+# WebSocket (/ws) もそのまま通る。
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy kotsukotsu:3000
+}

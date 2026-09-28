@@ -1,4 +1,4 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { platformEnv } from "@/app/lib/server/platform";
 import { json, bad, run, first } from "../../../lib/server/db";
 import { createUser, createSession, sessionCookie, passwordProblem, PASSWORD_MIN } from "../../../lib/server/auth";
 import { getValidInvite } from "../../../lib/server/queries";
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
 
   // SIGNUP_MODE=invite (自社専用版の既定): 最初の1人 (管理者) だけ招待なしで登録でき、
   // 以降は招待リンクからしか入れない。URL を知った部外者が勝手に登録できないようにする。
-  const mode = (getCloudflareContext().env as unknown as { SIGNUP_MODE?: string }).SIGNUP_MODE;
+  const mode = (platformEnv() as unknown as { SIGNUP_MODE?: string }).SIGNUP_MODE;
   if (mode === "invite" && !invite) {
     const any = await first("SELECT 1 AS ok FROM users LIMIT 1");
     if (any) return bad("新規登録は招待制です。管理者から招待リンクをもらってください", 403);

@@ -1,6 +1,7 @@
 import { json, first } from "../../../../lib/server/db";
 import { requireWorkspace } from "../../../../lib/server/workspace";
 import { createPasswordReset } from "../../../../lib/server/auth";
+import { publicOrigin } from "@/app/lib/server/platform";
 
 // 管理者が、パスワードを忘れたメンバーのために再設定リンクを発行する。
 // メール送信の代わりに、管理者がこのリンクを LINE や Chatwork で本人に渡す。
@@ -39,5 +40,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const { token, expires } = await createPasswordReset(user.id, `admin:${wctx.user.id}`, ADMIN_RESET_TTL_MIN);
-  return json({ url: `${new URL(req.url).origin}/reset/${token}`, expires_at: expires.toISOString() });
+  return json({ url: `${publicOrigin(req)}/reset/${token}`, expires_at: expires.toISOString() });
 }

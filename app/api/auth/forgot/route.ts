@@ -1,6 +1,7 @@
 import { json, bad } from "../../../lib/server/db";
 import { findUserByEmail, createPasswordReset, recentResetCount } from "../../../lib/server/auth";
 import { mailConfigured, sendMail, passwordResetMail } from "../../../lib/server/email";
+import { publicOrigin } from "@/app/lib/server/platform";
 
 // Ask for a reset link. Anyone can call this without being signed in, which is
 // the whole point — the person calling it has lost their way in.
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
     // Rate limit per account, not per address, so probing unknown addresses
     // cannot be distinguished from the real thing by timing out differently.
     if ((await recentResetCount(user.id)) < 5) {
-      const origin = new URL(req.url).origin;
+      const origin = publicOrigin(req);
       const { token } = await createPasswordReset(
         user.id,
         req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")

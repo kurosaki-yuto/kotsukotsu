@@ -1,6 +1,7 @@
 import { json, first } from "../../lib/server/db";
 import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
 import { createInvite, listInvites } from "../../lib/server/queries";
+import { publicOrigin } from "@/app/lib/server/platform";
 
 export async function GET(req: Request) {
   const ctx = await requireWorkspace(req);
@@ -28,6 +29,6 @@ export async function POST(req: Request) {
   }
 
   const inv = (await createInvite({ email: body.email ?? null, role: body.role, createdBy: ctx.user.id, workspaceId: ctx.workspaceId, goalId })) as { token: string } | null;
-  const origin = new URL(req.url).origin;
+  const origin = publicOrigin(req);
   return json({ invite: inv, url: inv ? `${origin}/login?invite=${inv.token}` : null });
 }

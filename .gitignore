@@ -49,3 +49,8 @@ cloudflare-env.d.ts
 
 # npm run update が取るデータベースのバックアップ
 /backups/
+
+# Docker 版 (node-server) のデータと、まとめた MCP
+/data/
+/node-server/dist/
+/.env

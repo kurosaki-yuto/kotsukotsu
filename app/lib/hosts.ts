@@ -4,6 +4,10 @@
 export const APP_NAME = "your-app-name";
 export const WORKERS_DEV = "YOUR_SUBDOMAIN.workers.dev";
 
+// Docker 版 (Node で動かす自社専用版) は、画面・リアルタイム・MCP を1つのサーバーが同じアドレスで受ける。
+// ビルド時に NEXT_PUBLIC_KOTSUKOTSU_RUNTIME=node が入る (node-server/Dockerfile)。
+export const NODE_RUNTIME = process.env.NEXT_PUBLIC_KOTSUKOTSU_RUNTIME === "node";
+
 export const RT_HOST = `${APP_NAME}-rt.${WORKERS_DEV}`;
 export const MCP_HOST = `${APP_NAME}-mcp.${WORKERS_DEV}`;
 

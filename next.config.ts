@@ -23,5 +23,6 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 
 // OpenNext Cloudflare: makes the D1 binding available during `next dev`.
+// Docker 版 (KOTSUKOTSU_RUNTIME=node) は Cloudflare を使わないので呼ばない。
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
-initOpenNextCloudflareForDev();
+if (process.env.KOTSUKOTSU_RUNTIME !== "node") initOpenNextCloudflareForDev();

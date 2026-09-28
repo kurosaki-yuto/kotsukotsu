@@ -1,10 +1,10 @@
 import "server-only";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { platformEnv, waitUntil } from "@/app/lib/server/platform";
 import { all, run } from "./db";
 
 type PushEnv = { VAPID_PUBLIC_KEY?: string; VAPID_PRIVATE_KEY?: string; VAPID_SUBJECT?: string };
 function penv(): PushEnv {
-  return getCloudflareContext().env as unknown as PushEnv;
+  return platformEnv() as unknown as PushEnv;
 }
 export function vapidPublicKey(): string | null {
   return penv().VAPID_PUBLIC_KEY ?? null;
@@ -139,16 +139,7 @@ async function sendOne(sub: PushSub, payload?: PushPayload | null): Promise<numb
 // Fire-and-forget a workspace push without blocking the response (uses the
 // Worker's waitUntil so delivery continues after the response is sent).
 export function queuePushToWorkspace(wsId: string, payload?: PushPayload | null): void {
-  try {
-    const ctx = (getCloudflareContext() as unknown as { ctx?: { waitUntil?: (p: Promise<unknown>) => void } }).ctx;
-    if (ctx?.waitUntil) {
-      ctx.waitUntil(sendPushToWorkspace(wsId, payload));
-      return;
-    }
-  } catch {
-    /* no execution context available */
-  }
-  void sendPushToWorkspace(wsId, payload);
+  waitUntil(sendPushToWorkspace(wsId, payload));
 }
 
 // Push to every device subscribed by any member of a workspace. Dead
@@ -179,16 +170,7 @@ export async function sendPushToWorkspace(wsId: string, payload?: PushPayload | 
 // used for goal-linked events so only the people connected to that goal get
 // pinged, not the whole workspace.
 export function queuePushToMembers(wsId: string, emails: string[], payload?: PushPayload | null): void {
-  try {
-    const ctx = (getCloudflareContext() as unknown as { ctx?: { waitUntil?: (p: Promise<unknown>) => void } }).ctx;
-    if (ctx?.waitUntil) {
-      ctx.waitUntil(sendPushToMembers(wsId, emails, payload));
-      return;
-    }
-  } catch {
-    /* no execution context available */
-  }
-  void sendPushToMembers(wsId, emails, payload);
+  waitUntil(sendPushToMembers(wsId, emails, payload));
 }
 
 function chunk<T>(xs: T[], size: number): T[][] {

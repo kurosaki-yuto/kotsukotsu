@@ -1,5 +1,5 @@
 import "server-only";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { platformEnv } from "@/app/lib/server/platform";
 import { json, all } from "../../../lib/server/db";
 import { requireWorkspace } from "../../../lib/server/workspace";
 import {
@@ -39,7 +39,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const env = getCloudflareContext().env as unknown as { PUSH_SECRET?: string };
+  const env = platformEnv() as unknown as { PUSH_SECRET?: string };
   const secret = env.PUSH_SECRET;
   if (!secret) return json({ error: "not configured" }, { status: 501 });
   if (!safeEqual(req.headers.get("x-push-secret") ?? "", secret)) {

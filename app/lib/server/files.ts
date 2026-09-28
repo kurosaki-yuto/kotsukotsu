@@ -1,9 +1,9 @@
 import "server-only";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { platformEnv } from "@/app/lib/server/platform";
 
 // The R2 bucket binding (kotsukotsu-files) for resource file uploads.
 export function bucket(): R2Bucket | null {
-  const env = getCloudflareContext().env as unknown as { FILES?: R2Bucket };
+  const env = platformEnv() as unknown as { FILES?: R2Bucket };
   return env.FILES ?? null;
 }
 

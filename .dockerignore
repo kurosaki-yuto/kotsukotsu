@@ -1,0 +1,14 @@
+node_modules
+mcp-worker/node_modules
+.next
+.open-next
+.wrangler
+.vercel
+node-server/dist
+data
+backups
+.env
+.env.*
+.dev.vars
+.setup.json
+.git

@@ -1,5 +1,5 @@
 import "server-only";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { platformEnv, waitUntil } from "@/app/lib/server/platform";
 
 // RT は kotsukotsu-rt への service binding (任意)。同じアカウントの *.workers.dev 同士の fetch は
 // Cloudflare に塞がれるので、binding があればそちらを通す。
@@ -11,15 +11,14 @@ type RTEnv = { RT_URL?: string; RT_SECRET?: string; RT?: { fetch: typeof fetch }
 // broadcast directly by the acting client over its own WebSocket.
 export function notifyWorkspace(wsId: string): void {
   try {
-    const e = getCloudflareContext().env as unknown as RTEnv;
+    const e = platformEnv() as unknown as RTEnv;
     if (!e.RT_URL || !e.RT_SECRET) return;
     const doFetch = e.RT ? e.RT.fetch.bind(e.RT) : fetch;
     const p = doFetch(`${e.RT_URL}/notify?ws=${encodeURIComponent(wsId)}`, {
       method: "POST",
       headers: { "x-rt-secret": e.RT_SECRET },
     }).then(() => undefined).catch(() => undefined);
-    const ctx = (getCloudflareContext() as unknown as { ctx?: { waitUntil?: (p: Promise<unknown>) => void } }).ctx;
-    if (ctx?.waitUntil) ctx.waitUntil(p);
+    waitUntil(p);
   } catch {
     /* no context / not configured */
   }

@@ -1,8 +1,8 @@
 import "server-only";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { platformEnv } from "@/app/lib/server/platform";
 
 export function db(): D1Database {
-  const { env } = getCloudflareContext();
+  const env = platformEnv<{ DB?: D1Database }>();
   if (!env?.DB) throw new Error("D1 binding 'DB' missing. Run wrangler d1 create + bind in wrangler.jsonc.");
   return env.DB;
 }

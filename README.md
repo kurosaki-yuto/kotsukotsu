@@ -59,6 +59,8 @@ npm run setup -- --name acme-kotsukotsu   # 名前は会社・チームごとに
 
 Claude Code などの AI に「立ち上げて」と頼めば、`AGENTS.md` の手順どおりに進めてくれる。
 
+Cloudflare 以外 (AWS・Google Cloud・社内サーバーなど) で動かすときは Docker 版: `npm run setup:docker` ([docs/self-hosting-docker.md](./docs/self-hosting-docker.md))。
+
 詳しくは [docs/self-hosting.md](./docs/self-hosting.md) (料金・あとから足せるもの・消し方・手で立ち上げる場合)。
 
 ローカル開発:

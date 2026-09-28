@@ -96,7 +96,11 @@ function vapidKeys() {
 }
 
 function loadState() {
-  if (existsSync(STATE_FILE)) return JSON.parse(readFileSync(STATE_FILE, "utf8"));
+  if (existsSync(STATE_FILE)) {
+    const saved = JSON.parse(readFileSync(STATE_FILE, "utf8"));
+    if (saved.platform === "docker") fail("このフォルダは Docker 版として立ち上げ済みです。Cloudflare 版は別のフォルダに clone し直してください。");
+    return saved;
+  }
   // 目印が無い = 既に誰かの環境の値が入った設定。そのままデプロイするとその環境を上書きするので止める。
   const config = read(APP_CONFIG);
   if (!config.includes("your-app-name") || !config.includes("YOUR_D1_DATABASE_ID")) {

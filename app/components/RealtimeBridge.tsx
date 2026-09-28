@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { RT_HOST } from "../lib/hosts";
+import { RT_HOST, NODE_RUNTIME } from "../lib/hosts";
 
 const RT_WS = `wss://${RT_HOST}/ws`;
 
@@ -10,6 +10,8 @@ const RT_WS = `wss://${RT_HOST}/ws`;
 // workers.dev や localhost で開いたときは従来どおり直接つなぐ。
 function rtEndpoint(): string {
   const host = window.location.host;
+  // Docker 版は同じサーバーの /ws (http で開いていれば ws://)
+  if (NODE_RUNTIME) return `${window.location.protocol === "https:" ? "wss" : "ws"}://${host}/ws`;
   const viaPages = host.endsWith(".pages.dev") || host === "kotukotu.app" || host.endsWith(".kotukotu.app");
   return viaPages ? `wss://${host}/ws` : RT_WS;
 }

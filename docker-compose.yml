@@ -1,0 +1,41 @@
+# こつこつの Docker 版。npm run setup:docker が .env を作ってから、これを起動する。
+#
+#   docker compose up -d --build                  # このパソコンだけで使う (http://localhost:3000)
+#   docker compose --profile https up -d --build  # 独自ドメインで HTTPS 公開 (.env の DOMAIN)
+#
+# データ (SQLite とファイル) は kotsukotsu-data ボリュームに残る。作り直しても消えない。
+
+services:
+  kotsukotsu:
+    build: .
+    image: kotsukotsu:latest
+    env_file: .env
+    # コンテナの中は常に 3000 番・/data。.env の PORT は外 (このパソコン側) の番号にだけ使う
+    environment:
+      PORT: "3000"
+      DATA_DIR: /data
+    volumes:
+      - kotsukotsu-data:/data
+    # 外へは直接出さない (HTTPS は下の caddy が受ける)。このパソコンからだけ開ける
+    ports:
+      - "127.0.0.1:${PORT:-3000}:3000"
+    restart: unless-stopped
+
+  # 独自ドメインで公開するとき用。証明書 (Let's Encrypt) を自動で取って HTTPS にする
+  caddy:
+    image: caddy:2
+    profiles: ["https"]
+    depends_on: [kotsukotsu]
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./node-server/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    restart: unless-stopped
+
+volumes:
+  kotsukotsu-data:
+  caddy-data:

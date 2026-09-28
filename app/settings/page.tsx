@@ -25,7 +25,7 @@ import {
   type MyProfile,
 } from "../lib/addness";
 import type { OrgSettings } from "../lib/db";
-import { MCP_HOST } from "../lib/hosts";
+import { MCP_HOST, NODE_RUNTIME } from "../lib/hosts";
 
 type Tab = "team" | "api";
 
@@ -975,6 +975,7 @@ const MCP_WORKERS_DEV = `https://${MCP_HOST}/mcp`;
 function mcpEndpoint(): string {
   if (typeof window === "undefined") return MCP_WORKERS_DEV;
   const { host, origin } = window.location;
+  if (NODE_RUNTIME) return `${origin}/mcp`; // Docker 版は同じサーバーが /mcp を受ける
   if (host === "kotukotu.app" || host.endsWith(".kotukotu.app")) return MCP_SHARED;
   return host.endsWith(".pages.dev") ? `${origin}/mcp` : MCP_WORKERS_DEV;
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { platformEnv } from "@/app/lib/server/platform";
 import { json } from "../../../lib/server/db";
 import { sendPushToWorkspace, sendPushToMembers, type PushPayload } from "../../../lib/server/push";
 import { goalNotificationRecipientEmails } from "../../../lib/server/queries";
@@ -17,7 +17,7 @@ function safeEqual(a: string, b: string): boolean {
 // its own and shares nothing with this app except D1, so it calls back here
 // instead of duplicating the push-signing logic.
 export async function POST(req: Request) {
-  const env = getCloudflareContext().env as unknown as { PUSH_SECRET?: string };
+  const env = platformEnv() as unknown as { PUSH_SECRET?: string };
   const secret = env.PUSH_SECRET;
   if (!secret) return json({ error: "not configured" }, { status: 501 });
   const presented = req.headers.get("x-push-secret") ?? "";

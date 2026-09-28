@@ -4,7 +4,9 @@
 このリポジトリにはデータベースもデプロイ先も入っておらず、共有のサーバーもない。
 データベース・Worker・シークレットは、すべて自分の Cloudflare アカウントに作る。
 
-作るのは `npm run setup` が1回でやる。Claude Code などの AI に「立ち上げて」と頼めば、
+作るのは `npm run setup` が1回でやる。
+
+Cloudflare 以外 (AWS・Google Cloud・Azure・VPS・社内サーバーなど) で動かしたいときは、Docker 版を使う: [self-hosting-docker.md](./self-hosting-docker.md)。機能は同じ。Claude Code などの AI に「立ち上げて」と頼めば、
 `AGENTS.md` の手順どおりに AI が進める。
 
 ## いちばん早い立ち上げ方 (10 分)
