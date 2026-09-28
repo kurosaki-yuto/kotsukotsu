@@ -53,6 +53,8 @@ npm install
 npm run setup     # 終わると https://kotsukotsu.<サブドメイン>.workers.dev が出る
 ```
 
+Claude Code などの AI に「立ち上げて」と頼めば、`AGENTS.md` の手順どおりに進めてくれる。
+
 詳しくは [docs/self-hosting.md](./docs/self-hosting.md) (料金・あとから足せるもの・消し方・手で立ち上げる場合)。
 
 ローカル開発:

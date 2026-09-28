@@ -51,8 +51,14 @@ export function seriesOrigins(host: string): string[] {
   return PRODUCTS.map((p) => originOf(p, base));
 }
 
+/** シリーズの他製品が立っている公開アドレスか。自分でデプロイしたこつこつ (OSS) には他製品が無いので列を出さない。 */
+export function hasSeries(host: string): boolean {
+  return host === "kotukotu.app" || host.endsWith(".kotukotu.app") || host.endsWith(".pages.dev");
+}
+
 /** 本体以外の4製品。列に並べる用。 */
 export function otherProducts(host: string): { p: SeriesProduct; origin: string }[] {
+  if (!hasSeries(host)) return [];
   const base = seriesBase(host);
   return PRODUCTS.filter((p) => p.sub !== "").map((p) => ({ p, origin: originOf(p, base) }));
 }

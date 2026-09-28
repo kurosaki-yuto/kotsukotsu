@@ -4,6 +4,29 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+# 「立ち上げて」「セットアップして」と頼まれたら
+
+このリポジトリを受け取った人の AI (Claude Code / Codex / Cursor など) は、以下をそのまま進める。
+こつこつは利用者それぞれの Cloudflare アカウントに立てる設計で、共有のサーバーは無い。
+詳しい説明は `docs/self-hosting.md`。
+
+1. `node -v` が 20 以上か確かめる。足りなければ利用者に Node.js 20 以上を入れてもらう
+2. `npm install`
+3. `npm run setup` を実行する。**数分かかるのでタイムアウトは 10 分以上にする**
+   - 未ログインだとブラウザで Cloudflare のログイン画面が開く。利用者に「ブラウザで許可してください」と伝えて待つ
+   - アカウントが複数あると候補の一覧を出して止まる。どれに作るかを利用者に聞いて `npm run setup -- --account <ID>` で再実行する
+   - `workers.dev のサブドメインが分かりませんでした` で止まったら、Cloudflare ダッシュボードの Workers & Pages でサブドメインを登録してもらい、再実行する
+   - R2 が使えないという警告は止まらなくてよい (ファイル添付だけ使えない)。有効化の方法は self-hosting.md
+4. 最後に出る「こつこつ」の URL を利用者に渡し、ブラウザで開いて「新規登録」してもらう。
+   **パスワードは利用者本人が入れる。AI が代わりにアカウントを作らない**
+5. Claude から使えるようにする: 利用者に 設定 → APIキー の「Claude Code（ターミナル）」のコマンドをコピーしてもらい、
+   実行する (`claude mcp add --transport http kotsukotsu https://kotsukotsu-mcp.<サブドメイン>.workers.dev/mcp/<キー>`)。
+   キー入りなので、コマンドやキーをファイル・コミット・ログに残さない。claude.ai で使うときは同じ画面の「接続用URL」をカスタムコネクタに貼る
+6. 繋がったら、`list_goals` などのツールで読み書きできることを確かめて完了を伝える
+
+アップデートを取り込んだあとの反映も `npm run setup` をもう一度実行するだけでよい (作ったものは使い回す)。
+`.setup.json` には生成したシークレットが入っている。コミットしない・中身を表示しない。
+
 # このアプリが壊れるときは、いつも同じ壊れ方をする
 
 「エラーが出る」のではなく「**黙って空になる**」。取得が失敗しても画面は正常に描画され、

@@ -986,6 +986,15 @@ function mcpEndpoint(): string {
 // (mcp-worker/src/oauth.ts)。SaaS のコネクタと同じく、URL は全員同じでよい。
 const MCP_SHARED = "https://mcp.kotukotu.app/mcp";
 
+// キー無しの共通URL (OAuth でログイン) が使えるのは kotukotu.app だけ。自分でデプロイした
+// こつこつ (workers.dev) は本体と MCP が別ホストでログイン cookie が届かないので、
+// キー入りURLを案内する。
+function sharedLoginAvailable(): boolean {
+  if (typeof window === "undefined") return true;
+  const { host } = window.location;
+  return host === "kotukotu.app" || host.endsWith(".kotukotu.app");
+}
+
 // A labeled, copyable code/config block (used by the per-client connect guides).
 function Snippet({ label, code, note }: { label: string; code: string; note?: string }) {
   const [copied, setCopied] = useState(false);
@@ -1012,6 +1021,8 @@ function Snippet({ label, code, note }: { label: string; code: string; note?: st
 function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: () => Promise<void>; admin: boolean }) {
   const [urlCopied, setUrlCopied] = useState(false);
   const [sharedCopied, setSharedCopied] = useState(false);
+  const [sharedLogin, setSharedLogin] = useState(true);
+  useEffect(() => setSharedLogin(sharedLoginAvailable()), []);
   const sharedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const urlTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1028,6 +1039,8 @@ function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: (
   // トークンはパス埋め込み (claude.ai のカスタムコネクタはクエリ文字列を
   // 落とすことがあるため)。旧 ?key= 形式も引き続き有効。
   const connectUrl = hasToken ? `${mcpEndpoint()}/${token!}` : "";
+  // 見出しの「接続用URL」。自分でデプロイした環境ではキー入りURLになる。
+  const headlineUrl = sharedLogin ? MCP_SHARED : connectUrl;
 
   function handleCopyUrl() {
     if (!hasToken) return;
@@ -1043,7 +1056,8 @@ function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: (
 
   function handleCopyShared() {
     try {
-      navigator.clipboard?.writeText(MCP_SHARED);
+      if (!headlineUrl) return;
+      navigator.clipboard?.writeText(headlineUrl);
     } catch {
       /* clipboard unavailable */
     }
@@ -1087,10 +1101,12 @@ function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: (
         style={{ borderColor: "var(--accent)", background: "var(--accent-soft)" }}
       >
         <div className="mb-1.5 text-[14px] font-bold" style={{ color: "var(--foreground)" }}>
-          接続用URL（全員共通）
+          {sharedLogin ? "接続用URL（全員共通）" : "接続用URL（あなた専用）"}
         </div>
         <div className="mb-3.5 text-[12px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>
-          キーは入っていません。誰が使っても同じURLで、繋ぐときにこつこつのログインで本人を確認します。
+          {sharedLogin
+            ? "キーは入っていません。誰が使っても同じURLで、繋ぐときにこつこつのログインで本人を確認します。"
+            : "あなたのキーが入っています。人に共有しないでください。漏れたら下の「再生成」で無効化できます。"}
         </div>
 
         <div
@@ -1099,7 +1115,7 @@ function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: (
         >
           <input
             readOnly
-            value={MCP_SHARED}
+            value={headlineUrl}
             onFocus={(e) => e.currentTarget.select()}
             className="min-w-0 flex-1 truncate bg-transparent font-mono text-[13px] outline-none"
             style={{ color: "var(--foreground)" }}
@@ -1119,10 +1135,14 @@ function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: (
               <strong>「リモートMCPサーバーURL」</strong>にペーストして<strong>「追加」</strong>
               （OAuth欄は空のままでOK）
             </>,
-            <>
-              ③ <strong>「連携させる」</strong>を押すと、こつこつのログイン画面が開きます。
-              ログインすれば接続完了（すでにログイン中なら自動で完了）
-            </>,
+            sharedLogin ? (
+              <>
+                ③ <strong>「連携させる」</strong>を押すと、こつこつのログイン画面が開きます。
+                ログインすれば接続完了（すでにログイン中なら自動で完了）
+              </>
+            ) : (
+              <>③ <strong>「連携させる」</strong>を押せば接続完了</>
+            ),
           ].map((body, i) => (
             <li
               key={i}
@@ -1146,14 +1166,17 @@ function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: (
             他のAIツールと繋ぐ（Claude Code / Codex など）
           </div>
           <div className="mb-4 text-[12px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>
-            Claude Code は共通URLのまま、初回にブラウザでログインするだけで繋がります。
-            ログイン画面を出せないツール（Codex など）は、あなた専用のキー入りURLを使います。
+            {sharedLogin
+              ? "Claude Code は共通URLのまま、初回にブラウザでログインするだけで繋がります。ログイン画面を出せないツール（Codex など）は、あなた専用のキー入りURLを使います。"
+              : "どのツールも、あなた専用のキー入りURLで繋ぎます。"}
           </div>
           <div className="flex flex-col gap-3">
             <Snippet
               label="Claude Code（ターミナル）"
-              code={`claude mcp add --transport http kotsukotsu ${MCP_SHARED}`}
-              note="実行後、Claude Code で /mcp → kotsukotsu → Authenticate を選ぶとブラウザでログイン画面が開きます。"
+              code={`claude mcp add --transport http kotsukotsu ${headlineUrl}`}
+              note={sharedLogin
+                ? "実行後、Claude Code で /mcp → kotsukotsu → Authenticate を選ぶとブラウザでログイン画面が開きます。"
+                : "キー入りURLなので、実行すればそのまま繋がります。コマンドは人に共有しないでください。"}
             />
             <Snippet
               label="あなた専用のキー入りURL（ログイン画面を出せないツール用）"

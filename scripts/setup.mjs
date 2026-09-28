@@ -3,6 +3,7 @@
 //
 //   npm install
 //   npm run setup
+//   npm run setup -- --account <アカウントID>   (アカウントが複数あり、対話できないとき)
 //
 // やること (何度実行しても同じ結果になる):
 //   1. Cloudflare にログインしているか確かめる (していなければ wrangler login を開く)
@@ -129,11 +130,23 @@ function writeDevVars(rel, values) {
   writeFileSync(file, Object.entries(values).map(([k, v]) => `${k}=${v}`).join("\n") + "\n", { mode: 0o600 });
 }
 
+function argValue(name) {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
 async function chooseAccount(whoami) {
-  if (process.env.CLOUDFLARE_ACCOUNT_ID) return process.env.CLOUDFLARE_ACCOUNT_ID;
+  const given = argValue("--account") ?? process.env.CLOUDFLARE_ACCOUNT_ID;
+  if (given) return given;
   const accounts = whoami.accounts ?? [];
   if (accounts.length === 0) fail("この Cloudflare ログインで使えるアカウントがありません");
   if (accounts.length === 1) return accounts[0].id;
+  if (!process.stdin.isTTY) {
+    fail(
+      "Cloudflare アカウントが複数あります。どれに作るかを指定して再実行してください:\n" +
+      accounts.map((a) => `  npm run setup -- --account ${a.id}   # ${a.name}`).join("\n"),
+    );
+  }
   console.log("\nどのアカウントに作りますか？");
   accounts.forEach((a, i) => console.log(`  ${i + 1}) ${a.name} (${a.id})`));
   const rl = createInterface({ input: process.stdin, output: process.stdout });
