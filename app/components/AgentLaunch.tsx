@@ -9,11 +9,21 @@ import { useEffect, useRef, useState } from "react";
 //   Codex:  codex://threads/new?prompt=...   (Codex アプリ)
 // claude.ai/code・chatgpt.com/codex は X-Frame-Options: SAMEORIGIN で埋め込めないため、別アプリで開く形にしている。
 
+// 細かい書き方 (完了の基準・現状の形式など) はこつこつ MCP の instructions に任せ、ここは着手の順番と止まる場所だけ書く。
+// claude-cli の q は 5000 字まで。長くしすぎない。
 function promptFor(id: string, name: string): string {
   return [
-    `こつこつのゴール「${name}」 (id: ${id}) を進めてください。`,
-    "まずこつこつの get_goal・list_subtasks・list_comments で完了の基準と現状、最新のコメントを確認してください。",
-    "そのうえで作業ステップを add_subtask で登録してから着手し、1つ終わるごとに complete_subtask してください。",
+    `こつこつのタスク「${name}」を進めてください。`,
+    `id: ${id}`,
+    "",
+    "1. こつこつのツールが読み (get_goal) と書き (add_subtask・update_goal・send_chat) の両方使えるか確かめる。どちらかが無ければ何もせず「こつこつが未接続です。https://mcp.kotukotu.app/mcp を追加してログインしてください」とだけ返す",
+    "2. get_goal・list_subtasks・list_comments で、このタスクの完了の基準・現状・未完了の作業・最新のコメントを読む。親を最上位まで辿り、上位の完了の基準に寄与しないならそこで止めて理由を伝える",
+    "3. 完了の基準が空か曖昧なら、分かる事実で書き直す。分からない点は質問して止まる",
+    "4. 作業に要るファイルやコードの場所は、今いるフォルダと、タスクの現状・リソース・コメントに書かれたパスだけを見る。ホームフォルダ全体を探し回らず、書かれていなければ聞く",
+    "5. 作業ステップを2〜5個 add_subtask で登録してから着手し、1つ終わるごとに complete_subtask する",
+    "6. 結果はこのタスク自身に書く。update_goal で現状 (日付 / 済んだこと / ボール / 残り・詰まり) を書き直し、報告はこのタスクに send_chat する",
+    "7. 外への送信・公開・金銭・契約・本番データの削除は、実行する前に必ず私の承認を取る",
+    "8. 最後に、完了の基準の各項目を満たしたかどうかを1行ずつ報告して止まる",
   ].join("\n");
 }
 
