@@ -42,8 +42,8 @@ function grams(text: string): Set<string> {
     .replace(/この状態になったら完了。?/g, "")
     .replace(/[\s□・、。，．,.:：;；!！?？()（）「」『』\[\]【】\/\\\-—_~〜|"'`#*>]+/g, " ");
   const out = new Set<string>();
-  for (const part of s.split(" ")) {
-    if (!part) continue;
+  // 英数字は単語のまま、それ以外 (日本語) は2-gram。「Firebase連携」のような混在も英単語を取り出す。
+  for (const part of s.match(/[a-z0-9]+|[^a-z0-9 ]+/g) ?? []) {
     if (/^[a-z0-9]+$/.test(part)) {
       if (part.length >= 2) out.add(part);
       continue;
@@ -66,7 +66,8 @@ function similarity(q: Set<string>, d: Set<string>): number {
 
 // 型の数が増えても毎回全件は読まない。新しい順に一定数だけ見る (見ている範囲は ORDER BY で決定的)。
 const SCAN_LIMIT = 400;
-const MIN_SCORE = 0.12;
+// 実データで、同じ種類の仕事は 0.2 以上、語が1つ重なっただけのものは 0.12〜0.15 に出た (2026-09-28)。
+const MIN_SCORE = 0.16;
 
 /**
  * text に似た型を最大 limit 件返す。excludeSourceId はそのタスク自身から起こした型を除くため。
