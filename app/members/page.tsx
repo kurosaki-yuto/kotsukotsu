@@ -7,6 +7,7 @@ import {
   rankedMembers,
   createInvite,
   removeMember,
+  createResetLink,
   updateMember,
   getMe,
   listMemberGoals,
@@ -375,6 +376,30 @@ export default function MembersPage() {
     }
   };
 
+  // パスワード再設定リンク (管理者が発行して本人に渡す)。メンバーを切り替えたら消す。
+  const [resetLink, setResetLink] = useState<{ id: string; url: string; expires_at: string } | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetCopied, setResetCopied] = useState(false);
+  const issueResetLink = async (m: Member) => {
+    if (!window.confirm(`${m.name} さんのパスワード再設定リンクを発行しますか？\n前に発行したリンクは使えなくなります。`)) return;
+    setResetBusy(true);
+    try {
+      const r = await createResetLink(m.id);
+      setResetLink({ id: m.id, ...r });
+      setResetCopied(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setResetBusy(false);
+    }
+  };
+  const copyResetLink = () => {
+    if (!resetLink) return;
+    try { navigator.clipboard?.writeText(resetLink.url); } catch { /* clipboard unavailable */ }
+    setResetCopied(true);
+    setTimeout(() => setResetCopied(false), 1500);
+  };
+
   const toggleRole = async (m: Member) => {
     const next = m.role === "Admin" ? "None" : "Admin";
     try {
@@ -638,6 +663,9 @@ export default function MembersPage() {
                 <button type="button" className="chip" onClick={() => void toggleRole(selected)}>
                   権限: {selected.role === "Admin" ? "Admin" : "None"}
                 </button>
+                <button type="button" className="chip" disabled={resetBusy} onClick={() => void issueResetLink(selected)}>
+                  {resetBusy ? "発行中…" : "パスワード再設定リンク"}
+                </button>
                 <button
                   type="button"
                   className="text-[13px] font-medium"
@@ -646,6 +674,31 @@ export default function MembersPage() {
                 >
                   除外
                 </button>
+              </div>
+            )}
+
+            {admin && resetLink && resetLink.id === selected.id && (
+              <div className="card px-4 py-3">
+                <div className="text-[12.5px] font-semibold mb-2" style={{ color: "var(--foreground)" }}>
+                  パスワード再設定リンク
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    readOnly
+                    value={resetLink.url}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="min-w-0 flex-1 truncate rounded-md border px-2.5 py-1.5 font-mono text-[12px] outline-none"
+                    style={{ borderColor: "var(--border)" }}
+                  />
+                  <button type="button" className="btn-dark shrink-0 px-3 py-1.5 text-[12.5px]" onClick={copyResetLink}>
+                    {resetCopied ? "コピー済" : "コピー"}
+                  </button>
+                </div>
+                <p className="mt-2 text-[11.5px] leading-relaxed" style={{ color: "var(--muted)" }}>
+                  LINE や Chatwork で本人にだけ送ってください。開くと新しいパスワードを決められます。
+                  有効期限は {new Date(resetLink.expires_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} まで・1回限り。
+                  使うと、その人の他の端末はログアウトされます。
+                </p>
               </div>
             )}
 

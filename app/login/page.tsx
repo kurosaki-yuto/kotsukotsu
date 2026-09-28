@@ -538,7 +538,7 @@ function translateError(msg?: string): string | null {
     // Mail is not wired up on this environment yet — say so plainly instead of
     // claiming a mail was sent that will never arrive.
     case "mail not configured":
-      return "メール送信がまだ設定されていないため、再設定リンクをお送りできません。管理者にご連絡ください。";
+      return "このこつこつはメールを送らない設定です。管理者に「パスワード再設定リンク」を発行してもらってください（管理者のメンバー画面から発行できます）。";
     case "mail send failed":
       return "メールの送信に失敗しました。時間をおいて再度お試しください。";
     default:

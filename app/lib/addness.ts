@@ -202,6 +202,11 @@ export async function removeMember(id: string): Promise<void> {
   await api(`/api/members/${id}`, { method: "DELETE" });
 }
 
+/** 管理者が発行するパスワード再設定リンク (24時間・1回限り)。本人に LINE などで渡す。 */
+export async function createResetLink(id: string): Promise<{ url: string; expires_at: string }> {
+  return api(`/api/members/${id}/reset-link`, { method: "POST" });
+}
+
 export async function addPoints(delta: number): Promise<void> {
   await api("/api/members", { method: "PATCH", body: JSON.stringify({ addPoints: delta }) });
 }

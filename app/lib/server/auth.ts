@@ -163,10 +163,14 @@ export async function recentResetCount(userId: string): Promise<number> {
 
 // Issuing a new link invalidates any earlier one, so a link forwarded to the
 // wrong place stops working the moment the real owner asks again.
-export async function createPasswordReset(userId: string, requestedBy?: string | null): Promise<{ token: string; expires: Date }> {
+export async function createPasswordReset(
+  userId: string,
+  requestedBy?: string | null,
+  ttlMin: number = RESET_TTL_MIN,
+): Promise<{ token: string; expires: Date }> {
   await run("UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL", nowIso(), userId);
   const token = randHex(32);
-  const expires = new Date(Date.now() + RESET_TTL_MIN * 60_000);
+  const expires = new Date(Date.now() + ttlMin * 60_000);
   await run(
     "INSERT INTO password_resets (token, user_id, created_at, expires_at, requested_by) VALUES (?,?,?,?,?)",
     token, userId, nowIso(), expires.toISOString(), requestedBy ?? null
