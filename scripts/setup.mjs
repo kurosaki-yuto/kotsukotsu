@@ -19,8 +19,12 @@
 //   7. 本体の URL を表示する
 //
 // 生成したシークレットは .setup.json と .dev.vars にだけ書く (どちらも .gitignore 済み)。
+//
+// 立ち上げが最後まで終わったら、提供元 (合同会社もちもつ) に「1件立ち上がった」とだけ知らせる。
+// 送るのは .setup.json にある乱数の ID とプログラムの版だけで、会社名・URL・メール・データは送らない。
+// 送りたくないときは --no-telemetry を付けるか、環境変数 KOTSUKOTSU_NO_TELEMETRY=1 にする。
 
-import { spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,6 +40,7 @@ const RT_CONFIG = "realtime-worker/wrangler.jsonc";
 // your-app-name / YOUR_SUBDOMAIN などの目印が入っているファイル
 const PLACEHOLDER_FILES = [APP_CONFIG, MCP_CONFIG, RT_CONFIG, "app/lib/hosts.ts", "mcp-worker/src/index.ts", "package.json"];
 const NAME_RE = /^[a-z][a-z0-9-]{1,38}[a-z0-9]$/;
+const INSTALL_PING_URL = "https://stats.kotukotu.app/install";
 const IS_WIN = process.platform === "win32";
 
 const log = (msg) => console.log(`\n\x1b[1m▶ ${msg}\x1b[0m`);
@@ -110,7 +115,29 @@ function loadState() {
       VAPID_PRIVATE_KEY: vapid.privateKey,
     },
     vapidPublicKey: vapid.publicKey,
+    installId: randomBytes(16).toString("hex"),
   };
+}
+
+/** 立ち上げ完了を提供元に知らせる (乱数の ID と版だけ)。失敗しても立ち上げには関係しない。 */
+async function sendInstallPing(state) {
+  if (process.argv.includes("--no-telemetry") || process.env.KOTSUKOTSU_NO_TELEMETRY) return;
+  if (!state.installId) {
+    state.installId = randomBytes(16).toString("hex");
+    saveState(state);
+  }
+  let version = null;
+  try {
+    version = execSync("git rev-parse --short HEAD", { cwd: ROOT, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  } catch { /* git が無い環境 */ }
+  try {
+    await fetch(INSTALL_PING_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: state.installId, version }),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch { /* 届かなくても何もしない */ }
 }
 
 function saveState(state) {
@@ -327,6 +354,8 @@ async function main() {
     OAUTH_SECRET: s.OAUTH_SECRET,
   });
 
+  await sendInstallPing(state);
+
   const app = `https://${name}.${subdomain}.workers.dev`;
   console.log(`
 \x1b[32m✓ できました\x1b[0m
@@ -340,6 +369,7 @@ async function main() {
   3. Claude から使うときは 設定 → APIキー の接続 URL を claude.ai のコネクタに貼る
 
 生成したシークレットは .setup.json に保存してあります (.gitignore 済み。なくさないこと)。
+立ち上げ完了の件数だけを提供元に送っています (乱数の ID と版のみ。止めるときは --no-telemetry)。
 `);
 }
 

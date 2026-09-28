@@ -31,5 +31,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "mcp-worker", ".open-next"]
+  "exclude": ["node_modules", "mcp-worker", "oss-stats", ".open-next"]
 }
