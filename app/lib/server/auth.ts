@@ -63,6 +63,45 @@ export async function verifyLogin(email: string, password: string): Promise<Sess
   return { id: u.id, email: u.email, name: u.name, role: u.role };
 }
 
+// ---- ログインの総当たり対策 ----
+// 同じメールアドレスへの失敗が15分で10回、同じ接続元からの失敗が15分で50回を超えたら、
+// 正しいパスワードでも15分は通さない。成功したらそのメールアドレスの回数は消す。
+const FAIL_WINDOW_MS = 15 * 60 * 1000;
+const FAIL_LIMIT = { email: 10, ip: 50 } as const;
+
+export function loginThrottleKeys(email: string, ip: string | null): { key: string; limit: number }[] {
+  const keys: { key: string; limit: number }[] = [{ key: `email:${email.toLowerCase().trim()}`, limit: FAIL_LIMIT.email }];
+  if (ip) keys.push({ key: `ip:${ip}`, limit: FAIL_LIMIT.ip });
+  return keys;
+}
+
+export async function loginBlocked(keys: { key: string; limit: number }[]): Promise<boolean> {
+  const since = new Date(Date.now() - FAIL_WINDOW_MS).toISOString();
+  for (const k of keys) {
+    const r = await first<{ count: number }>("SELECT count FROM login_failures WHERE key = ? AND window_start > ?", k.key, since);
+    if (r && r.count >= k.limit) return true;
+  }
+  return false;
+}
+
+export async function recordLoginFailure(keys: { key: string; limit: number }[]): Promise<void> {
+  const now = new Date().toISOString();
+  const since = new Date(Date.now() - FAIL_WINDOW_MS).toISOString();
+  for (const k of keys) {
+    await run(
+      `INSERT INTO login_failures (key, count, window_start) VALUES (?, 1, ?)
+       ON CONFLICT(key) DO UPDATE SET
+         count = CASE WHEN window_start > ? THEN count + 1 ELSE 1 END,
+         window_start = CASE WHEN window_start > ? THEN window_start ELSE excluded.window_start END`,
+      k.key, now, since, since
+    );
+  }
+}
+
+export async function clearLoginFailures(email: string): Promise<void> {
+  await run("DELETE FROM login_failures WHERE key = ?", `email:${email.toLowerCase().trim()}`);
+}
+
 // Minimum we enforce anywhere a password is set. Length beats composition
 // rules, so that is the only bar — but it is checked on the server, because the
 // client-side `minLength` is a hint, not a control.

@@ -27,6 +27,8 @@
   ],
   "vars": {
     "APP_ENV": "production",
+    // 最初の1人 (管理者) 以外は招待リンクからしか登録できない。誰でも登録させるなら "open"
+    "SIGNUP_MODE": "invite",
     "VAPID_PUBLIC_KEY": "YOUR_VAPID_PUBLIC_KEY",
     "VAPID_SUBJECT": "mailto:you@example.com",
     "RT_URL": "https://your-app-name-rt.YOUR_SUBDOMAIN.workers.dev"

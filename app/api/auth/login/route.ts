@@ -1,5 +1,8 @@
 import { json, bad, run, first } from "../../../lib/server/db";
-import { verifyLogin, createSession, sessionCookie } from "../../../lib/server/auth";
+import {
+  verifyLogin, createSession, sessionCookie,
+  loginThrottleKeys, loginBlocked, recordLoginFailure, clearLoginFailures,
+} from "../../../lib/server/auth";
 import { getValidInvite, getInvite } from "../../../lib/server/queries";
 import { joinViaInvite, inviteEmailMatches } from "../../../lib/server/workspace";
 
@@ -9,8 +12,14 @@ export async function POST(req: Request) {
   const password = body.password ?? "";
   if (!email || !password) return bad("email and password required", 400);
 
+  const keys = loginThrottleKeys(email, req.headers.get("cf-connecting-ip"));
+  if (await loginBlocked(keys)) return bad("ログインの失敗が続いたため、15分ほど待ってからやり直してください", 429);
   const user = await verifyLogin(email, password);
-  if (!user) return bad("invalid credentials", 401);
+  if (!user) {
+    await recordLoginFailure(keys);
+    return bad("invalid credentials", 401);
+  }
+  await clearLoginFailures(email);
 
   // Optional invite: an existing account joins the invite's workspace on login.
   // A consumed/expired token is still honored when the user already belongs to

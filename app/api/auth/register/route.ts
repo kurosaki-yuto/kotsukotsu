@@ -1,5 +1,6 @@
-import { json, bad, run } from "../../../lib/server/db";
-import { createUser, createSession, sessionCookie } from "../../../lib/server/auth";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { json, bad, run, first } from "../../../lib/server/db";
+import { createUser, createSession, sessionCookie, passwordProblem, PASSWORD_MIN } from "../../../lib/server/auth";
 import { getValidInvite } from "../../../lib/server/queries";
 import { joinViaInvite, inviteEmailMatches, createWorkspace } from "../../../lib/server/workspace";
 
@@ -9,6 +10,7 @@ export async function POST(req: Request) {
   const password = body.password ?? "";
   const name = (body.name ?? "").trim();
   if (!email || !password || !name) return bad("email, name and password required", 400);
+  if (passwordProblem(password)) return bad(`パスワードは${PASSWORD_MIN}文字以上にしてください`, 400);
 
   // Optional invite → role from invite + consume it + add to the member roster.
   let role: string | undefined;
@@ -16,6 +18,14 @@ export async function POST(req: Request) {
   if (body.invite && !invite) return bad("招待が無効か期限切れです", 400);
   if (invite && !inviteEmailMatches(invite, email)) return bad("この招待は別のメールアドレス宛です", 400);
   if (invite) role = invite.role;
+
+  // SIGNUP_MODE=invite (自社専用版の既定): 最初の1人 (管理者) だけ招待なしで登録でき、
+  // 以降は招待リンクからしか入れない。URL を知った部外者が勝手に登録できないようにする。
+  const mode = (getCloudflareContext().env as unknown as { SIGNUP_MODE?: string }).SIGNUP_MODE;
+  if (mode === "invite" && !invite) {
+    const any = await first("SELECT 1 AS ok FROM users LIMIT 1");
+    if (any) return bad("新規登録は招待制です。管理者から招待リンクをもらってください", 403);
+  }
 
   // Open self-registration is allowed. Invited users join the invite's existing
   // workspace; everyone else gets a fresh personal workspace they own.
