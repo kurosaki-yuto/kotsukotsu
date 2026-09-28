@@ -25,7 +25,7 @@ import {
   type MyProfile,
 } from "../lib/addness";
 import type { OrgSettings } from "../lib/db";
-import { WORKERS_DEV } from "../lib/series";
+import { WORKERS_DEV } from "../lib/hosts";
 
 type Tab = "team" | "api";
 

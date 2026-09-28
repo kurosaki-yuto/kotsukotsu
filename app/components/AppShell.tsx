@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { unreadCount, listGoals, getMyProfile, updateMyAvatar, listWorkspaces, createWorkspace, switchWorkspace, createInvite, UNREAD_CHANGED_EVENT, type MyProfile, type Workspace } from "../lib/addness";
 import { type Goal } from "../lib/db";
-import { otherProducts, type SeriesProduct } from "../lib/series";
 import RealtimeBridge from "./RealtimeBridge";
 import LoadFailureBanner from "./LoadFailureBanner";
 
@@ -76,11 +75,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  // こつこつシリーズの他の持ち場。行き先はいま開いているホストから導くので、
-  // サーバー側では決まらない。マウントしてから入れる。
-  const [series, setSeries] = useState<{ p: SeriesProduct; origin: string }[]>([]);
-  // ホストが分かるのはブラウザ側だけ。ここで初めてシリーズの行き先が決まる。
-  useEffect(() => { setSeries(otherProducts(window.location.host)); }, []);
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [authed, setAuthed] = useState<boolean | null>(null); // null = checking
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -384,25 +378,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               {n.key === "notifications" && unread > 0 && <span className="rail-badge">{unread > 99 ? "99+" : unread}</span>}
             </Link>
           ))}
-          {/* こつこつシリーズ。持ち場ごとに別のアプリなので、ここから行き来する */}
-          {series.length > 0 && (
-            <div className="w-full mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.12)" }}>
-              <div className="text-[9px] leading-tight text-center mb-1.5" style={{ color: "var(--sidebar-fg)", opacity: 0.55 }}>
-                こつこつ<br />シリーズ
-              </div>
-              {series.map(({ p, origin }) => (
-                <a key={p.key} href={origin} className="rail-item" title={`${p.key} — ${p.what}`}>
-                  <span
-                    className="w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold"
-                    style={{ background: "rgba(255,255,255,0.10)" }}
-                  >
-                    {p.mark}
-                  </span>
-                  <span>{p.short}</span>
-                </a>
-              ))}
-            </div>
-          )}
         </div>
         <div className="relative">
           <button
@@ -526,24 +501,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 className="absolute right-1 bottom-14 z-50 w-44 card overflow-hidden py-1"
                 style={{ boxShadow: "var(--shadow-pop)" }}
               >
-                {series.length > 0 && (
-                  <>
-                    <div className="px-4 pt-1.5 pb-1 text-[11px] font-bold" style={{ color: "var(--muted)" }}>
-                      こつこつシリーズ
-                    </div>
-                    {series.map(({ p, origin }) => (
-                      <a
-                        key={p.key}
-                        href={origin}
-                        role="menuitem"
-                        className="block w-full text-left px-4 py-2.5 text-sm hover:bg-[var(--hover)]"
-                      >
-                        {p.key}
-                      </a>
-                    ))}
-                    <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
-                  </>
-                )}
                 <button
                   type="button"
                   role="menuitem"

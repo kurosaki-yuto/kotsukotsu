@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { WORKERS_DEV } from "../lib/series";
+import { WORKERS_DEV } from "../lib/hosts";
 
 const RT_WS = `wss://kotsukotsu-rt.${WORKERS_DEV}/ws`;
 

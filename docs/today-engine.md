@@ -163,4 +163,4 @@ cd mcp-worker && npx wrangler deploy
 - `/today` 画面 (アプリ UI)。今は MCP のみ
 - 朝のプッシュ通知。`isDailySelfCheckTick` (mcp-worker の `scheduled`) にぶら下げれば足せる。
   ただしあの判定は UTC 00:00 固定なので、`workspaces.timezone` を見るように直す必要がある
-- サーバー側での外部シグナル取得 (apo-board / marketing / カレンダー)。今は呼び出し側が渡す
+- サーバー側での外部シグナル取得 (営業台帳・カレンダーなど)。今は呼び出し側が渡す

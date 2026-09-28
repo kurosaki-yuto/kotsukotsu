@@ -99,7 +99,7 @@ npx wrangler r2 bucket delete kotsukotsu-files   # 中身が空のときだけ�
 ## 困ったとき
 
 - `workers.dev のサブドメインが分かりませんでした`: 初めて Workers を使うアカウントは、ダッシュボードの Workers & Pages でサブドメインを登録してから再実行する
-- `wrangler.jsonc は既に設定済みです`: 別の環境の値が入った設定で実行しようとしている。自分の環境で作り直すなら、`git checkout wrangler.jsonc mcp-worker/wrangler.jsonc app/lib/series.ts mcp-worker/src/index.ts` で目印に戻してから実行する
+- `wrangler.jsonc は既に設定済みです`: 別の環境の値が入った設定で実行しようとしている。自分の環境で作り直すなら、`git checkout wrangler.jsonc mcp-worker/wrangler.jsonc app/lib/hosts.ts mcp-worker/src/index.ts` で目印に戻してから実行する
 - 画面は出るがデータが空: 本体と MCP の `database_id` が同じか確認する
 - 他の端末に即時反映されない: 3 つの Worker の `RT_SECRET` が同じ値か確認する (15 秒ごとの再取得には戻る)
 - スマホに通知が来ない: `wrangler.jsonc` の `VAPID_PUBLIC_KEY` と `.setup.json` の `VAPID_PRIVATE_KEY` が同じ組か確認する
@@ -115,12 +115,11 @@ npx wrangler r2 bucket delete kotsukotsu-files   # 中身が空のときだけ�
 | `VAPID_PRIVATE_KEY` | 要 | | | Web Push の署名 |
 | `MCP_TOKEN` | | | 要 | 管理者用の固定 MCP トークン |
 | `OAUTH_SECRET` | | | 要 | claude.ai コネクタの OAuth 用の暗号鍵 |
-| `SSO_SECRET` | 任意 | | | こつこつシリーズの他製品と共通ログインするときだけ |
 
 1. `npx wrangler d1 create kotsukotsu-db` の `database_id` を `wrangler.jsonc` と `mcp-worker/wrangler.jsonc` の `YOUR_D1_DATABASE_ID` に貼る
 2. `npx wrangler d1 migrations apply kotsukotsu-db --remote`
 3. `npx wrangler r2 bucket create kotsukotsu-files` (使わないなら両 `wrangler.jsonc` の `FILES` の行を消す)
 4. `npx web-push generate-vapid-keys` の公開鍵を `wrangler.jsonc` の `VAPID_PUBLIC_KEY` に、`VAPID_SUBJECT` を自分の `mailto:` に
-5. `YOUR_SUBDOMAIN` を自分の workers.dev サブドメインに置き換える (`wrangler.jsonc`・`mcp-worker/wrangler.jsonc`・`app/lib/series.ts`・`mcp-worker/src/index.ts`)
+5. `YOUR_SUBDOMAIN` を自分の workers.dev サブドメインに置き換える (`wrangler.jsonc`・`mcp-worker/wrangler.jsonc`・`app/lib/hosts.ts`・`mcp-worker/src/index.ts`)
 6. デプロイ: `npx wrangler deploy --config realtime-worker/wrangler.jsonc` → `npm run cf:typegen && npm run cf:deploy` → `npx wrangler deploy --config mcp-worker/wrangler.jsonc`
 7. 上の表のシークレットを `npx wrangler secret put <NAME> --config <各 wrangler.jsonc>` で入れる

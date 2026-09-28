@@ -1049,8 +1049,8 @@ export async function assignCreatorAsHolder(goalId: string, user: { id: string; 
   if (m) await assignGoalMember(goalId, m.id, true);
 }
 
-// 人のセッションが無いところ (シリーズ他製品からの raise_todos など) で作られた
-// タスクの持ち主。ワークスペースの持ち主 = 黒崎 本人に付ける。
+// 人のセッションが無い経路 (サーバー間の API 呼び出しなど) で作られた
+// タスクの持ち主。ワークスペースの持ち主に付ける。
 // workspaces.created_by、無ければ workspace_members の admin のうち最古参。
 export async function assignWorkspaceOwnerAsHolder(goalId: string, wsId: string) {
   const owner =

@@ -31,7 +31,7 @@ const APP_CONFIG = "wrangler.jsonc";
 const MCP_CONFIG = "mcp-worker/wrangler.jsonc";
 const RT_CONFIG = "realtime-worker/wrangler.jsonc";
 // YOUR_SUBDOMAIN などの目印が入っているファイル
-const PLACEHOLDER_FILES = [APP_CONFIG, MCP_CONFIG, "app/lib/series.ts", "mcp-worker/src/index.ts"];
+const PLACEHOLDER_FILES = [APP_CONFIG, MCP_CONFIG, "app/lib/hosts.ts", "mcp-worker/src/index.ts"];
 const IS_WIN = process.platform === "win32";
 
 const log = (msg) => console.log(`\n\x1b[1m▶ ${msg}\x1b[0m`);
@@ -102,7 +102,6 @@ function loadState() {
       PUSH_SECRET: secret(),
       MCP_TOKEN: secret(),
       OAUTH_SECRET: secret(),
-      SSO_SECRET: secret(),
       VAPID_PRIVATE_KEY: vapid.privateKey,
     },
     vapidPublicKey: vapid.publicKey,
@@ -249,7 +248,6 @@ async function main() {
     RT_SECRET: s.RT_SECRET,
     PUSH_SECRET: s.PUSH_SECRET,
     VAPID_PRIVATE_KEY: s.VAPID_PRIVATE_KEY,
-    SSO_SECRET: s.SSO_SECRET,
   });
 
   log("MCP サーバー (kotsukotsu-mcp) をデプロイします");
@@ -266,7 +264,6 @@ async function main() {
     RT_SECRET: s.RT_SECRET,
     PUSH_SECRET: s.PUSH_SECRET,
     VAPID_PRIVATE_KEY: s.VAPID_PRIVATE_KEY,
-    SSO_SECRET: s.SSO_SECRET,
   });
   writeDevVars("mcp-worker/.dev.vars", {
     RT_SECRET: s.RT_SECRET,

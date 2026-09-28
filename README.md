@@ -14,7 +14,7 @@
 - DB: Cloudflare D1 (`kotsukotsu-db`)
 - ファイル: Cloudflare R2 (`kotsukotsu-files`)
 - リアルタイム: 別 Worker (`realtime-worker` / Durable Object)
-- 認証: メール + パスワード。セッション Cookie。こつこつシリーズ横断 SSO あり
+- 認証: メール + パスワード。セッション Cookie
 - Push: Web Push (VAPID)
 - AI 連携: `mcp-worker` が MCP サーバー。Claude から `list_goals` / `add_subtask` /
   `complete_subtask` / `send_chat` などを直接叩ける
@@ -24,16 +24,16 @@
 ```
 .
 ├── app/
-│   ├── api/                 # ルートハンドラ (goals, subtasks, auth, chat, sso, push, mcp-token ...)
+│   ├── api/                 # ルートハンドラ (goals, subtasks, auth, chat, push, mcp-token ...)
 │   ├── components/          # AppShell / Outliner / Sidebar / ChatDock / RealtimeBridge
 │   ├── lib/
 │   │   ├── db.ts            # D1 アクセス
 │   │   ├── queries.ts       # CRUD (insert/update/delete/indent/outdent/archive)
-│   │   ├── series.ts        # こつこつシリーズ5製品のURL解決 (SSO のホワイトリスト)
+│   │   ├── hosts.ts         # Worker が動いている workers.dev のサブドメイン
 │   │   └── server/          # サーバー側ユーティリティ (セッション・認可)
 │   ├── goals/ members/ notifications/ settings/ chat/ history/ login/ reset/
 │   └── page.tsx             # Sidebar + Outliner + Cmd+K パレット
-├── d1-migrations/           # 0001〜0018。D1 のスキーマはここが正
+├── d1-migrations/           # 0001〜0019。D1 のスキーマはここが正
 ├── mcp-worker/              # MCP サーバー (別 Worker)
 ├── realtime-worker/         # リアルタイム配信 (別 Worker)
 ├── docs/kotsukotsu-guide.md # 使い方ガイド
@@ -78,25 +78,6 @@ npm run dev                # http://localhost:3939
 | `Cmd/Ctrl+K` | プロジェクト切替 |
 
 iPhone は画面下部のツールバーから操作 (⇤ ⇥ +行 ✓完了)。PWA としてホーム画面に追加できる。
-
-## こつこつシリーズの共通ログイン
-
-本体がシリーズの認証元。パスワードもセッションもここにしか無い。
-**どこか1つで入れば、営業・マーケ・会計・契約も素通しになる。**
-
-| 道 | 何をするか |
-|---|---|
-| `GET /api/internal/verify-login` | 製品からのパスワード照合 (service binding 経由のみ) |
-| `GET /api/sso/authorize?to=<製品>&r=<戻り先>` | 本体にセッションがあれば、その製品宛ての切符を署名して返す |
-| `GET /api/sso/adopt?t=<切符>&r=<戻り先>` | 製品でパスワードが通った人に、本体側のセッションも作る |
-
-切符は `SSO_SECRET` の HMAC-SHA256 署名で寿命45秒。`to` と `r` は
-`app/lib/series.ts` が導く5製品の URL だけを通す (オープンリダイレクト対策)。
-`app/lib/series.ts` は各製品の `public/series-nav.js` と同じ内容。片方だけ直さない。
-
-```bash
-wrangler secret put SSO_SECRET   # 5製品すべてに同じ値を入れる
-```
 
 ## MCP (Claude 連携)
 
