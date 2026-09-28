@@ -21,6 +21,10 @@
   "r2_buckets": [
     { "binding": "FILES", "bucket_name": "kotsukotsu-files" }
   ],
+  // 同じアカウントの *.workers.dev 同士の fetch は塞がれるので、リアルタイム通知は binding で渡す
+  "services": [
+    { "binding": "RT", "service": "kotsukotsu-rt" }
+  ],
   "vars": {
     "APP_ENV": "production",
     "VAPID_PUBLIC_KEY": "YOUR_VAPID_PUBLIC_KEY",

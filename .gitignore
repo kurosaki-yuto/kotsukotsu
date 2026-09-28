@@ -43,3 +43,6 @@ next-env.d.ts
 .wrangler/
 .dev.vars
 cloudflare-env.d.ts
+
+# npm run setup が作るシークレット
+.setup.json

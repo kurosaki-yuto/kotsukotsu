@@ -29,7 +29,8 @@ import { handleOAuth, isOAuthPath, wwwAuthenticate } from "./oauth";
 export interface Env {
   DB: D1Database;
   /** Same R2 bucket the main app uses for file resources (kotsukotsu-files). */
-  FILES: R2Bucket;
+  /** R2 が無いアカウントでも動くように省略可。無ければファイル添付だけ使えない。 */
+  FILES?: R2Bucket;
   /** Worker secret. Set via `wrangler secret put MCP_TOKEN`. */
   MCP_TOKEN: string;
   /** src/oauth.ts の認可コード暗号化鍵。`wrangler secret put OAUTH_SECRET` */
@@ -1277,6 +1278,7 @@ const tools: Record<string, ToolDef> = {
       if (bytes.byteLength === 0) throw new Error("empty file");
       if (bytes.byteLength > MAX_FILE_BYTES) throw new Error("ファイルが大きすぎます (25MBまで)");
 
+      if (!env.FILES) throw new Error("ファイル置き場 (R2) が設定されていません");
       const key = `${wsId}/${args.goalId}/${uid()}-${safeFileName(args.filename)}`;
       await env.FILES.put(key, bytes, {
         httpMetadata: { contentType: args.mimeType || "application/octet-stream" },

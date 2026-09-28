@@ -1,7 +1,9 @@
 import "server-only";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-type RTEnv = { RT_URL?: string; RT_SECRET?: string };
+// RT は kotsukotsu-rt への service binding (任意)。同じアカウントの *.workers.dev 同士の fetch は
+// Cloudflare に塞がれるので、binding があればそちらを通す。
+type RTEnv = { RT_URL?: string; RT_SECRET?: string; RT?: { fetch: typeof fetch } };
 
 // Tell the realtime worker that a workspace changed; it broadcasts a "changed"
 // ping to all connected devices so they refetch. Used for server-originated
@@ -11,7 +13,8 @@ export function notifyWorkspace(wsId: string): void {
   try {
     const e = getCloudflareContext().env as unknown as RTEnv;
     if (!e.RT_URL || !e.RT_SECRET) return;
-    const p = fetch(`${e.RT_URL}/notify?ws=${encodeURIComponent(wsId)}`, {
+    const doFetch = e.RT ? e.RT.fetch.bind(e.RT) : fetch;
+    const p = doFetch(`${e.RT_URL}/notify?ws=${encodeURIComponent(wsId)}`, {
       method: "POST",
       headers: { "x-rt-secret": e.RT_SECRET },
     }).then(() => undefined).catch(() => undefined);

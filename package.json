@@ -6,6 +6,7 @@
     "dev": "next dev -p 3939",
     "build": "next build",
     "start": "next start -p 3939",
+    "setup": "node scripts/setup.mjs",
     "cf:typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "cf:migrate:local": "wrangler d1 migrations apply kotsukotsu-db --local",
     "cf:migrate:remote": "wrangler d1 migrations apply kotsukotsu-db --remote",

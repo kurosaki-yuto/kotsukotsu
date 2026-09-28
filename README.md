@@ -42,20 +42,26 @@
 
 ## セットアップ
 
-データベース (D1)・ファイル置き場 (R2)・デプロイ先の Worker は、使う人が自分の
-Cloudflare アカウントに作る。手順は [docs/self-hosting.md](./docs/self-hosting.md)。
+データベース・デプロイ先は、使う人がそれぞれ自分の Cloudflare アカウントに作る。
+`npm run setup` が D1 の作成からシークレット、3 つの Worker のデプロイまで1回でやる。
+無料プランで動く。
 
 ```bash
+git clone https://github.com/kurosaki-yuto/kotsukotsu.git
+cd kotsukotsu
 npm install
+npm run setup     # 終わると https://kotsukotsu.<サブドメイン>.workers.dev が出る
+```
+
+詳しくは [docs/self-hosting.md](./docs/self-hosting.md) (料金・あとから足せるもの・消し方・手で立ち上げる場合)。
+
+ローカル開発:
+
+```bash
 npm run cf:typegen         # バインディングの型を生成
 npm run cf:migrate:local   # ローカル D1 にマイグレーション適用
 npm run dev                # http://localhost:3939
 ```
-
-`npm run cf:preview` でデプロイ前にローカルで Workers ランタイム相当を確認できる。
-バインディングの型を再生成するときは `npm run cf:typegen`。
-シークレットは `wrangler secret put <NAME>` で入れる。
-`wrangler.jsonc` の `vars` に書いてよいのは公開してよい値だけ。
 
 ## キーバインド
 
