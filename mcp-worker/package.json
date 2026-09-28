@@ -1,0 +1,23 @@
+{
+  "name": "kotsukotsu-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Remote MCP server (Cloudflare Worker) that lets an AI operate the Addness todo app via tools backed by the same D1 database.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250503.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.104.0"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kotsukotsu",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-25",
+  "compatibility_flags": ["nodejs_compat"],
+  // https://kotsukotsu.<サブドメイン>.workers.dev で公開する。
+  "workers_dev": true,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kotsukotsu-db",
+      "database_id": "YOUR_D1_DATABASE_ID",
+      "migrations_dir": "d1-migrations"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "kotsukotsu-files" }
+  ],
+  "vars": {
+    "APP_ENV": "production",
+    "VAPID_PUBLIC_KEY": "YOUR_VAPID_PUBLIC_KEY",
+    "VAPID_SUBJECT": "mailto:you@example.com",
+    "RT_URL": "https://kotsukotsu-rt.YOUR_SUBDOMAIN.workers.dev"
+  }
+}

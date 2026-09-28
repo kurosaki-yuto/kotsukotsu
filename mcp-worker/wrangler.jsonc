@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kotsukotsu-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      // SAME database as the main app (database_name "kotsukotsu-db").
+      // Run `wrangler d1 list` (or check the main app deploy) and paste the
+      // real id below — it must match the main app's wrangler.jsonc.
+      "binding": "DB",
+      "database_name": "kotsukotsu-db",
+      "database_id": "YOUR_D1_DATABASE_ID"
+    }
+  ],
+  "r2_buckets": [
+    // SAME bucket as the main app (app/lib/server/files.ts) — file resources
+    // uploaded via MCP land in the same place the app's /api/files reads from.
+    { "binding": "FILES", "bucket_name": "kotsukotsu-files" }
+  ],
+  "vars": {
+    "RT_URL": "https://kotsukotsu-rt.YOUR_SUBDOMAIN.workers.dev",
+    // Main app — holds the VAPID keys, so phone pushes are a callback there.
+    "PUSH_URL": "https://kotsukotsu.YOUR_SUBDOMAIN.workers.dev"
+  },
+  // Worker-to-worker fetches to *.workers.dev URLs are blocked by Cloudflare
+  // (they 404 without ever reaching the target), so the push/realtime
+  // callbacks go over service bindings instead of the public URLs above (the
+  // URLs stay as vars because the bindings still need an absolute URL to
+  // route the request path).
+  "services": [
+    { "binding": "APP", "service": "kotsukotsu" },
+    { "binding": "RT", "service": "kotsukotsu-rt" }
+  ],
+  // Sweeps due-date reminders (scheduled() handler in src/index.ts) every 5min.
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  // Persist request logs in the CF dashboard so "繋がらない" reports can be
+  // debugged after the fact (which token, which status, when).
+  "observability": {
+    "enabled": true
+  }
+  // Secrets (NOT vars), set with `wrangler secret put <NAME>`:
+  //   MCP_TOKEN, RT_SECRET, PUSH_SECRET (same value as the main app's), OAUTH_SECRET
+}
