@@ -23,6 +23,8 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 // name that notifies someone in the app notifies them through MCP too.
 import { resolveMentionedMembers } from "../../app/lib/server/mentions";
 import { workspaceToday } from "./today";
+// 型 (誰かが終えたタスクのやり方) を、似たタスクを触る AI の返り値に添える。
+import { findPrecedents, PRECEDENTS_NOTE, privacyProblem, upsertPlaybook, shouldRecordPlaybook, recordPlaybookAction } from "./playbooks";
 // claude.ai がキー無しURLで繋ぎに来た時の OAuth (動的クライアント登録) 経路。
 import { handleOAuth, isOAuthPath, wwwAuthenticate } from "./oauth";
 
@@ -261,6 +263,12 @@ AIが進めたタスクの最終確認は人が行う前提です。完了基準
 1つのゴールに残すのは5件までを目安にします。改善・調査・検討・「いつかやる」は、上のどれかに当たらない限り登録しません。
 
 既にあるタスクで、もう終わっているものは complete_subtask で閉じます。上のどれにも当たらなくなったものは update_goal で status を archived にして外します (消えずに戻せます)。配下に残すタスクが無くなった中間の箱も同じように外します。着手時に登録する作業ステップ (基本ループの6) はこの対象外ですが、終わったらその場でチェックして未完了に残さないでください。
+
+## 型 (前に誰かがやったやり方) を使う・残す
+
+get_goal と add_subtask の返り値に precedents が付くことがあります。同じ種類の仕事を以前メンバーがやったときの型 (手順・気をつけたこと・コミット) です。作業ステップを組む前に読み、使える手順はそのまま使ってください。変えるなら理由を現状に一言書きます。
+中身のあるタスクを閉じると、complete_subtask の next_action で record_playbook を求められます。そのタスクのやり方を型に残してください。型は全メンバーに見えるので、顧客名・個人名・金額・連絡先は書かず一般化します。
+コードを書くタスクでは、コミットメッセージに「Task: <タスクid>」を入れてください。型を残すときに git log --all --grep <タスクid> で拾い、commits に入れます。次の人がそのコミットの差分から始められます。
 
 ## 上位目標との整合を先に見る
 
@@ -784,7 +792,17 @@ const tools: Record<string, ToolDef> = {
       const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first();
       if (!row) throw new Error(`goal not found: ${args.id}`);
       const p = await taskProgress(env, wsId, args.id);
-      return { ...(row as object), task_progress: p.text, current_state_is_stale: p.stale };
+      const g = row as { name?: string | null; completion_criteria?: string | null };
+      const precedents = await findPrecedents(env.DB, wsId, `${g.name ?? ""}\n${g.completion_criteria ?? ""}`, {
+        excludeSourceIds: [args.id],
+        canSee: (id) => goalInScope(env, auth, id),
+      });
+      return {
+        ...(row as object),
+        task_progress: p.text,
+        current_state_is_stale: p.stale,
+        ...(precedents.length ? { precedents, precedents_note: PRECEDENTS_NOTE } : {}),
+      };
     },
   },
 
@@ -1026,7 +1044,17 @@ const tools: Record<string, ToolDef> = {
         (await assignCreatorAsHolder(env, wsId, id, auth.actor)) ??
         (await inheritAssigneeFromAncestors(env, wsId, id, args.goalId));
       const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(id, wsId).first();
-      return { ...(row as object), assigned_member_id: assignee, ...(await parentStateNote(env, wsId, args.goalId)) };
+      // 親の名前は混ぜない。混ぜると親に似た型が、関係ないタスクにも毎回付く。
+      const precedents = await findPrecedents(env.DB, wsId, args.text, {
+        excludeSourceIds: [id, args.goalId],
+        canSee: (gid) => goalInScope(env, auth, gid),
+      });
+      return {
+        ...(row as object),
+        assigned_member_id: assignee,
+        ...(await parentStateNote(env, wsId, args.goalId)),
+        ...(precedents.length ? { precedents, precedents_note: PRECEDENTS_NOTE } : {}),
+      };
     },
   },
 
@@ -1088,7 +1116,54 @@ const tools: Record<string, ToolDef> = {
         }
       }
       const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first<{ parent_goal_id: string | null }>();
-      return { ...(row as object), ...(row?.parent_goal_id ? await parentStateNote(env, wsId, row.parent_goal_id, args.completed) : {}) };
+      const note: { parent_task_progress?: string; next_action?: string } =
+        row?.parent_goal_id ? await parentStateNote(env, wsId, row.parent_goal_id, args.completed) : {};
+      // 中身のあるタスクを閉じたら、そのやり方を型に残させる。次に同じ種類の仕事をする人の AI に渡る。
+      if (args.completed && (await shouldRecordPlaybook(env.DB, wsId, args.id))) {
+        const a = recordPlaybookAction(args.id);
+        note.next_action = note.next_action ? `${note.next_action}\nもう1つ: ${a}` : a;
+      }
+      return { ...(row as object), ...note };
+    },
+  },
+
+  record_playbook: {
+    description:
+      "終えたタスクのやり方を「型」として残す。型は全メンバーの AI に共有され、似たタスクの get_goal / add_subtask の返り値 (precedents) に自動で付く。" +
+      "complete_subtask の next_action で求められたら呼ぶ。同じタスクで呼び直すと上書き。" +
+      "全員に見えるので、顧客名・個人名・金額・連絡先・キーは書かず「顧客」「先方」と一般化する (メール・電話・金額らしき文字列は弾く)。",
+    schema: z.object({
+      source_goal_id: z.string().min(1).describe("型の元になった (終えた) タスクの id"),
+      title: z.string().min(4).max(120).describe("何をするときの型か。一般化した1行。例: 顧客向けLPを公開して問い合わせフォームまで確認する"),
+      keywords: z.array(z.string().min(1).max(40)).max(10).optional().describe("探すときの語 3〜8個 (一般名詞・ツール名)"),
+      steps: z.string().min(10).describe("実際にやった順の手順。「1. 」から1行1手順、3〜8個。ツール名・コマンド・画面名は具体的に残す"),
+      pitfalls: z.string().optional().describe("つまずいたこと・気をつけたこと。無ければ省く"),
+      commits: z
+        .array(z.object({ repo: z.string().min(1), sha: z.string().min(7), message: z.string().optional() }))
+        .max(20)
+        .optional()
+        .describe("このタスクで入れたコミット。コミットメッセージに Task: <タスクid> を入れておき、git log --all --grep <タスクid> で拾う"),
+    }),
+    handler: async (args, env, wsId, auth) => {
+      await assertGoalInScope(env, auth, args.source_goal_id);
+      const src = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?").bind(args.source_goal_id, wsId).first();
+      if (!src) throw new Error(`goal not found: ${args.source_goal_id}`);
+      const body = [args.title, ...(args.keywords ?? []), args.steps, args.pitfalls ?? ""].join("\n");
+      const bad = privacyProblem(body);
+      if (bad) throw new Error(`型は全メンバーに見えるため、${bad}らしき文字列は入れられません。「顧客」「先方」「費用」などに一般化して書き直してください`);
+      const r = await upsertPlaybook(env.DB, wsId, {
+        id: uid(),
+        sourceGoalId: args.source_goal_id,
+        authorName: auth.actor?.name ?? null,
+        authorEmail: auth.actor?.email ?? null,
+        title: args.title.trim(),
+        keywords: args.keywords ?? [],
+        steps: formatFieldText(args.steps),
+        pitfalls: args.pitfalls?.trim() ? formatFieldText(args.pitfalls) : null,
+        commits: args.commits ?? [],
+        now: nowIso(),
+      });
+      return { playbook_id: r.id, created: r.created };
     },
   },
 
