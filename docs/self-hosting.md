@@ -91,7 +91,7 @@ R2 は Cloudflare ダッシュボードで一度「有効化」しないと使�
 
 | 何を | どうする |
 |---|---|
-| パスワード再設定メール | [Resend](https://resend.com) の API キーを取り、`npx wrangler secret put RESEND_API_KEY` と `npx wrangler secret put MAIL_FROM` (例: `こつこつ <noreply@example.com>`)。未設定なら再設定メールを送らない |
+| パスワードを忘れた人への対応 | 何も設定しなくてよい。管理者がメンバー画面の「パスワード再設定リンク」で24時間・1回限りのリンクを発行して本人に渡す。メールで本人に直接送りたいときだけ、[Resend](https://resend.com) の API キーを `npx wrangler secret put RESEND_API_KEY`、送信元を `npx wrangler secret put MAIL_FROM` (例: `こつこつ <noreply@example.com>`) で入れる |
 | 独自ドメイン | Cloudflare ダッシュボードで `<名前>` Worker にカスタムドメインを付ける。リアルタイムと MCP は workers.dev のまま使われる |
 
 ## アップデートを取り込む
