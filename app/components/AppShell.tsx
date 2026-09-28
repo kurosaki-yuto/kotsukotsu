@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { unreadCount, listGoals, getMyProfile, updateMyAvatar, listWorkspaces, createWorkspace, switchWorkspace, createInvite, UNREAD_CHANGED_EVENT, type MyProfile, type Workspace } from "../lib/addness";
 import { type Goal } from "../lib/db";
+import AgentLaunch from "./AgentLaunch";
 import RealtimeBridge from "./RealtimeBridge";
 import LoadFailureBanner from "./LoadFailureBanner";
 
@@ -378,6 +379,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               {n.key === "notifications" && unread > 0 && <span className="rail-badge">{unread > 99 ? "99+" : unread}</span>}
             </Link>
           ))}
+          {/* Claude / Codex をいま開いているゴールの指示文入りで開く */}
+          <AgentLaunch />
         </div>
         <div className="relative">
           <button

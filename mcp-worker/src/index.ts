@@ -188,13 +188,15 @@ const COMPLETION_CRITERIA_DOC = [
 
 const CURRENT_STATE_DOC = [
   "現状。読んだ人がその場で次の一手を選べる粒度で書く。",
-  "必ず入れる3点: (1) 何日時点か (2) 済んだこと — 確認した事実・数字つき (3) 残り/詰まり — 何待ちかと、いつ誰に投げたか。",
+  "書く前に、フォルダやこつこつだけでなく、そのゴールに関わる連絡 (チャット・メール・Slack など接続されている連絡ツール) の直近のやり取りを読む。見られなかった連絡手段は「LINE未確認」のように書く。",
+  "必ず入れる4点: (1) 何日時点か (2) 済んだこと — 確認した事実・数字つき (3) ボール — こちら / 先方 / なし のどれか (4) 残り/詰まり — 何待ちかと、いつ誰に投げたか。",
   "禁止: 「進めている」「対応中」「順調」だけで終わる記述。タスクの羅列 (それは add_subtask へ)。",
   "1文=1行、話題の切れ目に空行。",
   "例)",
   "",
   "2026-09-12時点。ヒーローと料金表は実装しVercelにデプロイ済み、表示確認まで完了。",
   "",
+  "ボール: 先方。",
   "残り: 画像3点の発注、フォームの送信先結線。",
   "詰まり: 先方のロゴデータ待ち (9/10にメール、返信なし)。",
 ].join("\n");
@@ -219,7 +221,9 @@ list_goals / get_goal / list_subtasks / list_today で現状を取得します�
 
 完了基準: 「何が満たされたら完了か」だけを、他人が○×を付けられる形で書く。各行に数値・期日・成果物名 (ファイル名/URL/画面名/テーブル名) のどれかを必ず入れる。「検討する」「改善する」「整える」「いい感じにする」は基準になりません。やることは書かず add_subtask へ。
 
-現状: (1) 何日時点か (2) 済んだこと — 確認した事実と数字 (3) 残り・詰まり — 何待ちで、いつ誰に投げたか。この3点を必ず入れる。「進めている」「対応中」だけの現状は書かないでください。
+現状: (1) 何日時点か (2) 済んだこと — 確認した事実と数字 (3) ボール — 次に動くのがこちらか先方か (4) 残り・詰まり — 何待ちで、いつ誰に投げたか。この4点を必ず入れる。「進めている」「対応中」だけの現状は書かないでください。
+
+現状はこつこつとフォルダを見ただけでは分かりません。先方の最後の発言、こちら宛ての依頼や期限は連絡ツールの中にあります。書く前に、そのゴールに関わるチャット・メール・Slack など、接続されている連絡ツールの直近のやり取りを読んでください。見る手段がなかった連絡手段は「LINE未確認」のように現状に書き、見たことにしないでください。
 
 create_goal は completion_criteria / current_state をその場で受け取れます。ゴールを作るときに一緒に書いてください。後から update_goal で足す前提にすると、その1回が飛んで基準の空いたゴールが溜まります。
 
@@ -227,14 +231,36 @@ create_goal は completion_criteria / current_state をその場で受け取れ�
 タスク名に [AI] / [人+AI] / [人] のような担当区分は付けません。タスクはAIと人が一緒に進めるのが前提で、区分に情報がないためです。担当はアサインで表します。add_subtask / create_goal で作ったタスクは、作った本人に自動でアサインされます。別の人に持たせたいときだけ assign_member_to_goal で付け替えてください。
 目標(ゴール)は顧客・事業・案件といった「タスクをぶら下げる箱」で、達成したい状態を名前にします(例:「自動車インフラ事業」「ロボケン」)。区分付きの名前を見つけたら update_goal で外してください。
 
-5. 登録
+5. タスクと現状・完了の基準を連動させる (必須)
+人は現状を書き換えません。AI がタスクを動かすついでに書き換えないと、現状は古いまま残ります。
+- タスクを完了したら、同じターンのうちに親ゴールの current_state を update_goal で今の状態に書き直す。complete_subtask の返り値に next_action が付いていたら必ず従う
+- 書き直すときは parent_task_progress (get_goal なら task_progress) の数字と最近の完了を材料にし、そこに出ない判断・詰まり・誰の返事待ちかを足す
+- タスクの結果で「何が満たされたら完了か」が変わったら、completion_criteria を先に直し、それに合わせて current_state も直す
+- get_goal で current_state_is_stale が true のゴールは、作業に入る前に current_state を直す
+- 方針が変わった・詰まった・誰かの返事待ちになったときも、タスクの完了を待たずに current_state を書き直す
+
+6. 登録
 砕いたタスクを add_subtask で1個ずつ該当ゴールの配下に登録します。複数アクションを1つに詰めないでください。やることを current_state や completion_criteria の文章として書くのも避けます。やることは必ずサブタスクとして持たせてください。
 
-6. 実行
+7. 実行
 AIが進めるタスクも、着手前に作業ステップを2〜5個 add_subtask で登録してから始めます。1ステップ終わるごとに complete_subtask でチェックしてください。裏で全部進めて最後にまとめて報告する形だと、人からは途中経過が見えません。全ステップ終わったらタスク本体も complete_subtask でチェックし、create_notification で完了を知らせます(何を完了したか、次の一手を一言)。判断や成果は send_chat でそのゴールのスレッドに残します。コメントは接続している本人の名義で投稿されるので、本人が書いたとして自然な内容にしてください。
 
-7. 確認
+8. 確認
 AIが進めたタスクの最終確認は人が行う前提です。完了基準に照らして満たせたかを判定し、結果を報告したうえで、人の承認が要る箇所を明示して止まります。重要判断・外向きの発信・金銭・契約は必ず人の承認を取ってください。
+
+## 載せるのはクリティカルなタスクだけ
+
+タスクが多いと、本当に落としてはいけないものが埋もれます。各ゴール(顧客・案件・目標の箱)に未完了で残すのは、次のどれかに当たるものだけにしてください。
+
+- 先方が待っている、または先方と約束した期日がある
+- 売上・入金・契約・納品に直結する
+- 本番の不具合で顧客が困っている
+- 税・届出など法定・公的な期限がある
+- こちらにボールがあり、人が確認・判断しないと進まない (返信文の承認、送付前の最終確認、方針決めで止まっているもの)
+
+1つのゴールに残すのは5件までを目安にします。改善・調査・検討・「いつかやる」は、上のどれかに当たらない限り登録しません。
+
+既にあるタスクで、もう終わっているものは complete_subtask で閉じます。上のどれにも当たらなくなったものは update_goal で status を archived にして外します (消えずに戻せます)。配下に残すタスクが無くなった中間の箱も同じように外します。着手時に登録する作業ステップ (基本ループの6) はこの対象外ですが、終わったらその場でチェックして未完了に残さないでください。
 
 ## 上位目標との整合を先に見る
 
@@ -255,7 +281,7 @@ AIが進めたタスクの最終確認は人が行う前提です。完了基準
 
 ## 書式(現状・完了の基準)
 
-- 現状と完了の基準は改行して書きます。1文=1行、話題の区切り(今どこ / ブロッカー / 次の一手 / 関連)は空行で分けます。改行のない長文の塊にしないでください
+- 現状と完了の基準は改行して書きます。1文=1行、話題の区切り(今どこ / ボール / ブロッカー / 次の一手 / 関連)は空行で分けます。改行のない長文の塊にしないでください
 - 完了の基準は「リード文 → 空行 → □ チェック項目(1行に1個)」の形で、満たされた状態だけを書きます
 - やることのリストを現状・完了の基準・コメントに書かないでください。add_subtask で1個ずつ登録します
 
@@ -670,6 +696,57 @@ function toolText(value: unknown) {
 const GOAL_LIST_COLUMNS =
   "id, name, order_idx, created_at, emoji, deadline, owner, status, parent_goal_id";
 
+// ---- タスクと現状の連動 ----
+// 人は現状を書き換えないので、AI がタスクを動かしたついでに書き換える。そのための材料:
+// 直下のタスクの今の状態と、「タスクが動いた後に現状が書き換えられたか」。
+async function taskProgress(env: Env, wsId: string, goalId: string): Promise<{ text: string; stale: boolean }> {
+  const [kidsRes, self, ws] = await Promise.all([
+    env.DB.prepare(
+      `SELECT name, status, deadline, completed_at, created_at FROM projects
+        WHERE parent_goal_id = ? AND workspace_id = ? AND status != 'archived' ORDER BY order_idx ASC, created_at ASC`
+    ).bind(goalId, wsId).all<{ name: string | null; status: string; deadline: string | null; completed_at: string | null; created_at: string | null }>(),
+    env.DB.prepare("SELECT state_updated_at, criteria_updated_at FROM projects WHERE id = ? AND workspace_id = ?")
+      .bind(goalId, wsId).first<{ state_updated_at: string | null; criteria_updated_at: string | null }>(),
+    env.DB.prepare("SELECT timezone FROM workspaces WHERE id = ?").bind(wsId).first<{ timezone: string | null }>(),
+  ]);
+  const kids = kidsRes.results;
+  const tz = ws?.timezone || "Asia/Tokyo";
+  const day = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(iso));
+  const md = (iso: string | null) => (iso ? day(iso.length <= 10 ? iso + "T00:00:00Z" : iso).slice(5).replace("-", "/") : "記録なし");
+  const today = day(new Date().toISOString());
+  const done = kids.filter((k) => k.status === "done");
+  const open = kids.filter((k) => k.status !== "done");
+  const overdue = open.filter((k) => k.deadline && k.deadline.slice(0, 10) < today).length;
+  // 「進んだ」と数えるのは完了だけ。タスクを登録しただけでは現状は変わらない。
+  let last: string | null = null;
+  for (const k of done) if (k.completed_at && (!last || k.completed_at > last)) last = k.completed_at;
+  const stateAt = self?.state_updated_at ?? null;
+  const stale = !!last && (!stateAt || last > stateAt);
+  const lines = [`${today} 時点の直下のタスク`];
+  if (kids.length === 0) lines.push("タスクなし");
+  else {
+    lines.push(`${done.length}/${kids.length} 完了、残り ${open.length}${overdue ? ` (期限切れ ${overdue})` : ""}`);
+    const recent = done.filter((k) => k.completed_at).sort((a, b) => (b.completed_at! > a.completed_at! ? 1 : -1)).slice(0, 3);
+    if (recent.length) lines.push("最近の完了: " + recent.map((k) => `${md(k.completed_at)} ${(k.name ?? "").trim()}`).join(" / "));
+    if (open.length) lines.push("次の未完了: " + open.slice(0, 3).map((k) => (k.name ?? "").trim() + (k.deadline ? ` (期限 ${md(k.deadline)})` : "")).join(" / "));
+  }
+  lines.push(`完了の基準を書き換えた日: ${md(self?.criteria_updated_at ?? null)} / 現状を書き換えた日: ${md(stateAt)}`);
+  return { text: lines.join("\n"), stale };
+}
+
+/** タスクを足した・閉じたあとに返す。閉じたとき (nudge) に親の現状が古ければ、書き直す指示を付ける。 */
+async function parentStateNote(env: Env, wsId: string, parentId: string, nudge = false) {
+  const p = await taskProgress(env, wsId, parentId);
+  if (!nudge || !p.stale) return { parent_task_progress: p.text };
+  return {
+    parent_task_progress: p.text,
+    next_action:
+      `親ゴール (${parentId}) の現状がタスクの動きより古い。このターンのうちに get_goal で親を読み、` +
+      "update_goal で current_state を今の状態 (日付 / 済んだこと / ボール / 残り・詰まり) に書き直す。" +
+      "今回の結果で「何が満たされたら完了か」が変わったなら、先に completion_criteria を直す。",
+  };
+}
+
 const tools: Record<string, ToolDef> = {
   // ---- goals (projects) ----
   list_goals: {
@@ -697,13 +774,17 @@ const tools: Record<string, ToolDef> = {
   },
 
   get_goal: {
-    description: "Get a single goal (project) by id, including its subtask count.",
+    description:
+      "Get a single goal (project) by id. task_progress summarizes its direct tasks as of now " +
+      "(done/total, recent completions, next open tasks, overdue) and says whether current_state " +
+      "is older than the latest task movement — if so, rewrite current_state with update_goal.",
     schema: z.object({ id: z.string().min(1).describe("Goal (project) id") }),
     handler: async (args, env, wsId, auth) => {
       await assertGoalInScope(env, auth, args.id);
       const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first();
       if (!row) throw new Error(`goal not found: ${args.id}`);
-      return row;
+      const p = await taskProgress(env, wsId, args.id);
+      return { ...(row as object), task_progress: p.text, current_state_is_stale: p.stale };
     },
   },
 
@@ -741,7 +822,7 @@ const tools: Record<string, ToolDef> = {
       // 完了の基準と現状は作成時に一緒に書けるようにしてある。後から update_goal で
       // 足す作りだと、その1回が飛ばされて基準が空のままのゴールが積み上がる。
       await env.DB.prepare(
-        "INSERT INTO projects (id, name, parent_goal_id, order_idx, created_at, status, workspace_id, completion_criteria, current_state) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)"
+        "INSERT INTO projects (id, name, parent_goal_id, order_idx, created_at, status, workspace_id, completion_criteria, current_state, criteria_updated_at, state_updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)"
       )
         .bind(
           id,
@@ -751,7 +832,9 @@ const tools: Record<string, ToolDef> = {
           created,
           wsId,
           args.completion_criteria === undefined ? null : formatFieldText(args.completion_criteria),
-          args.current_state === undefined ? null : formatFieldText(args.current_state)
+          args.current_state === undefined ? null : formatFieldText(args.current_state),
+          args.completion_criteria === undefined ? null : created,
+          args.current_state === undefined ? null : created
         )
         .run();
       const assignee =
@@ -791,6 +874,16 @@ const tools: Record<string, ToolDef> = {
           fields.push(`${key} = ?`);
           binds.push(args[key]);
         }
+      }
+      // 中身が実際に変わったときだけ更新日時を付ける (SET の右辺は更新前の値を見る)。
+      // タスクが動いた後に現状が書き換えられたかどうかの判定に使う。
+      if (args.current_state !== undefined) {
+        fields.push("state_updated_at = CASE WHEN current_state IS NOT ? THEN ? ELSE state_updated_at END");
+        binds.push(args.current_state, nowIso());
+      }
+      if (args.completion_criteria !== undefined) {
+        fields.push("criteria_updated_at = CASE WHEN completion_criteria IS NOT ? THEN ? ELSE criteria_updated_at END");
+        binds.push(args.completion_criteria, nowIso());
       }
       // archiving convenience: stamp archived_at when status flips to archived
       if (args.status === "archived") {
@@ -933,7 +1026,7 @@ const tools: Record<string, ToolDef> = {
         (await assignCreatorAsHolder(env, wsId, id, auth.actor)) ??
         (await inheritAssigneeFromAncestors(env, wsId, id, args.goalId));
       const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(id, wsId).first();
-      return { ...(row as object), assigned_member_id: assignee };
+      return { ...(row as object), assigned_member_id: assignee, ...(await parentStateNote(env, wsId, args.goalId)) };
     },
   },
 
@@ -994,7 +1087,8 @@ const tools: Record<string, ToolDef> = {
           await recordRecipients(env, notifId, wsId, args.id);
         }
       }
-      return env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first();
+      const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first<{ parent_goal_id: string | null }>();
+      return { ...(row as object), ...(row?.parent_goal_id ? await parentStateNote(env, wsId, row.parent_goal_id, args.completed) : {}) };
     },
   },
 

@@ -38,8 +38,20 @@ const GOAL_COLS = new Set(["name","emoji","deadline","current_state","completion
 export async function updateGoal(id: string, patch: Record<string, unknown>, wsId: string) {
   const keys = Object.keys(patch).filter((k) => GOAL_COLS.has(k));
   if (!keys.length) return;
-  const setSql = keys.map((k) => `${k} = ?`).join(", ");
-  await run(`UPDATE projects SET ${setSql} WHERE id = ? AND workspace_id = ?`, ...keys.map((k) => patch[k]), id, wsId);
+  const sets = keys.map((k) => `${k} = ?`);
+  const binds: unknown[] = keys.map((k) => patch[k]);
+  // 現状・完了の基準は、中身が実際に変わったときだけ更新日時を付ける
+  // (画面はフォーカスが外れるたびに同じ値を送ってくるため)。SET の右辺は更新前の値を見る。
+  const now = nowIso();
+  if (keys.includes("current_state")) {
+    sets.push("state_updated_at = CASE WHEN current_state IS NOT ? THEN ? ELSE state_updated_at END");
+    binds.push(patch.current_state, now);
+  }
+  if (keys.includes("completion_criteria")) {
+    sets.push("criteria_updated_at = CASE WHEN completion_criteria IS NOT ? THEN ? ELSE criteria_updated_at END");
+    binds.push(patch.completion_criteria, now);
+  }
+  await run(`UPDATE projects SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`, ...binds, id, wsId);
 }
 // アーカイブは配下ごと落とす。自分の行だけ落とすと、残った子は親が一覧から
 // 消えた状態で最上位へ浮き上がり、文脈のないタスクがトップに並ぶ
@@ -156,9 +168,9 @@ export async function cascadeGoalDone(id: string, wsId: string) {
        UNION ALL
        SELECT p.id FROM projects p JOIN sub ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
      )
-     UPDATE projects SET status = 'done'
+     UPDATE projects SET status = 'done', completed_at = COALESCE(completed_at, ?3)
       WHERE workspace_id = ?2 AND status = 'active' AND id IN (SELECT id FROM sub)`,
-    id, wsId
+    id, wsId, nowIso()
   );
   // それらのゴールがぶら下げている小タスク
   await run(
@@ -188,7 +200,12 @@ export async function cascadeNodeDone(id: string, wsId: string) {
 }
 
 export async function toggleProjectDone(id: string, done: boolean, wsId: string) {
-  await run("UPDATE projects SET status = ? WHERE id = ? AND workspace_id = ?", done ? "done" : "active", id, wsId);
+  // completed_at を残す (MCP の complete_subtask と同じ)。無いと「いつ終わったか」が
+  // 分からず、ゴールの自動の進捗欄に「最近の完了」を出せない。
+  await run(
+    "UPDATE projects SET status = ?, completed_at = ? WHERE id = ? AND workspace_id = ?",
+    done ? "done" : "active", done ? nowIso() : null, id, wsId
+  );
   if (done) {
     await cascadeGoalDone(id, wsId);
     await run("UPDATE members SET points = points + 1 WHERE is_you = 1 AND workspace_id = ?", wsId);
