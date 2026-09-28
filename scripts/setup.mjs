@@ -213,6 +213,17 @@ async function chooseName(state) {
   return name;
 }
 
+/** 保存済みの値 (.setup.json) を設定ファイルの目印に入れる。入っていれば何もしない。 */
+function applySavedValues(state) {
+  for (const rel of PLACEHOLDER_FILES) {
+    if (state.name) replaceIn(rel, "your-app-name", state.name);
+    if (state.subdomain) replaceIn(rel, "YOUR_SUBDOMAIN", state.subdomain);
+    if (state.databaseId) replaceIn(rel, "YOUR_D1_DATABASE_ID", state.databaseId);
+  }
+  if (state.vapidPublicKey) replaceIn(APP_CONFIG, "YOUR_VAPID_PUBLIC_KEY", state.vapidPublicKey);
+  if (state.contactEmail) replaceIn(APP_CONFIG, "mailto:you@example.com", `mailto:${state.contactEmail}`);
+}
+
 async function chooseAccount(whoami) {
   const given = argValue("--account") ?? process.env.CLOUDFLARE_ACCOUNT_ID;
   if (given) return given;
@@ -264,6 +275,13 @@ async function main() {
 
   // .setup.json は名前が決まった時点で初めて書く (名前の確認で止まったら何も残さない)
   const name = await chooseName(state);
+  // 毎回入れ直す。npm run update は git pull の前に設定ファイルを目印の状態へ戻すので、
+  // ここで保存済みの値 (.setup.json) を入れ直さないと目印のままデプロイしてしまう。
+  applySavedValues(state);
+  if (process.argv.includes("--configure-only")) {
+    console.log("設定ファイルに保存済みの値を入れ直しました (デプロイはしていません)");
+    return;
+  }
   const DB_NAME = `${name}-db`;
   const BUCKET = `${name}-files`;
 
@@ -280,6 +298,8 @@ async function main() {
   }
   if (!db) fail("D1 データベースの作成を確認できませんでした");
   console.log(`database_id: ${db.uuid}`);
+  state.databaseId = db.uuid;
+  saveState(state);
   replaceIn(APP_CONFIG, "YOUR_D1_DATABASE_ID", db.uuid);
   replaceIn(MCP_CONFIG, "YOUR_D1_DATABASE_ID", db.uuid);
 
@@ -320,7 +340,11 @@ async function main() {
 
   for (const rel of PLACEHOLDER_FILES) replaceIn(rel, "YOUR_SUBDOMAIN", subdomain);
   replaceIn(APP_CONFIG, "YOUR_VAPID_PUBLIC_KEY", state.vapidPublicKey);
-  if (whoami.email) replaceIn(APP_CONFIG, "mailto:you@example.com", `mailto:${whoami.email}`);
+  if (whoami.email && !state.contactEmail) {
+    state.contactEmail = whoami.email;
+    saveState(state);
+  }
+  applySavedValues(state);
 
   log(`本体 (${name}) をビルドしてデプロイします。数分かかります`);
   await run(IS_WIN ? "npm.cmd" : "npm", ["run", "cf:typegen"]);

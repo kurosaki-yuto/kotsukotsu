@@ -46,3 +46,6 @@ cloudflare-env.d.ts
 
 # npm run setup が作るシークレット
 .setup.json
+
+# npm run update が取るデータベースのバックアップ
+/backups/
