@@ -11,13 +11,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250503.0",
+    "@cloudflare/workers-types": "^5.20260928.1",
     "typescript": "^5.8.3",
-    "wrangler": "^4.104.0"
+    "wrangler": "^4.142.0"
   }
 }
