@@ -31,6 +31,8 @@ export type Precedent = {
   pitfalls?: string;
   commits?: PlaybookCommit[];
   source_task?: { id: string; name: string };
+  /** 意味の近さ (0〜1)。Workers AI で選んだときだけ付く */
+  similarity?: number;
   updated_at: string;
 };
 
@@ -69,43 +71,117 @@ function overlapScore(q: Set<string>, d: Set<string>, idf: (g: string) => number
 const SCAN_LIMIT = 400;
 // idf は log(1+N/df) を log(1+N) で割ったもの (0〜1)。型の数が増えても尺度が変わらないようにしている。
 // 実データ (型59件) で、同じ種類の仕事は 2.8 以上、関係の薄いものは 2.6 以下に出た (2026-09-28)。
+// AI バインディングが無い環境 (自社専用版で Workers AI を使わない場合) だけで使う。
 const MIN_SCORE = 2.7;
 
+// ---- 意味での検索 (Workers AI) ----
+// 言葉の重なりだけでは「確認」「洗い出し」のような語で関係ない型が付いたため、埋め込みで選ぶ (2026-09-28)。
+export const EMBED_MODEL = "@cf/baai/bge-m3";
+// 型59件と14の問い合わせで測った値 (2026-09-28)。正解は 0.56〜0.70、関係ない型はほぼ 0.55 以下。
+// ただ正解の隣に 0.58〜0.61 の外れが並ぶことがあるため、1位から 0.04 以内のものだけ残す。
+const MIN_SIMILARITY = 0.56;
+const NEAR_BEST = 0.04;
+const EMBED_BATCH = 50;
+
+/** 型を埋め込むときの文。題名と語を主に、手順は頭だけ (長すぎると題名の意味が薄まる)。 */
+function playbookText(r: { title: string; keywords: string | null; steps: string }): string {
+  return `${r.title}\n${(r.keywords ?? "").replace(/\n/g, " ")}\n${r.steps.slice(0, 300)}`;
+}
+
+async function embed(ai: Ai, texts: string[]): Promise<number[][]> {
+  const out = (await ai.run(EMBED_MODEL as never, { text: texts } as never)) as { data?: number[][] };
+  if (!out?.data || out.data.length !== texts.length) throw new Error("埋め込みの取得に失敗しました");
+  return out.data;
+}
+
+// 1024 次元の float を JSON で持つと、型が増えたとき毎回の読み込みが重い。
+// コサイン類似度は長さに依らないので、ベクトルごとに最大値で割って int8 にし base64 で持つ (1行約1.4KB)。
+function packVec(v: number[]): string {
+  let max = 0;
+  for (const x of v) max = Math.max(max, Math.abs(x));
+  const k = max ? 127 / max : 0;
+  const bytes = new Uint8Array(v.length);
+  for (let i = 0; i < v.length; i++) bytes[i] = Math.round(v[i] * k) & 0xff;
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+}
+function unpackVec(s: string): Int8Array {
+  const raw = atob(s);
+  const out = new Int8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = (raw.charCodeAt(i) << 24) >> 24;
+  return out;
+}
+function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  return na && nb ? dot / Math.sqrt(na * nb) : 0;
+}
+
 /**
- * text に似た型を最大 limit 件返す。excludeSourceId はそのタスク自身から起こした型を除くため。
+ * text に似た型を最大 limit 件返す。excludeSourceIds はそのタスク自身から起こした型を除くため。
  * canSee は元タスクを呼び手に見せてよいか (スコープ判定)。
+ * ai があれば意味で選ぶ。埋め込みの無い型 (過去分・書き直した型) は、ここでついでに取って保存する。
  */
 export async function findPrecedents(
   db: D1Database,
   wsId: string,
   text: string,
-  opts: { excludeSourceIds?: string[]; limit?: number; canSee: (goalId: string) => Promise<boolean> }
+  opts: { ai?: Ai; excludeSourceIds?: string[]; limit?: number; canSee: (goalId: string) => Promise<boolean> }
 ): Promise<Precedent[]> {
-  const q = grams(text);
-  if (q.size < 2) return [];
+  if (text.trim().length < 4) return [];
   // 失敗を「似た型なし」にすり替えない (AGENTS.md 1)。呼び手のツールごと失敗させる。
   const res = await db
     .prepare(
-      `SELECT id, source_goal_id, author_name, title, keywords, steps, pitfalls, commits, updated_at
+      `SELECT id, source_goal_id, author_name, title, keywords, steps, pitfalls, commits, updated_at, embedding, embedding_model
          FROM playbooks WHERE workspace_id = ? ORDER BY updated_at DESC, id LIMIT ?`
     )
     .bind(wsId, SCAN_LIMIT)
-    .all<PlaybookRow>();
+    .all<PlaybookRow & { embedding: string | null; embedding_model: string | null }>();
   const rows = res.results ?? [];
+  if (!rows.length) return [];
   const exclude = new Set(opts.excludeSourceIds ?? []);
-  const docs = rows.map((r) => grams(`${r.title}\n${r.keywords ?? ""}`));
-  const df = new Map<string, number>();
-  for (const d of docs) for (const g of d) df.set(g, (df.get(g) ?? 0) + 1);
-  const idf = (g: string) => Math.log(1 + docs.length / (df.get(g) ?? 1)) / Math.log(1 + docs.length);
-  const scored = rows
-    .map((r, i) => ({ r, s: overlapScore(q, docs[i], idf) }))
-    .filter(({ r }) => !r.source_goal_id || !exclude.has(r.source_goal_id))
-    .filter((x) => x.s >= MIN_SCORE)
-    .sort((a, b) => b.s - a.s)
-    .slice(0, opts.limit ?? 3);
+  const limit = opts.limit ?? 3;
+
+  let scored: { r: PlaybookRow; s: number }[];
+  if (opts.ai) {
+    const missing = rows.filter((r) => !r.embedding || r.embedding_model !== EMBED_MODEL);
+    for (let i = 0; i < missing.length; i += EMBED_BATCH) {
+      const chunk = missing.slice(i, i + EMBED_BATCH);
+      const vecs = await embed(opts.ai, chunk.map(playbookText));
+      for (let j = 0; j < chunk.length; j++) {
+        chunk[j].embedding = packVec(vecs[j]);
+        chunk[j].embedding_model = EMBED_MODEL;
+      }
+      await db.batch(
+        chunk.map((r) =>
+          db.prepare("UPDATE playbooks SET embedding = ?, embedding_model = ? WHERE id = ? AND workspace_id = ?")
+            .bind(r.embedding, EMBED_MODEL, r.id, wsId)
+        )
+      );
+    }
+    const [qv] = await embed(opts.ai, [text.slice(0, 1000)]);
+    scored = rows
+      .filter((r) => !r.source_goal_id || !exclude.has(r.source_goal_id))
+      .map((r) => ({ r, s: cosine(qv, unpackVec(r.embedding!)) }))
+      .filter((x) => x.s >= MIN_SIMILARITY);
+  } else {
+    const q = grams(text);
+    const docs = rows.map((r) => grams(`${r.title}\n${r.keywords ?? ""}`));
+    const df = new Map<string, number>();
+    for (const d of docs) for (const g of d) df.set(g, (df.get(g) ?? 0) + 1);
+    const idf = (g: string) => Math.log(1 + docs.length / (df.get(g) ?? 1)) / Math.log(1 + docs.length);
+    scored = rows
+      .map((r, i) => ({ r, s: overlapScore(q, docs[i], idf) }))
+      .filter(({ r }) => !r.source_goal_id || !exclude.has(r.source_goal_id))
+      .filter((x) => x.s >= MIN_SCORE);
+  }
+  scored = scored.sort((a, b) => b.s - a.s);
+  if (opts.ai && scored.length) scored = scored.filter((x) => x.s >= scored[0].s - NEAR_BEST);
+  scored = scored.slice(0, limit);
 
   const out: Precedent[] = [];
-  for (const { r } of scored) {
+  for (const { r, s } of scored) {
     const p: Precedent = {
       playbook_id: r.id,
       title: r.title,
@@ -113,6 +189,7 @@ export async function findPrecedents(
       steps: r.steps,
       updated_at: r.updated_at,
     };
+    if (opts.ai) p.similarity = Math.round(s * 100) / 100;
     if (r.pitfalls?.trim()) p.pitfalls = r.pitfalls;
     if (r.commits) {
       try {
@@ -134,7 +211,7 @@ export async function findPrecedents(
 
 /** 返り値に添える説明。型をどう扱うかを AI に毎回伝える。 */
 export const PRECEDENTS_NOTE =
-  "precedents は、似た仕事を以前メンバーがやったときの型 (手順・気をつけたこと・コミット)。言葉の重なりで選んでいるので、" +
+  "precedents は、似た仕事を以前メンバーがやったときの型 (手順・気をつけたこと・コミット)。自動で選んでいるので、" +
   "このタスクと関係ないものは黙って無視してよい。関係あるものは作業ステップを組む前に読み、使える手順はそのまま使う。" +
   "合わない所は変えてよいが、変えた理由を現状に一言書く。" +
   "commits があればそのコミットの差分を見てから着手すると早い。";
@@ -175,7 +252,7 @@ export async function upsertPlaybook(
     await db
       .prepare(
         `UPDATE playbooks SET title = ?, keywords = ?, steps = ?, pitfalls = ?, commits = ?,
-                author_name = ?, author_email = ?, updated_at = ?
+                author_name = ?, author_email = ?, updated_at = ?, embedding = NULL, embedding_model = NULL
           WHERE id = ? AND workspace_id = ?`
       )
       .bind(input.title, keywords, input.steps, input.pitfalls, commits, input.authorName, input.authorEmail, input.now, existing.id, wsId)

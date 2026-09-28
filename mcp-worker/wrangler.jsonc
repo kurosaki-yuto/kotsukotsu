@@ -29,6 +29,8 @@
   // callbacks go over service bindings instead of the public URLs above (the
   // URLs stay as vars because the bindings still need an absolute URL to
   // route the request path).
+  // 型 (playbooks) の意味での検索に使う埋め込み (@cf/baai/bge-m3)。src/playbooks.ts
+  "ai": { "binding": "AI" },
   "services": [
     { "binding": "APP", "service": "your-app-name" },
     { "binding": "RT", "service": "your-app-name-rt" }

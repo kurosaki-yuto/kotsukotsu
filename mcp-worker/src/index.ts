@@ -30,6 +30,8 @@ import { handleOAuth, isOAuthPath, wwwAuthenticate } from "./oauth";
 
 export interface Env {
   DB: D1Database;
+  /** Workers AI。型の意味での検索 (埋め込み) に使う。無い環境では言葉の重なりで選ぶ。 */
+  AI?: Ai;
   /** Same R2 bucket the main app uses for file resources (kotsukotsu-files). */
   /** R2 が無いアカウントでも動くように省略可。無ければファイル添付だけ使えない。 */
   FILES?: R2Bucket;
@@ -794,6 +796,7 @@ const tools: Record<string, ToolDef> = {
       const p = await taskProgress(env, wsId, args.id);
       const g = row as { name?: string | null; completion_criteria?: string | null };
       const precedents = await findPrecedents(env.DB, wsId, `${g.name ?? ""}\n${g.completion_criteria ?? ""}`, {
+        ai: env.AI,
         excludeSourceIds: [args.id],
         canSee: (id) => goalInScope(env, auth, id),
       });
@@ -1046,6 +1049,7 @@ const tools: Record<string, ToolDef> = {
       const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(id, wsId).first();
       // 親の名前は混ぜない。混ぜると親に似た型が、関係ないタスクにも毎回付く。
       const precedents = await findPrecedents(env.DB, wsId, args.text, {
+        ai: env.AI,
         excludeSourceIds: [id, args.goalId],
         canSee: (gid) => goalInScope(env, auth, gid),
       });
