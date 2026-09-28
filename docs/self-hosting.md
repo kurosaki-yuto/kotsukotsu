@@ -94,6 +94,19 @@ R2 は Cloudflare ダッシュボードで一度「有効化」しないと使�
 | パスワード再設定メール | [Resend](https://resend.com) の API キーを取り、`npx wrangler secret put RESEND_API_KEY` と `npx wrangler secret put MAIL_FROM` (例: `こつこつ <noreply@example.com>`)。未設定なら再設定メールを送らない |
 | 独自ドメイン | Cloudflare ダッシュボードで `<名前>` Worker にカスタムドメインを付ける。リアルタイムと MCP は workers.dev のまま使われる |
 
+## アップデートを取り込む
+
+公開リポジトリは随時更新される。取り込むときは、立ち上げたフォルダで次の2つを実行する。
+AI に「こつこつを最新にして」と頼んでもよい。
+
+```bash
+git pull
+npm install && npm run setup
+```
+
+`npm run setup` は作ったものを使い回し、テーブルの追加 (マイグレーション) と再デプロイだけを行う。
+データは消えない。
+
 ## ローカルで動かす
 
 `npm run setup` を一度実行していれば `.dev.vars` ができている。
