@@ -54,7 +54,7 @@ export interface Env {
 // Tools that change data — after these run, nudge the realtime worker so every
 // connected device refetches instantly.
 const MUTATING_TOOLS = new Set([
-  "create_goal", "update_goal", "move_goal", "add_subtask", "complete_subtask", "set_today",
+  "create_goal", "update_goal", "move_goal", "add_subtask", "start_task", "complete_subtask", "set_today",
   "send_chat", "edit_chat", "delete_chat", "create_notification", "assign_member_to_goal",
   "unassign_member_from_goal", "set_member_role", "create_invite", "upload_file",
 ]);
@@ -247,7 +247,7 @@ create_goal は completion_criteria / current_state をその場で受け取れ�
 砕いたタスクを add_subtask で1個ずつ該当ゴールの配下に登録します。複数アクションを1つに詰めないでください。やることを current_state や completion_criteria の文章として書くのも避けます。やることは必ずサブタスクとして持たせてください。
 
 7. 実行
-AIが進めるタスクも、着手前に作業ステップを2〜5個 add_subtask で登録してから始めます。1ステップ終わるごとに complete_subtask でチェックしてください。裏で全部進めて最後にまとめて報告する形だと、人からは途中経過が見えません。全ステップ終わったらタスク本体も complete_subtask でチェックし、create_notification で完了を知らせます(何を完了したか、次の一手を一言)。判断や成果は send_chat でそのゴールのスレッドに残します。コメントは接続している本人の名義で投稿されるので、本人が書いたとして自然な内容にしてください。
+AIが進めるタスクも、着手前に作業ステップを2〜5個 add_subtask で登録してから始めます。手を動かし始める前に、そのタスク (と着手するステップ) を start_task で「進行中」にしてください。人は画面の印で「今どれが・誰のAIで動いているか」を見ています。開始を付けずに完了だけ付けると、途中経過が見えません。1ステップ終わるごとに complete_subtask でチェックしてください。裏で全部進めて最後にまとめて報告する形だと、人からは途中経過が見えません。全ステップ終わったらタスク本体も complete_subtask でチェックし、create_notification で完了を知らせます(何を完了したか、次の一手を一言)。判断や成果は send_chat でそのゴールのスレッドに残します。コメントは接続している本人の名義で投稿されるので、本人が書いたとして自然な内容にしてください。
 
 8. 確認
 AIが進めたタスクの最終確認は人が行う前提です。完了基準に照らして満たせたかを判定し、結果を報告したうえで、人の承認が要る箇所を明示して止まります。重要判断・外向きの発信・金銭・契約は必ず人の承認を取ってください。
@@ -704,7 +704,7 @@ function toolText(value: unknown) {
 // list_goals/list_subtasks are browse views — leave out current_state/completion_criteria
 // (long free text, fetched individually via get_goal) so bulk listing doesn't blow the payload.
 const GOAL_LIST_COLUMNS =
-  "id, name, order_idx, created_at, emoji, deadline, owner, status, parent_goal_id";
+  "id, name, order_idx, created_at, emoji, deadline, owner, status, parent_goal_id, started_at, started_by_name, started_via";
 
 // ---- タスクと現状の連動 ----
 // 人は現状を書き換えないので、AI がタスクを動かしたついでに書き換える。そのための材料:
@@ -712,9 +712,9 @@ const GOAL_LIST_COLUMNS =
 async function taskProgress(env: Env, wsId: string, goalId: string): Promise<{ text: string; stale: boolean }> {
   const [kidsRes, self, ws] = await Promise.all([
     env.DB.prepare(
-      `SELECT name, status, deadline, completed_at, created_at FROM projects
+      `SELECT name, status, deadline, completed_at, created_at, started_at, started_by_name, started_via FROM projects
         WHERE parent_goal_id = ? AND workspace_id = ? AND status != 'archived' ORDER BY order_idx ASC, created_at ASC`
-    ).bind(goalId, wsId).all<{ name: string | null; status: string; deadline: string | null; completed_at: string | null; created_at: string | null }>(),
+    ).bind(goalId, wsId).all<{ name: string | null; status: string; deadline: string | null; completed_at: string | null; created_at: string | null; started_at: string | null; started_by_name: string | null; started_via: string | null }>(),
     env.DB.prepare("SELECT state_updated_at, criteria_updated_at FROM projects WHERE id = ? AND workspace_id = ?")
       .bind(goalId, wsId).first<{ state_updated_at: string | null; criteria_updated_at: string | null }>(),
     env.DB.prepare("SELECT timezone FROM workspaces WHERE id = ?").bind(wsId).first<{ timezone: string | null }>(),
@@ -738,6 +738,8 @@ async function taskProgress(env: Env, wsId: string, goalId: string): Promise<{ t
     lines.push(`${done.length}/${kids.length} 完了、残り ${open.length}${overdue ? ` (期限切れ ${overdue})` : ""}`);
     const recent = done.filter((k) => k.completed_at).sort((a, b) => (b.completed_at! > a.completed_at! ? 1 : -1)).slice(0, 3);
     if (recent.length) lines.push("最近の完了: " + recent.map((k) => `${md(k.completed_at)} ${(k.name ?? "").trim()}`).join(" / "));
+    const doing = open.filter((k) => k.started_at);
+    if (doing.length) lines.push("進行中: " + doing.slice(0, 3).map((k) => `${(k.name ?? "").trim()} (${(k.started_by_name ?? "不明").trim()}${k.started_via && k.started_via !== "app" ? `・${k.started_via}` : ""}、${md(k.started_at)}から)`).join(" / "));
     if (open.length) lines.push("次の未完了: " + open.slice(0, 3).map((k) => (k.name ?? "").trim() + (k.deadline ? ` (期限 ${md(k.deadline)})` : "")).join(" / "));
   }
   lines.push(`完了の基準を書き換えた日: ${md(self?.criteria_updated_at ?? null)} / 現状を書き換えた日: ${md(stateAt)}`);
@@ -1059,6 +1061,41 @@ const tools: Record<string, ToolDef> = {
         ...(await parentStateNote(env, wsId, args.goalId)),
         ...(precedents.length ? { precedents, precedents_note: PRECEDENTS_NOTE } : {}),
       };
+    },
+  },
+
+  start_task: {
+    description:
+      "タスクを「進行中」にする。作業に入る前 (手を動かし始める前) に必ず呼ぶ。人は画面の進行中の印で、今どのタスクを誰のAIが進めているかを見ている。" +
+      "開始した人 (接続している本人) と日時と使っているAIの名前が残る。既に進行中なら最初に始めた記録を残したまま何もしない。完了済みのタスクには付かない。" +
+      "終わったら complete_subtask。started=false は押し間違いの取り消し用。",
+    schema: z.object({
+      id: z.string().min(1).describe("Task (goal) id"),
+      agent: z.string().max(40).optional().describe("使っているAIの名前 (例: Claude Code / Codex / claude.ai)。画面に「黒崎 (Claude Code)」のように出る。省略時は AI"),
+      started: z.boolean().optional().describe("false で進行中を取り消す (既定 true)"),
+    }),
+    handler: async (args, env, wsId, auth) => {
+      await assertGoalInScope(env, auth, args.id);
+      if (args.started === false) {
+        const res = await env.DB.prepare(
+          "UPDATE projects SET started_at = NULL, started_by = NULL, started_by_name = NULL, started_via = NULL WHERE id = ? AND workspace_id = ?"
+        ).bind(args.id, wsId).run();
+        if (!res.meta.changes) throw new Error(`task not found: ${args.id}`);
+      } else {
+        const who = await resolveCreator(env, wsId, auth.actor);
+        const via = (args.agent ?? "").trim() || "AI";
+        await env.DB.prepare(
+          `UPDATE projects SET started_at = ?, started_by = ?, started_by_name = ?, started_via = ?
+            WHERE id = ? AND workspace_id = ? AND status = 'active' AND started_at IS NULL`
+        ).bind(nowIso(), who?.userId ?? null, who?.name ?? null, via, args.id, wsId).run();
+      }
+      const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first<{ status: string; started_at: string | null }>();
+      if (!row) throw new Error(`task not found: ${args.id}`);
+      const note =
+        args.started === false ? "進行中を取り消した。"
+        : row.status !== "active" ? "完了済み (またはアーカイブ済み) のタスクなので進行中にしていない。開き直すなら complete_subtask で completed=false。"
+        : "進行中。終わったら complete_subtask で完了にする。";
+      return { ...(row as object), note };
     },
   },
 

@@ -31,6 +31,10 @@
   --done-soft-hover: #ddf1e5;
   --done-border: #b3e0c6;
   --done-text: #4b7a60;        /* 完了したタスク名 */
+  /* 進行中。未着手(青)・完了(緑)のどちらとも混ざらない橙で持つ */
+  --doing: #c2410c;
+  --doing-soft: #fff4ec;
+  --doing-border: #fbc9a8;
   --check-bg: #ffffff;
   --check-border: #c4c6ca;
   --check-done-bg: #1d3b9e;
@@ -135,6 +139,23 @@ input, textarea, select {
 }
 .done-badge.is-all { background: var(--done); color: #fff; border-color: var(--done); }
 .done-badge.is-none { background: var(--surface); color: var(--muted); border-color: var(--border-strong); }
+/* 進行中の印と「開始」ボタン。hidden / lg:inline-flex などの出し分けが効くよう components 層に置く */
+@layer components {
+.doing-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
+  background: var(--doing-soft); color: var(--doing); border: 1px solid var(--doing-border);
+  font-size: 11.5px; font-weight: 700; line-height: 18px; white-space: nowrap; max-width: 100%;
+}
+.doing-badge .doing-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--doing); flex: none; }
+.doing-badge .doing-who { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.start-btn {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 9px; border-radius: 999px;
+  background: var(--surface); color: var(--doing); border: 1px solid var(--doing-border);
+  font-size: 11.5px; font-weight: 700; line-height: 18px; white-space: nowrap; cursor: pointer;
+}
+.start-btn:hover { background: var(--doing-soft); }
+.start-btn.start-btn-md { font-size: 12.5px; padding: 3px 12px; }
+}
 /* 「完了を表示」トグル */
 .chip.chip-done-on { background: var(--done); color: #fff; border-color: var(--done); }
 .chip.chip-done-on:hover { background: var(--done-strong); }

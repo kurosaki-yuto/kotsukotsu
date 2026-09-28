@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type ChangeEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getGoal, updateGoal, archiveGoal, createResource, updateResource, deleteResource, getMe, listMembers, assignGoalMember, unassignGoalMember, setGoalMemberEdit, listGoalMembersBatch, listChildren, createChild, toggleItemDone, sendMessage, editMessage, deleteMessage, createGoalInvite, getGoalBundle, cachedGoalBundle, prefetchGoalBundle, type GoalBundle } from "../../lib/addness";
+import { getGoal, updateGoal, archiveGoal, createResource, updateResource, deleteResource, getMe, listMembers, assignGoalMember, unassignGoalMember, setGoalMemberEdit, listGoalMembersBatch, listChildren, createChild, toggleItemDone, setItemStarted, sendMessage, editMessage, deleteMessage, createGoalInvite, getGoalBundle, cachedGoalBundle, prefetchGoalBundle, type GoalBundle } from "../../lib/addness";
 import type { Goal, Resource, Member, ChatMessage } from "../../lib/db";
 import type { Me, GoalMember } from "../../lib/addness";
 import Linkified from "../../components/Linkified";
 import AgentLaunch from "../../components/AgentLaunch";
+import { InProgressBadge, StartButton, TaskCheck, isInProgress } from "../../components/InProgress";
 import { Assignees, Avatar } from "../../components/Assignees";
 import { useAutoRefresh } from "../../lib/useAutoRefresh";
 
@@ -91,10 +92,9 @@ function SubTree({ parentId, depth, router }: { parentId: string; depth: number;
           <button onClick={() => toggle(k.id)} className="w-4 h-4 -ml-1 shrink-0 flex items-center justify-center text-[var(--muted-soft)] hover:text-[var(--foreground)]" aria-label={isOpen ? "折りたたむ" : "展開"} aria-expanded={isOpen}>
             <svg viewBox="0 0 16 16" className="w-3 h-3 transition-transform" style={{ transform: isOpen ? "rotate(90deg)" : "none" }} fill="currentColor"><path d="M6 3l5 5-5 5V3z" /></svg>
           </button>
-          <button onClick={() => toggleDone(k.id, !done)} className="w-5 h-5 shrink-0 rounded-full border flex items-center justify-center" style={done ? { background: "var(--done)", borderColor: "var(--done)" } : { borderColor: "var(--border-strong)" }} aria-label={done ? "未完了に戻す" : "完了にする"}>
-            {done && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>}
-          </button>
+          <TaskCheck t={k} onToggle={(d) => toggleDone(k.id, d)} />
           <button onClick={() => router.push(`/goals/${k.id}`)} className={`flex-1 min-w-0 text-left text-[14px] truncate hover:underline ${done ? "done-label" : ""}`} title={k.name}>{k.name || "無題のタスク"}</button>
+          <InProgressBadge t={k} wrapClass="hidden sm:inline-flex" />
           <Assignees members={kidAssignees[k.id] ?? []} size={22} max={3} />
         </div>
         {isOpen && <ul><SubTree parentId={k.id} depth={depth + 1} router={router} /></ul>}
@@ -384,6 +384,17 @@ export default function GoalDetail() {
     } catch (e) { console.error(e); }
   }, [goal, id]);
 
+  // 「開始」。押した人が開始した人として残る。取り消しは押し間違い用
+  const toggleSelfStarted = useCallback(async (started: boolean) => {
+    if (!goal) return;
+    setGoal({ ...goal, started_at: started ? new Date().toISOString() : null, started_by_name: started ? (me?.name || me?.email || null) : null, started_via: started ? "app" : null });
+    try {
+      await setItemStarted(id, started);
+      const g = await getGoal(id);
+      if (g) setGoal(g);
+    } catch (e) { console.error(e); }
+  }, [goal, id, me]);
+
   const canManage = me?.role === "admin" || (!!goal?.created_by && goal?.created_by === me?.id);
 
   // メンバー一覧はページを開いた時点で読み込む。以前はアサインパネルを
@@ -437,6 +448,12 @@ export default function GoalDetail() {
     try { await toggleItemDone(childId, done); } catch (e) { console.error(e); }
     loadChildren();
   }, [loadChildren]);
+
+  const startChild = useCallback(async (childId: string) => {
+    setChildren((cs) => cs.map((c) => (c.id === childId ? { ...c, started_at: new Date().toISOString(), started_by_name: me?.name || me?.email || null, started_via: "app" } : c)));
+    try { await setItemStarted(childId, true); } catch (e) { console.error(e); }
+    loadChildren();
+  }, [loadChildren, me]);
 
   const addChild = useCallback(async () => {
     try {
@@ -577,14 +594,7 @@ export default function GoalDetail() {
           <span className="w-4 h-4 -ml-1 shrink-0" aria-hidden />
         )}
         {/* done checkbox */}
-        <button
-          onClick={() => toggleChildDone(c.id, !done)}
-          className="w-5 h-5 shrink-0 rounded-full border flex items-center justify-center transition-colors"
-          style={done ? { background: "var(--done)", borderColor: "var(--done)" } : { borderColor: "var(--border-strong)" }}
-          aria-label={done ? "未完了に戻す" : "完了にする"}
-        >
-          {done && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>}
-        </button>
+        <TaskCheck t={c} onToggle={(d) => toggleChildDone(c.id, d)} />
         {/* name */}
         {editing ? (
           <input
@@ -618,6 +628,9 @@ export default function GoalDetail() {
             完了 {prog.done}/{prog.total}
           </span>
         )}
+        {/* 進行中の印 / 未着手なら「開始」(PC はホバー時だけ。スマホはタスクを開いた先のボタンで) */}
+        <InProgressBadge t={c} wrapClass="hidden sm:inline-flex" />
+        {!editing && <StartButton t={c} onStart={() => startChild(c.id)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100" />}
         {/* assignee avatars */}
         <Assignees members={ass} size={22} max={3} />
         {/* delete */}
@@ -753,8 +766,8 @@ export default function GoalDetail() {
           const selfDone = goal.status === "done";
           return (
         <div className="rounded-2xl border px-5 py-4 mb-4" style={{ borderColor: "var(--border)", background: "#fafafa", borderLeft: `4px solid ${selfDone ? "var(--done)" : "var(--accent)"}` }}>
-          <div className="flex items-center justify-between gap-3 mb-1">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide" style={{ color: selfDone ? "var(--done-strong)" : "var(--accent)" }}>
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-1">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide whitespace-nowrap" style={{ color: selfDone ? "var(--done-strong)" : "var(--accent)" }}>
               <I d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 8v4M12 12l3 2" />大ゴール（クリックで編集）
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -769,6 +782,8 @@ export default function GoalDetail() {
                 <button onClick={() => toggleSelfDone(false)} className="text-[12px] text-[var(--muted)] hover:text-[var(--foreground)] underline underline-offset-2">完了を取り消す</button>
               </div>
             ) : (
+              <>
+              <StartButton t={goal} onStart={() => toggleSelfStarted(true)} className="start-btn-md" />
               <button
                 onClick={() => toggleSelfDone(true)}
                 className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] font-bold text-white hover:opacity-90 transition-opacity"
@@ -778,6 +793,7 @@ export default function GoalDetail() {
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
                 完了にする
               </button>
+              </>
             )}
             </div>
           </div>
@@ -797,6 +813,12 @@ export default function GoalDetail() {
               className={`w-full resize-none bg-transparent font-bold leading-snug focus:outline-none placeholder:text-[var(--muted-soft)] placeholder:font-normal ${selfDone ? "text-[var(--muted)]" : ""}`}
             />
           </div>
+          {isInProgress(goal) && (
+            <div className="flex items-center gap-2 mt-1.5 min-w-0">
+              <InProgressBadge t={goal} detail />
+              <button onClick={() => toggleSelfStarted(false)} className="shrink-0 text-[12px] text-[var(--muted)] hover:text-[var(--foreground)] underline underline-offset-2">開始を取り消す</button>
+            </div>
+          )}
         </div>
           );
         })()}

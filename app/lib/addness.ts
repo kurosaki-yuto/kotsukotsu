@@ -412,7 +412,7 @@ export async function unassignNodeMember(nodeId: string, memberId: string): Prom
 }
 
 // ---------- my tasks (items assigned to the logged-in user) ----------
-export type MyTask = { id: string; name: string; emoji: string | null; status: string; parent_goal_id: string | null; parent_name: string | null; parent_emoji: string | null };
+export type MyTask = { id: string; name: string; emoji: string | null; status: string; parent_goal_id: string | null; parent_name: string | null; parent_emoji: string | null; started_at?: string | null; started_by_name?: string | null; started_via?: string | null };
 export async function getMyTasks(): Promise<MyTask[]> {
   return (await api("/api/my-tasks")) as MyTask[];
 }
@@ -437,6 +437,10 @@ export async function getAncestors(id: string): Promise<{ id: string; name: stri
 }
 export async function toggleItemDone(id: string, done: boolean): Promise<void> {
   await api(`/api/goals/${id}/done`, { method: "PATCH", body: JSON.stringify({ done }) });
+}
+// 「開始」ボタン。started=false で進行中を取り消す (押し間違い用)
+export async function setItemStarted(id: string, started: boolean): Promise<void> {
+  await api(`/api/goals/${id}/start`, { method: "PATCH", body: JSON.stringify({ started }) });
 }
 
 // ---------- goal page bundle (fast transitions) ----------

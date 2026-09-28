@@ -22,6 +22,10 @@ export type Project = {
   archived_at: string | null;
   parent_goal_id: string | null;
   created_by: string | null;
+  // 進行中: status = active かつ started_at あり。誰が始めたかは開始時点の名前
+  started_at?: string | null;
+  started_by_name?: string | null;
+  started_via?: string | null;      // 'app' = 画面のボタン / それ以外 = AI の名前
 };
 export type Goal = Project;
 

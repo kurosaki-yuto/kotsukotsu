@@ -13,6 +13,7 @@ import {
   getMe,
   getMyTasks,
   toggleItemDone,
+  setItemStarted,
   prefetchGoalBundle,
   type GoalMember,
   type MyTask,
@@ -20,6 +21,7 @@ import {
 import type { Goal } from "./lib/db";
 import { useAutoRefresh } from "./lib/useAutoRefresh";
 import { Avatar } from "./components/Assignees";
+import { InProgressBadge, StartButton, TaskCheck } from "./components/InProgress";
 
 type ItemNode = Goal & { children: ItemNode[] };
 type DropPos = "before" | "after" | "inside"; // drag-drop placement relative to a row
@@ -298,6 +300,7 @@ function ItemRow({
   onAddChild,
   onArchive,
   onToggleDone,
+  onStart,
   onMove,
   onDragStartRow,
   onDragEndRow,
@@ -325,6 +328,7 @@ function ItemRow({
   onAddChild: (id: string) => void;
   onArchive: (id: string) => void;
   onToggleDone: (id: string, done: boolean) => void;
+  onStart: (id: string) => void;
   onMove: (id: string, newParentId: string | null, beforeId?: string | null) => void;
   onDragStartRow: (id: string) => void;
   onDragEndRow: () => void;
@@ -456,23 +460,7 @@ function ItemRow({
 
         {/* done toggle: round checkbox (empty / filled accent with white check) — hidden on read-only context rows */}
         {!isContext && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleDone(node.id, !done);
-            }}
-            className="w-5 h-5 shrink-0 rounded-md border flex items-center justify-center transition-colors"
-            style={done ? { background: "var(--done)", borderColor: "var(--done)" } : { borderColor: "var(--border)" }}
-            aria-label={done ? "未完了に戻す" : "完了にする"}
-            title={done ? "未完了に戻す" : "完了にする"}
-          >
-            {done && (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 6L9 17l-5-5" />
-              </svg>
-            )}
-          </button>
+          <TaskCheck t={node} onToggle={(d) => onToggleDone(node.id, d)} square idleBorder="var(--border)" />
         )}
 
         {/* name: drill in (operable) or muted read-only label (context) */}
@@ -509,6 +497,8 @@ function ItemRow({
           </span>
         )}
 
+        {!isContext && <InProgressBadge t={node} wrapClass="hidden sm:inline-flex" />}
+
         {/* 「完了 3/8」。この下の何件が終わったのかを開かずに出し、
             完了が1件でもあれば、この行だけ出す/隠すを切り替えられるようにする */}
         {stat && stat.total > 0 && (
@@ -533,6 +523,9 @@ function ItemRow({
         {/* push the holder + actions to the right */}
         <div className="ml-auto flex items-center gap-1 md:gap-2 flex-none">
           {/* single holder indicator (primary permission-holder) — left of the actions */}
+          {canEdit && !isContext && (
+            <StartButton t={node} onStart={() => onStart(node.id)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover/row:opacity-100" />
+          )}
           <HolderAvatar holder={pickHolder(mine, node.created_by)} others={Math.max(0, mine.length - 1)} />
           {canEdit && !isContext && (
             <RowActions
@@ -570,6 +563,7 @@ function ItemRow({
           onAddChild={onAddChild}
           onArchive={onArchive}
           onToggleDone={onToggleDone}
+          onStart={onStart}
           onMove={onMove}
           onDragStartRow={onDragStartRow}
           onDragEndRow={onDragEndRow}
@@ -643,6 +637,16 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
     }
   };
 
+  const start = async (id: string) => {
+    setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, started_at: new Date().toISOString(), started_via: "app" } : t)));
+    try {
+      await setItemStarted(id, true);
+      setTasks(await getMyTasks());
+    } catch {
+      /* optimistic; tolerate */
+    }
+  };
+
   if (loading) {
     return <div className="py-8 text-[14px] text-[var(--muted)]">読み込み中…</div>;
   }
@@ -685,12 +689,7 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
                 {activeTasks.map((t) => (
                   <li key={t.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--hover)] group" onMouseEnter={() => prefetchGoalBundle(t.id)}>
                     {/* done checkbox */}
-                    <button
-                      onClick={() => toggle(t.id, true)}
-                      className="w-5 h-5 shrink-0 rounded-full border flex items-center justify-center transition-colors"
-                      style={{ borderColor: "var(--border-strong)" }}
-                      aria-label="完了にする"
-                    />
+                    <TaskCheck t={t} onToggle={(d) => toggle(t.id, d)} />
                     {/* name → open */}
                     <button
                       onClick={() => router.push(`/goals/${t.id}`)}
@@ -699,6 +698,8 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
                       {t.emoji && <span className="mr-1.5">{t.emoji}</span>}
                       {t.name || "（無題）"}
                     </button>
+                    <InProgressBadge t={t} wrapClass="hidden sm:inline-flex" />
+                    <StartButton t={t} onStart={() => start(t.id)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100" />
                   </li>
                 ))}
               </ul>
@@ -996,6 +997,15 @@ export default function TasksPage() {
     await load().catch(() => {});
   };
 
+  const handleStart = async (id: string) => {
+    try {
+      await setItemStarted(id, true);
+    } catch {
+      /* tolerate */
+    }
+    await load().catch(() => {});
+  };
+
   const handleMove = async (id: string, newParentId: string | null, beforeId: string | null = null) => {
     try {
       await moveGoal(id, newParentId, beforeId);
@@ -1152,6 +1162,7 @@ export default function TasksPage() {
                     onAddChild={handleAddChild}
                     onArchive={handleArchive}
                     onToggleDone={handleToggleDone}
+                    onStart={handleStart}
                     onMove={handleMove}
                     onDragStartRow={onDragStartRow}
                     onDragEndRow={onDragEndRow}

@@ -7,7 +7,7 @@ import { resolveMentionedMembers } from "./mentions";
 // ---------------- goals (projects) ----------------
 export async function listGoals(wsId: string, scopeGoalId: string | null = null) {
   if (!scopeGoalId) {
-    return all("SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id FROM projects WHERE status != 'archived' AND workspace_id = ? ORDER BY order_idx ASC, created_at ASC", wsId);
+    return all("SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id, started_at, started_by_name, started_via FROM projects WHERE status != 'archived' AND workspace_id = ? ORDER BY order_idx ASC, created_at ASC", wsId);
   }
   // scoped member: only the scope goal and its descendants
   return all(
@@ -16,7 +16,7 @@ export async function listGoals(wsId: string, scopeGoalId: string | null = null)
        UNION ALL
        SELECT p.id FROM projects p JOIN sub ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?
      )
-     SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id FROM projects WHERE workspace_id = ? AND status != 'archived' AND id IN (SELECT id FROM sub)
+     SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id, started_at, started_by_name, started_via FROM projects WHERE workspace_id = ? AND status != 'archived' AND id IN (SELECT id FROM sub)
      ORDER BY order_idx ASC, created_at ASC`,
     scopeGoalId, wsId, wsId, wsId
   );
@@ -199,6 +199,29 @@ export async function cascadeNodeDone(id: string, wsId: string) {
   );
 }
 
+/**
+ * タスクを「進行中」にする / 戻す。status は触らない (active のまま started_at だけ立てる)。
+ * 開いた・編集した・コメントしただけでは呼ばない。人がボタンを押したか、AI が start_task を呼んだときだけ。
+ * 既に進行中なら最初に始めた人・日時を上書きしない。
+ */
+export async function setProjectStarted(
+  id: string, started: boolean, wsId: string,
+  by: { userId: string | null; name: string | null; via: string }
+) {
+  if (started) {
+    await run(
+      `UPDATE projects SET started_at = ?, started_by = ?, started_by_name = ?, started_via = ?
+        WHERE id = ? AND workspace_id = ? AND status = 'active' AND started_at IS NULL`,
+      nowIso(), by.userId, by.name, by.via, id, wsId
+    );
+  } else {
+    await run(
+      "UPDATE projects SET started_at = NULL, started_by = NULL, started_by_name = NULL, started_via = NULL WHERE id = ? AND workspace_id = ?",
+      id, wsId
+    );
+  }
+}
+
 export async function toggleProjectDone(id: string, done: boolean, wsId: string) {
   // completed_at を残す (MCP の complete_subtask と同じ)。無いと「いつ終わったか」が
   // 分からず、ゴールの自動の進捗欄に「最近の完了」を出せない。
@@ -218,7 +241,7 @@ export async function listMyAssignedItems(user: { email: string }, wsId: string)
   const m = await first<{ id: string }>("SELECT id FROM members WHERE email = ? AND workspace_id = ?", email, wsId);
   if (!m) return [];
   return all(
-    `SELECT p.id, p.name, p.emoji, p.status, p.parent_goal_id, parent.name AS parent_name, parent.emoji AS parent_emoji
+    `SELECT p.id, p.name, p.emoji, p.status, p.parent_goal_id, p.started_at, p.started_by_name, p.started_via, parent.name AS parent_name, parent.emoji AS parent_emoji
      FROM goal_members gm
      JOIN projects p ON p.id = gm.goal_id
      LEFT JOIN projects parent ON parent.id = p.parent_goal_id
