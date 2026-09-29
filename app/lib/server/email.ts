@@ -1,9 +1,11 @@
 import "server-only";
 import { platformEnv } from "@/app/lib/server/platform";
 
-// Outbound mail via Resend's REST API. Deliberately a direct fetch rather than
-// the SDK: the worker runtime has no Node mail transport, and the whole surface
-// we need is one POST.
+// Outbound mail. On Cloudflare this goes through the Email Service `send_email`
+// binding (EMAIL in wrangler.jsonc), so production needs no third-party account.
+// Where that binding does not exist (the Docker build) it falls back to Resend's
+// REST API — a direct fetch rather than the SDK, since the whole surface we need
+// is one POST.
 //
 // Mail is not configured on every environment (local dev, a fresh preview), and
 // a password reset that silently does nothing is exactly the failure mode this
@@ -16,7 +18,17 @@ export type MailResult =
   | { ok: false; reason: "not-configured" }
   | { ok: false; reason: "send-failed"; message: string };
 
-type MailEnv = { RESEND_API_KEY?: string; MAIL_FROM?: string };
+type EmailBinding = {
+  send(message: {
+    to: string;
+    from: string | { email: string; name?: string };
+    subject: string;
+    text: string;
+    html: string;
+  }): Promise<{ messageId: string }>;
+};
+
+type MailEnv = { EMAIL?: EmailBinding; RESEND_API_KEY?: string; MAIL_FROM?: string };
 
 const DEFAULT_FROM = "こつこつ <noreply@mochimotsu.co.jp>";
 
@@ -26,7 +38,16 @@ function mailEnv(): MailEnv {
 }
 
 export function mailConfigured(): boolean {
-  return !!mailEnv().RESEND_API_KEY;
+  const env = mailEnv();
+  return !!env.EMAIL || !!env.RESEND_API_KEY;
+}
+
+// "こつこつ <noreply@example.com>" → { name, email }. The binding takes the
+// display name as its own field rather than parsing it out of the string.
+function parseFrom(from: string): { email: string; name?: string } {
+  const m = from.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
+  if (!m) return { email: from.trim() };
+  return m[1] ? { email: m[2], name: m[1] } : { email: m[2] };
 }
 
 export async function sendMail(opts: {
@@ -36,6 +57,24 @@ export async function sendMail(opts: {
   html: string;
 }): Promise<MailResult> {
   const env = mailEnv();
+
+  if (env.EMAIL) {
+    try {
+      await env.EMAIL.send({
+        to: opts.to,
+        from: parseFrom(env.MAIL_FROM || DEFAULT_FROM),
+        subject: opts.subject,
+        text: opts.text,
+        html: opts.html,
+      });
+      return { ok: true };
+    } catch (e) {
+      const err = e as { code?: string; message?: string };
+      console.error("email binding send failed", err.code, err.message);
+      return { ok: false, reason: "send-failed", message: err.code || err.message || "email binding error" };
+    }
+  }
+
   if (!env.RESEND_API_KEY) return { ok: false, reason: "not-configured" };
 
   let r: Response;
