@@ -202,75 +202,24 @@ export async function cascadeNodeDone(id: string, wsId: string) {
 /**
  * タスクを「進行中」にする / 戻す。status は触らない (active のまま started_at だけ立てる)。
  * 開いた・編集した・コメントしただけでは呼ばない。人がボタンを押したか、AI が start_task を呼んだときだけ。
- *
- * 開始を付けるのは実際に手を動かす一番下のタスク (未完了の子を持たないもの) だけ。
- * 親 (顧客名などの箱) で開始を押したら、自分ではなく配下の未完了の一番下をまとめて開始する。
- * 親に付けると、下が全部終わっても親だけ進行中のまま残るため (2026-09-29 黒崎指示)。
- * 親の進行中の印は subtreeDoing で配下から出す。既に進行中のものは最初に始めた人・日時を上書きしない。
- * 停止は自分と配下の未完了をまとめて未着手に戻す。
+ * 既に進行中なら最初に始めた人・日時を上書きしない。
  */
-const ACTIVE_SUBTREE = `WITH RECURSIVE sub(id) AS (
-    SELECT id FROM projects WHERE id = ?1 AND workspace_id = ?2 AND status = 'active'
-    UNION ALL
-    SELECT p.id FROM projects p JOIN sub ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2 AND p.status = 'active'
-  )`;
 export async function setProjectStarted(
   id: string, started: boolean, wsId: string,
   by: { userId: string | null; name: string | null; via: string }
 ) {
   if (started) {
     await run(
-      `${ACTIVE_SUBTREE}
-       UPDATE projects SET started_at = ?3, started_by = ?4, started_by_name = ?5, started_via = ?6
-        WHERE workspace_id = ?2 AND status = 'active' AND started_at IS NULL AND id IN (SELECT id FROM sub)
-          AND NOT EXISTS (SELECT 1 FROM projects c WHERE c.parent_goal_id = projects.id AND c.workspace_id = ?2 AND c.status = 'active')`,
-      id, wsId, nowIso(), by.userId, by.name, by.via
+      `UPDATE projects SET started_at = ?, started_by = ?, started_by_name = ?, started_via = ?
+        WHERE id = ? AND workspace_id = ? AND status = 'active' AND started_at IS NULL`,
+      nowIso(), by.userId, by.name, by.via, id, wsId
     );
   } else {
     await run(
-      `${ACTIVE_SUBTREE}
-       UPDATE projects SET started_at = NULL, started_by = NULL, started_by_name = NULL, started_via = NULL
-        WHERE workspace_id = ?2 AND started_at IS NOT NULL AND id IN (SELECT id FROM sub)`,
+      "UPDATE projects SET started_at = NULL, started_by = NULL, started_by_name = NULL, started_via = NULL WHERE id = ? AND workspace_id = ?",
       id, wsId
     );
   }
-}
-
-export type Doing = { doing_at: string; doing_by_name: string | null; doing_via: string | null; doing_count: number };
-/**
- * 各タスクの配下 (自分を含む未完了) に進行中があるか。親の印はこれで出す。
- * 一番早く始めたものの 誰が・いつから と、進行中の件数を返す。進行中が無い id はキーごと無い。
- */
-export async function subtreeDoing(ids: string[], wsId: string): Promise<Record<string, Doing>> {
-  const out: Record<string, Doing> = {};
-  for (let i = 0; i < ids.length; i += GOAL_ID_CHUNK) {
-    const chunk = ids.slice(i, i + GOAL_ID_CHUNK);
-    const ph = chunk.map(() => "?").join(",");
-    const rows = await all<{ root: string; started_at: string; started_by_name: string | null; started_via: string | null }>(
-      `WITH RECURSIVE d(root, id) AS (
-         SELECT id, id FROM projects WHERE workspace_id = ? AND status = 'active' AND id IN (${ph})
-         UNION ALL
-         SELECT d.root, p.id FROM projects p JOIN d ON p.parent_goal_id = d.id WHERE p.workspace_id = ? AND p.status = 'active'
-       )
-       SELECT d.root AS root, p.started_at, p.started_by_name, p.started_via
-         FROM d JOIN projects p ON p.id = d.id
-        WHERE p.started_at IS NOT NULL
-        ORDER BY p.started_at ASC`,
-      wsId, ...chunk, wsId
-    );
-    for (const r of rows) {
-      const cur = out[r.root];
-      if (cur) cur.doing_count++;
-      else out[r.root] = { doing_at: r.started_at, doing_by_name: r.started_by_name, doing_via: r.started_via, doing_count: 1 };
-    }
-  }
-  return out;
-}
-/** 行に配下の進行中 (doing_*) を付けて返す */
-export async function withDoing<T extends { id: string }>(rows: T[], wsId: string): Promise<(T & Partial<Doing>)[]> {
-  if (!rows.length) return rows;
-  const d = await subtreeDoing(rows.map((r) => r.id), wsId);
-  return rows.map((r) => (d[r.id] ? { ...r, ...d[r.id] } : r));
 }
 
 export async function toggleProjectDone(id: string, done: boolean, wsId: string) {
@@ -299,7 +248,7 @@ export async function listMyAssignedItems(user: { email: string }, wsId: string)
      WHERE gm.member_id = ? AND p.status != 'archived' AND p.workspace_id = ?
      ORDER BY (p.status = 'done') ASC, parent.name ASC, p.order_idx ASC`,
     m.id, wsId
-  ).then((rows) => withDoing(rows as { id: string }[], wsId));
+  );
 }
 
 // ---------------- nodes (subtasks) ----------------
@@ -826,12 +775,11 @@ export async function createNotification(n: { kind?: string; title: string; body
 // The goal detail page used to fire 2 requests per child (progress + assignees)
 // on top of 6 base requests. This returns everything the page needs in one shot.
 export async function goalBundle(id: string, wsId: string) {
-  const raw = await getGoal(id, wsId) as { id: string } | null;
-  if (!raw) return null;
-  const [[goal], ancestors, children, resources, comments, assignees] = await Promise.all([
-    withDoing([raw], wsId),
+  const goal = await getGoal(id, wsId);
+  if (!goal) return null;
+  const [ancestors, children, resources, comments, assignees] = await Promise.all([
     getAncestors(id, wsId),
-    listChildren(id, wsId).then((cs) => withDoing(cs as { id: string }[], wsId)),
+    listChildren(id, wsId),
     listResources(id, wsId),
     listMessages(id, wsId),
     listGoalMembers(id, wsId),

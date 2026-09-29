@@ -1,6 +1,6 @@
 import { json } from "../../../lib/server/db";
 import { requireWorkspace, goalInScope } from "../../../lib/server/workspace";
-import { getGoal, withDoing, updateGoal, archiveGoal, canEditGoal, assignOnTouch } from "../../../lib/server/queries";
+import { getGoal, updateGoal, archiveGoal, canEditGoal, assignOnTouch } from "../../../lib/server/queries";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const wctx = await requireWorkspace(req);
@@ -9,8 +9,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (!(await goalInScope(wctx.workspaceId, id, wctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
   const goal = await getGoal(id, wctx.workspaceId);
   if (!goal) return json({ error: "not found" }, { status: 404 });
-  const [withD] = await withDoing([goal as { id: string }], wctx.workspaceId);
-  return json(withD);
+  return json(goal);
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {

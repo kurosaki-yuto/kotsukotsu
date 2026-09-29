@@ -76,7 +76,7 @@ function SubTree({ parentId, depth, router }: { parentId: string; depth: number;
   }, [parentId]);
   const toggle = (cid: string) => setOpen((p) => { const n = new Set(p); if (n.has(cid)) n.delete(cid); else n.add(cid); return n; });
   const stopKid = async (cid: string) => {
-    setKids((ks) => (ks ? ks.map((k) => (k.id === cid ? { ...k, started_at: null, started_by_name: null, started_via: null, doing_at: null, doing_count: 0 } : k)) : ks));
+    setKids((ks) => (ks ? ks.map((k) => (k.id === cid ? { ...k, started_at: null, started_by_name: null, started_via: null } : k)) : ks));
     try { await setItemStarted(cid, false); } catch { /* tolerate */ }
   };
   const toggleDone = async (cid: string, done: boolean) => {
@@ -391,7 +391,7 @@ export default function GoalDetail() {
   // 「開始」。押した人が開始した人として残る。取り消しは押し間違い用
   const toggleSelfStarted = useCallback(async (started: boolean) => {
     if (!goal) return;
-    setGoal({ ...goal, started_at: started ? new Date().toISOString() : null, started_by_name: started ? (me?.name || me?.email || null) : null, started_via: started ? "app" : null, doing_at: started ? new Date().toISOString() : null, doing_count: started ? 1 : 0 });
+    setGoal({ ...goal, started_at: started ? new Date().toISOString() : null, started_by_name: started ? (me?.name || me?.email || null) : null, started_via: started ? "app" : null });
     try {
       await setItemStarted(id, started);
       const g = await getGoal(id);
@@ -454,7 +454,7 @@ export default function GoalDetail() {
   }, [loadChildren]);
 
   const startChild = useCallback(async (childId: string, started: boolean) => {
-    setChildren((cs) => cs.map((c) => (c.id === childId ? { ...c, started_at: started ? new Date().toISOString() : null, started_by_name: started ? (me?.name || me?.email || null) : null, started_via: started ? "app" : null, doing_at: started ? new Date().toISOString() : null, doing_count: started ? 1 : 0 } : c)));
+    setChildren((cs) => cs.map((c) => (c.id === childId ? { ...c, started_at: started ? new Date().toISOString() : null, started_by_name: started ? (me?.name || me?.email || null) : null, started_via: started ? "app" : null } : c)));
     try { await setItemStarted(childId, started); } catch (e) { console.error(e); }
     loadChildren();
   }, [loadChildren, me]);
