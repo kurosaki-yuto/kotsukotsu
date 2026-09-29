@@ -161,14 +161,21 @@ export async function recentResetCount(userId: string): Promise<number> {
   return r?.c ?? 0;
 }
 
-// Issuing a new link invalidates any earlier one, so a link forwarded to the
-// wrong place stops working the moment the real owner asks again.
+// `revokeEarlier` を立てると、それまでのリンクを使えなくする。管理者が発行し直す
+// ときに使う (LINE などで渡したリンクが別の所へ流れても、発行し直せば止まる)。
+// 本人がログイン画面から頼むときは立てない。メールは本人の受信箱にしか届かないので
+// 前のリンクを残しても危険は増えず、2回頼んだ人が1通目を開いて「使用済み」で
+// 止まることが実際に起きたため (2026-09-29)。どのリンクでも再設定が済めば、
+// consumePasswordReset が残りをまとめて使えなくする。
 export async function createPasswordReset(
   userId: string,
   requestedBy?: string | null,
   ttlMin: number = RESET_TTL_MIN,
+  opts: { revokeEarlier?: boolean } = {},
 ): Promise<{ token: string; expires: Date }> {
-  await run("UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL", nowIso(), userId);
+  if (opts.revokeEarlier) {
+    await run("UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL", nowIso(), userId);
+  }
   const token = randHex(32);
   const expires = new Date(Date.now() + ttlMin * 60_000);
   await run(
@@ -193,8 +200,14 @@ export async function checkPasswordReset(token: string): Promise<ResetCheck> {
   return { ok: true, user: u };
 }
 
+// 使ったリンクと、同じ人のまだ使っていないリンクをまとめて使えなくする。
 export async function consumePasswordReset(token: string): Promise<void> {
-  await run("UPDATE password_resets SET used_at = ? WHERE token = ?", nowIso(), token);
+  await run(
+    `UPDATE password_resets SET used_at = ?
+      WHERE used_at IS NULL
+        AND user_id = (SELECT user_id FROM password_resets WHERE token = ?)`,
+    nowIso(), token
+  );
 }
 
 export async function createSession(userId: string): Promise<{ token: string; expires: Date }> {

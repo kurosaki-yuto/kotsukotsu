@@ -43,7 +43,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     );
   }
 
-  const { token, expires } = await createPasswordReset(user.id, `admin:${wctx.user.id}`, ADMIN_RESET_TTL_MIN);
+  const { token, expires } = await createPasswordReset(user.id, `admin:${wctx.user.id}`, ADMIN_RESET_TTL_MIN, { revokeEarlier: true });
   const url = `${publicOrigin(req)}/reset/${token}`;
 
   // 送れなかったことは発行の失敗にしない。リンクは有効なので、画面で理由と一緒に
