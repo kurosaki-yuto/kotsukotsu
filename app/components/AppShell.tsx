@@ -63,6 +63,9 @@ void ICON.goals; void ICON.chat;
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
+  // ログインしていない人が開くページ。ここでログイン画面へ回すと、パスワード再設定の
+  // メールのリンク (/reset/...) を開いた人がログイン画面に着いて先へ進めなくなる。
+  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/reset/");
   const router = useRouter();
   const mainRef = useRef<HTMLElement | null>(null);
   // <main> is a shared layout element that persists across route changes —
@@ -261,7 +264,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // client-side auth gate (OpenNext/Cloudflare doesn't run Node middleware).
   // Gate the whole app render on this so NOTHING shows before auth is confirmed.
   useEffect(() => {
-    if (pathname.startsWith("/login")) return;
+    if (isAuthPage) return;
     let alive = true;
     (async () => {
       try {
@@ -277,7 +280,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       } catch { if (alive) { setAuthed(false); router.replace("/login"); } }
     })();
     return () => { alive = false; };
-  }, [pathname, router]);
+  }, [pathname, router, isAuthPage]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -336,7 +339,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   // Auth pages render without the app chrome (rail / topbar).
-  if (pathname.startsWith("/login")) {
+  if (isAuthPage) {
     return <>{children}</>;
   }
 
