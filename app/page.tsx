@@ -81,6 +81,21 @@ function buildItemTree(items: Goal[]): ItemNode[] {
     if (parent) parent.children.push(node);
     else roots.push(node);
   }
+  // 親の進行中は配下から出す (サーバーの subtreeDoing と同じ規則: 自分を含む未完了の配下で一番早く始めたもの)
+  const annotate = (n: ItemNode): ItemNode | null => {
+    let best: ItemNode | null = n.status === "active" && n.started_at ? n : null;
+    let count = best ? 1 : 0;
+    for (const c of n.children) {
+      if (c.status !== "active") continue;
+      const b = annotate(c);
+      if (!b) continue;
+      count += c.doing_count ?? 1;
+      if (!best || (b.started_at ?? "") < (best.started_at ?? "")) best = b;
+    }
+    if (best) Object.assign(n, { doing_at: best.started_at, doing_by_name: best.started_by_name, doing_via: best.started_via, doing_count: count });
+    return best;
+  };
+  roots.forEach(annotate);
   return roots;
 }
 
@@ -638,7 +653,7 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
   };
 
   const start = async (id: string, started: boolean) => {
-    setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, started_at: started ? new Date().toISOString() : null, started_via: started ? "app" : null } : t)));
+    setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, started_at: started ? new Date().toISOString() : null, started_via: started ? "app" : null, doing_at: started ? new Date().toISOString() : null, doing_count: started ? 1 : 0 } : t)));
     try {
       await setItemStarted(id, started);
       setTasks(await getMyTasks());

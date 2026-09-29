@@ -738,7 +738,19 @@ async function taskProgress(env: Env, wsId: string, goalId: string): Promise<{ t
     lines.push(`${done.length}/${kids.length} 完了、残り ${open.length}${overdue ? ` (期限切れ ${overdue})` : ""}`);
     const recent = done.filter((k) => k.completed_at).sort((a, b) => (b.completed_at! > a.completed_at! ? 1 : -1)).slice(0, 3);
     if (recent.length) lines.push("最近の完了: " + recent.map((k) => `${md(k.completed_at)} ${(k.name ?? "").trim()}`).join(" / "));
-    const doing = open.filter((k) => k.started_at);
+    // 子の進行中は、その子の配下 (自分を含む未完了) から出す。開始は一番下にしか付かないため
+    const doingRows = (await env.DB.prepare(
+      `WITH RECURSIVE d(root, id) AS (
+         SELECT id, id FROM projects WHERE parent_goal_id = ?1 AND workspace_id = ?2 AND status = 'active'
+         UNION ALL
+         SELECT d.root, p.id FROM projects p JOIN d ON p.parent_goal_id = d.id WHERE p.workspace_id = ?2 AND p.status = 'active'
+       )
+       SELECT r.name AS name, p.started_at, p.started_by_name, p.started_via
+         FROM d JOIN projects p ON p.id = d.id JOIN projects r ON r.id = d.root
+        WHERE p.started_at IS NOT NULL ORDER BY p.started_at ASC`
+    ).bind(goalId, wsId).all<{ name: string | null; started_at: string; started_by_name: string | null; started_via: string | null }>()).results;
+    const seen = new Set<string>();
+    const doing = doingRows.filter((k) => { const n = (k.name ?? "").trim(); if (seen.has(n)) return false; seen.add(n); return true; });
     if (doing.length) lines.push("進行中: " + doing.slice(0, 3).map((k) => `${(k.name ?? "").trim()} (${(k.started_by_name ?? "不明").trim()}${k.started_via && k.started_via !== "app" ? `・${k.started_via}` : ""}、${md(k.started_at)}から)`).join(" / "));
     if (open.length) lines.push("次の未完了: " + open.slice(0, 3).map((k) => (k.name ?? "").trim() + (k.deadline ? ` (期限 ${md(k.deadline)})` : "")).join(" / "));
   }
@@ -1067,6 +1079,7 @@ const tools: Record<string, ToolDef> = {
   start_task: {
     description:
       "タスクを「進行中」にする。作業に入る前 (手を動かし始める前) に必ず呼ぶ。人は画面の進行中の印で、今どのタスクを誰のAIが進めているかを見ている。" +
+      "開始が付くのは一番下のタスク (未完了の子を持たないもの) だけ。子を持つタスクを指定すると、自分ではなく配下の未完了の一番下をまとめて開始する (親の印は配下から自動で出る)。" +
       "開始した人 (接続している本人) と日時と使っているAIの名前が残る。既に進行中なら最初に始めた記録を残したまま何もしない。完了済みのタスクには付かない。" +
       "終わったら complete_subtask。started=false は押し間違いの取り消し用。",
     schema: z.object({
@@ -1076,26 +1089,39 @@ const tools: Record<string, ToolDef> = {
     }),
     handler: async (args, env, wsId, auth) => {
       await assertGoalInScope(env, auth, args.id);
+      // app/lib/server/queries.ts の setProjectStarted と同じ規則: 開始は配下の未完了の一番下だけ、停止は配下まとめて
+      const SUB = `WITH RECURSIVE sub(id) AS (
+          SELECT id FROM projects WHERE id = ?1 AND workspace_id = ?2 AND status = 'active'
+          UNION ALL
+          SELECT p.id FROM projects p JOIN sub ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2 AND p.status = 'active'
+        )`;
+      const row0 = await env.DB.prepare("SELECT status FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first<{ status: string }>();
+      if (!row0) throw new Error(`task not found: ${args.id}`);
+      let changed = 0;
       if (args.started === false) {
         const res = await env.DB.prepare(
-          "UPDATE projects SET started_at = NULL, started_by = NULL, started_by_name = NULL, started_via = NULL WHERE id = ? AND workspace_id = ?"
+          `${SUB} UPDATE projects SET started_at = NULL, started_by = NULL, started_by_name = NULL, started_via = NULL
+            WHERE workspace_id = ?2 AND started_at IS NOT NULL AND id IN (SELECT id FROM sub)`
         ).bind(args.id, wsId).run();
-        if (!res.meta.changes) throw new Error(`task not found: ${args.id}`);
+        changed = res.meta.changes ?? 0;
       } else {
         const who = await resolveCreator(env, wsId, auth.actor);
         const via = (args.agent ?? "").trim() || "AI";
-        await env.DB.prepare(
-          `UPDATE projects SET started_at = ?, started_by = ?, started_by_name = ?, started_via = ?
-            WHERE id = ? AND workspace_id = ? AND status = 'active' AND started_at IS NULL`
-        ).bind(nowIso(), who?.userId ?? null, who?.name ?? null, via, args.id, wsId).run();
+        const res = await env.DB.prepare(
+          `${SUB} UPDATE projects SET started_at = ?3, started_by = ?4, started_by_name = ?5, started_via = ?6
+            WHERE workspace_id = ?2 AND status = 'active' AND started_at IS NULL AND id IN (SELECT id FROM sub)
+              AND NOT EXISTS (SELECT 1 FROM projects c WHERE c.parent_goal_id = projects.id AND c.workspace_id = ?2 AND c.status = 'active')`
+        ).bind(args.id, wsId, nowIso(), who?.userId ?? null, who?.name ?? null, via).run();
+        changed = res.meta.changes ?? 0;
       }
       const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first<{ status: string; started_at: string | null }>();
-      if (!row) throw new Error(`task not found: ${args.id}`);
+      const hasKids = await env.DB.prepare("SELECT 1 AS x FROM projects WHERE parent_goal_id = ? AND workspace_id = ? AND status = 'active' LIMIT 1").bind(args.id, wsId).first();
       const note =
-        args.started === false ? "進行中を取り消した。"
-        : row.status !== "active" ? "完了済み (またはアーカイブ済み) のタスクなので進行中にしていない。開き直すなら complete_subtask で completed=false。"
+        args.started === false ? `進行中を止めた (配下含め ${changed} 件を未着手に戻した)。`
+        : row0.status !== "active" ? "完了済み (またはアーカイブ済み) のタスクなので進行中にしていない。開き直すなら complete_subtask で completed=false。"
+        : hasKids ? `子を持つタスクなので、自分ではなく配下の未完了の一番下 ${changed} 件を進行中にした。終わったものから complete_subtask で完了にする。`
         : "進行中。終わったら complete_subtask で完了にする。";
-      return { ...(row as object), note };
+      return { ...(row as object), started_count: changed, note };
     },
   },
 

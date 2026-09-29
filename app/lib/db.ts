@@ -26,6 +26,11 @@ export type Project = {
   started_at?: string | null;
   started_by_name?: string | null;
   started_via?: string | null;      // 'app' = 画面のボタン / それ以外 = AI の名前
+  // 配下 (自分を含む未完了) の進行中。親の印はこちらで出す (サーバーの subtreeDoing)
+  doing_at?: string | null;
+  doing_by_name?: string | null;
+  doing_via?: string | null;
+  doing_count?: number;
 };
 export type Goal = Project;
 
