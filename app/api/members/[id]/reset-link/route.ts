@@ -53,7 +53,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!mailConfigured()) {
     mail_error = "メール送信が設定されていません";
   } else {
-    const mail = passwordResetMail(url, user.name, { validFor: "24時間", byAdmin: true });
+    const mail = passwordResetMail(url, user.name, { validFor: "24時間", byAdmin: true, email: user.email });
     const sent = await sendMail({ to: user.email, ...mail });
     if (sent.ok) mailed_to = user.email;
     else mail_error = sent.reason === "not-configured" ? "メール送信が設定されていません" : `送信に失敗しました (${sent.message})`;

@@ -32,7 +32,7 @@ export async function POST(req: Request) {
         user.id,
         req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")
       );
-      const mail = passwordResetMail(`${origin}/reset/${token}`, user.name);
+      const mail = passwordResetMail(`${origin}/reset/${token}`, user.name, { email: user.email });
       const sent = await sendMail({ to: user.email, ...mail });
       // A provider-side failure is real breakage: surface it rather than let
       // the person sit and wait for mail that was never accepted.

@@ -109,45 +109,51 @@ export async function sendMail(opts: {
 
 // `byAdmin` は管理者がメンバー画面から発行した場合。本人が頼んだわけではないので、
 // 「受け付けました」ではなく管理者が発行したことを書き、有効期限も発行側に合わせる。
+//
+// 文面は迷惑メール判定を避けるため、なりすましメールの典型から離してある
+// (2026-09-29 に Gmail で迷惑メール扱いになった)。色付きの大きなボタンは使わず、
+// リンクは表示するURLと飛び先を同じにする。どのアカウント宛てか・どこから頼んだか・
+// 運営者を本文に書き、受け取った本人が自分の操作だと分かるようにする。
 export function passwordResetMail(
   url: string,
   name: string | null,
-  opts: { validFor?: string; byAdmin?: boolean } = {}
+  opts: { validFor?: string; byAdmin?: boolean; email?: string } = {}
 ): { subject: string; text: string; html: string } {
   const greeting = name ? `${name} さん` : "こんにちは";
-  const subject = "【こつこつ】パスワード再設定のご案内";
+  const subject = "こつこつ パスワード再設定のリンク";
   const validFor = opts.validFor ?? "1時間";
+  const account = opts.email ? `(${opts.email})` : "";
   const lead = opts.byAdmin
-    ? "こつこつの管理者が、パスワード再設定のリンクを発行しました。"
-    : "こつこつのパスワード再設定リクエストを受け付けました。";
+    ? `こつこつのワークスペースの管理者が、あなたのアカウント${account}のパスワード再設定リンクを発行しました。`
+    : `こつこつのログイン画面で、あなたのアカウント${account}のパスワード再設定が申し込まれました。`;
+  const site = new URL(url).origin;
   const text = [
     `${greeting}`,
     "",
     lead,
-    "下のURLを開いて、新しいパスワードを設定してください。",
+    "次のURLを開くと、新しいパスワードを決められます。",
     "",
     url,
     "",
-    `このURLは発行から${validFor}で無効になります。1回だけ使えます。`,
-    "設定が終わると、他の端末のログインは自動的に解除されます。",
+    `このURLは${validFor}有効で、1回だけ使えます。`,
+    "新しいパスワードを決めると、ほかの端末ではログアウトされます。",
     "",
-    "心当たりがない場合は、このメールを破棄してください。パスワードは変更されません。",
+    "申し込んだ覚えがない場合は、このメールは開かずに削除してください。今のパスワードはそのまま使えます。",
     "",
-    "— こつこつ",
+    "--",
+    "こつこつ",
+    site,
+    "運営: 合同会社もちもつ",
+    "このメールは送信専用のアドレスから送っています。",
   ].join("\n");
-  const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Noto Sans JP',sans-serif;font-size:14px;line-height:1.9;color:#22252a">
+  const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Noto Sans JP',sans-serif;font-size:14px;line-height:1.8;color:#22252a">
   <p>${escapeHtml(greeting)}</p>
-  <p>${escapeHtml(lead)}<br>下のボタンから、新しいパスワードを設定してください。</p>
-  <p style="margin:28px 0">
-    <a href="${escapeHtml(url)}" style="display:inline-block;background:#3d7dff;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600">パスワードを再設定する</a>
-  </p>
-  <p style="font-size:12px;color:#6b7280">ボタンが開けない場合は、次のURLをブラウザに貼り付けてください。<br>
-    <span style="word-break:break-all">${escapeHtml(url)}</span>
-  </p>
-  <p style="font-size:12px;color:#6b7280">このURLは発行から${escapeHtml(validFor)}で無効になります。1回だけ使えます。<br>
-    設定が終わると、他の端末のログインは自動的に解除されます。</p>
-  <p style="font-size:12px;color:#6b7280">心当たりがない場合は、このメールを破棄してください。パスワードは変更されません。</p>
-  <p style="font-size:12px;color:#9ca3af">— こつこつ</p>
+  <p>${escapeHtml(lead)}<br>次のURLを開くと、新しいパスワードを決められます。</p>
+  <p><a href="${escapeHtml(url)}" style="word-break:break-all">${escapeHtml(url)}</a></p>
+  <p>このURLは${escapeHtml(validFor)}有効で、1回だけ使えます。<br>
+    新しいパスワードを決めると、ほかの端末ではログアウトされます。</p>
+  <p>申し込んだ覚えがない場合は、このメールは開かずに削除してください。今のパスワードはそのまま使えます。</p>
+  <p style="color:#6b7280">--<br>こつこつ<br>${escapeHtml(site)}<br>運営: 合同会社もちもつ<br>このメールは送信専用のアドレスから送っています。</p>
 </div>`;
   return { subject, text, html };
 }
