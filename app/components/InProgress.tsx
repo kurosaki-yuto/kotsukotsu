@@ -45,20 +45,21 @@ export function InProgressBadge({ t, detail = false, wrapClass }: { t: Startable
 }
 
 /**
- * 左の丸チェック。押すと完了/未完了が切り替わるのは今までどおりで、形で状態を見せる:
- * 未着手 = 空の丸 / 進行中 = 橙の輪と中の点 / 完了 = 緑に白チェック
+ * 左の丸チェック。形で状態を見せる: 未着手 = 空の丸 / 進行中 = 橙の輪と中の点 / 完了 = 緑に白チェック
+ * 押したとき: 未着手 → 完了、完了 → 未完了に戻す、進行中 → 停止 (未着手に戻す)。
+ * 進行中の丸を押して完了になると「止めたつもりが終わっていた」になるため (9/29 黒崎指摘)。進行中から終えるときは「完了にする」
  */
-export function TaskCheck({ t, onToggle, square = false, idleBorder = "var(--border-strong)" }: {
-  t: Startable; onToggle: (done: boolean) => void; square?: boolean; idleBorder?: string;
+export function TaskCheck({ t, onToggle, onStop, square = false, idleBorder = "var(--border-strong)" }: {
+  t: Startable; onToggle: (done: boolean) => void; onStop: () => void; square?: boolean; idleBorder?: string;
 }) {
   const done = t.status === "done";
   const doing = isInProgress(t);
-  const label = done ? "未完了に戻す" : "完了にする";
-  const title = done ? label : doing ? `進行中 (${startedWho(t)}・${startedSince(t.started_at!)})。押すと完了にする` : label;
+  const label = done ? "未完了に戻す" : doing ? "停止 (未着手に戻す)" : "完了にする";
+  const title = doing ? `進行中 (${startedWho(t)}・${startedSince(t.started_at!)})。押すと停止して未着手に戻す` : label;
   return (
     <button
       type="button"
-      onClick={(e) => { e.stopPropagation(); onToggle(!done); }}
+      onClick={(e) => { e.stopPropagation(); if (doing) onStop(); else onToggle(!done); }}
       className={`w-5 h-5 shrink-0 ${square ? "rounded-md" : "rounded-full"} border flex items-center justify-center transition-colors`}
       style={
         done ? { background: "var(--done)", borderColor: "var(--done)" }
@@ -77,21 +78,24 @@ export function TaskCheck({ t, onToggle, square = false, idleBorder = "var(--bor
 }
 
 /**
- * 未着手のタスクに出す「開始」ボタン。完了済み・進行中には出さない。
+ * 「開始」と「停止」を同じ場所で切り替えるボタン。未着手なら開始、進行中なら停止 (未着手に戻す)。完了済みには出さない。
  * wrapClass は出し分け用 (例: "hidden lg:inline-flex")。ボタン自身の display と競合しないよう外側の span に付ける
  */
-export function StartButton({ t, onStart, className = "", wrapClass }: { t: Startable; onStart: () => void; className?: string; wrapClass?: string }) {
-  if (t.status !== "active" || t.started_at) return null;
+export function StartButton({ t, onToggle, className = "", wrapClass }: { t: Startable; onToggle: (started: boolean) => void; className?: string; wrapClass?: string }) {
+  if (t.status !== "active") return null;
+  const doing = !!t.started_at;
   const btn = (
     <button
       type="button"
-      onClick={(e) => { e.stopPropagation(); onStart(); }}
-      className={`start-btn shrink-0 ${className}`}
-      title="このタスクを進行中にする"
-      aria-label="開始"
+      onClick={(e) => { e.stopPropagation(); onToggle(!doing); }}
+      className={`start-btn shrink-0 ${doing ? "is-stop" : ""} ${className}`}
+      title={doing ? "進行中をやめて未着手に戻す" : "このタスクを進行中にする"}
+      aria-label={doing ? "停止" : "開始"}
     >
-      <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" aria-hidden><path d="M4 3l9 5-9 5V3z" /></svg>
-      開始
+      {doing
+        ? <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" aria-hidden><rect x="3.5" y="3.5" width="9" height="9" rx="1.5" /></svg>
+        : <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" aria-hidden><path d="M4 3l9 5-9 5V3z" /></svg>}
+      {doing ? "停止" : "開始"}
     </button>
   );
   return wrapClass ? <span className={`shrink-0 ${wrapClass}`}>{btn}</span> : btn;

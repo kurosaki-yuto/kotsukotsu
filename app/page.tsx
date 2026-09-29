@@ -328,7 +328,7 @@ function ItemRow({
   onAddChild: (id: string) => void;
   onArchive: (id: string) => void;
   onToggleDone: (id: string, done: boolean) => void;
-  onStart: (id: string) => void;
+  onStart: (id: string, started: boolean) => void;
   onMove: (id: string, newParentId: string | null, beforeId?: string | null) => void;
   onDragStartRow: (id: string) => void;
   onDragEndRow: () => void;
@@ -460,7 +460,7 @@ function ItemRow({
 
         {/* done toggle: round checkbox (empty / filled accent with white check) — hidden on read-only context rows */}
         {!isContext && (
-          <TaskCheck t={node} onToggle={(d) => onToggleDone(node.id, d)} square idleBorder="var(--border)" />
+          <TaskCheck t={node} onToggle={(d) => onToggleDone(node.id, d)} onStop={() => onStart(node.id, false)} square idleBorder="var(--border)" />
         )}
 
         {/* name: drill in (operable) or muted read-only label (context) */}
@@ -524,7 +524,7 @@ function ItemRow({
         <div className="ml-auto flex items-center gap-1 md:gap-2 flex-none">
           {/* single holder indicator (primary permission-holder) — left of the actions */}
           {canEdit && !isContext && (
-            <StartButton t={node} onStart={() => onStart(node.id)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover/row:opacity-100" />
+            <StartButton t={node} onToggle={(on) => onStart(node.id, on)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover/row:opacity-100" />
           )}
           <HolderAvatar holder={pickHolder(mine, node.created_by)} others={Math.max(0, mine.length - 1)} />
           {canEdit && !isContext && (
@@ -637,10 +637,10 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
     }
   };
 
-  const start = async (id: string) => {
-    setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, started_at: new Date().toISOString(), started_via: "app" } : t)));
+  const start = async (id: string, started: boolean) => {
+    setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, started_at: started ? new Date().toISOString() : null, started_via: started ? "app" : null } : t)));
     try {
-      await setItemStarted(id, true);
+      await setItemStarted(id, started);
       setTasks(await getMyTasks());
     } catch {
       /* optimistic; tolerate */
@@ -689,7 +689,7 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
                 {activeTasks.map((t) => (
                   <li key={t.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--hover)] group" onMouseEnter={() => prefetchGoalBundle(t.id)}>
                     {/* done checkbox */}
-                    <TaskCheck t={t} onToggle={(d) => toggle(t.id, d)} />
+                    <TaskCheck t={t} onToggle={(d) => toggle(t.id, d)} onStop={() => start(t.id, false)} />
                     {/* name → open */}
                     <button
                       onClick={() => router.push(`/goals/${t.id}`)}
@@ -699,7 +699,7 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
                       {t.name || "（無題）"}
                     </button>
                     <InProgressBadge t={t} wrapClass="hidden sm:inline-flex" />
-                    <StartButton t={t} onStart={() => start(t.id)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100" />
+                    <StartButton t={t} onToggle={(on) => start(t.id, on)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100" />
                   </li>
                 ))}
               </ul>
@@ -997,13 +997,14 @@ export default function TasksPage() {
     await load().catch(() => {});
   };
 
-  const handleStart = async (id: string) => {
+  const handleStart = async (id: string, started: boolean) => {
     try {
-      await setItemStarted(id, true);
+      await setItemStarted(id, started);
     } catch {
       /* tolerate */
     }
-    await load().catch(() => {});
+    // 押した結果はすぐ見せる。load() は3秒以内の読み直しを間引くので、開始→停止と続けて押すと2回目が画面に出ない
+    await loadOnce().catch(() => {});
   };
 
   const handleMove = async (id: string, newParentId: string | null, beforeId: string | null = null) => {

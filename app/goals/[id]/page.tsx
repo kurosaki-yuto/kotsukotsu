@@ -75,6 +75,10 @@ function SubTree({ parentId, depth, router }: { parentId: string; depth: number;
     return () => { alive = false; };
   }, [parentId]);
   const toggle = (cid: string) => setOpen((p) => { const n = new Set(p); if (n.has(cid)) n.delete(cid); else n.add(cid); return n; });
+  const stopKid = async (cid: string) => {
+    setKids((ks) => (ks ? ks.map((k) => (k.id === cid ? { ...k, started_at: null, started_by_name: null, started_via: null } : k)) : ks));
+    try { await setItemStarted(cid, false); } catch { /* tolerate */ }
+  };
   const toggleDone = async (cid: string, done: boolean) => {
     setKids((ks) => (ks ? ks.map((k) => (k.id === cid ? { ...k, status: done ? "done" : "active" } : k)) : ks));
     try { await toggleItemDone(cid, done); } catch { /* tolerate */ }
@@ -92,7 +96,7 @@ function SubTree({ parentId, depth, router }: { parentId: string; depth: number;
           <button onClick={() => toggle(k.id)} className="w-4 h-4 -ml-1 shrink-0 flex items-center justify-center text-[var(--muted-soft)] hover:text-[var(--foreground)]" aria-label={isOpen ? "折りたたむ" : "展開"} aria-expanded={isOpen}>
             <svg viewBox="0 0 16 16" className="w-3 h-3 transition-transform" style={{ transform: isOpen ? "rotate(90deg)" : "none" }} fill="currentColor"><path d="M6 3l5 5-5 5V3z" /></svg>
           </button>
-          <TaskCheck t={k} onToggle={(d) => toggleDone(k.id, d)} />
+          <TaskCheck t={k} onToggle={(d) => toggleDone(k.id, d)} onStop={() => stopKid(k.id)} />
           <button onClick={() => router.push(`/goals/${k.id}`)} className={`flex-1 min-w-0 text-left text-[14px] truncate hover:underline ${done ? "done-label" : ""}`} title={k.name}>{k.name || "無題のタスク"}</button>
           <InProgressBadge t={k} wrapClass="hidden sm:inline-flex" />
           <Assignees members={kidAssignees[k.id] ?? []} size={22} max={3} />
@@ -449,9 +453,9 @@ export default function GoalDetail() {
     loadChildren();
   }, [loadChildren]);
 
-  const startChild = useCallback(async (childId: string) => {
-    setChildren((cs) => cs.map((c) => (c.id === childId ? { ...c, started_at: new Date().toISOString(), started_by_name: me?.name || me?.email || null, started_via: "app" } : c)));
-    try { await setItemStarted(childId, true); } catch (e) { console.error(e); }
+  const startChild = useCallback(async (childId: string, started: boolean) => {
+    setChildren((cs) => cs.map((c) => (c.id === childId ? { ...c, started_at: started ? new Date().toISOString() : null, started_by_name: started ? (me?.name || me?.email || null) : null, started_via: started ? "app" : null } : c)));
+    try { await setItemStarted(childId, started); } catch (e) { console.error(e); }
     loadChildren();
   }, [loadChildren, me]);
 
@@ -594,7 +598,7 @@ export default function GoalDetail() {
           <span className="w-4 h-4 -ml-1 shrink-0" aria-hidden />
         )}
         {/* done checkbox */}
-        <TaskCheck t={c} onToggle={(d) => toggleChildDone(c.id, d)} />
+        <TaskCheck t={c} onToggle={(d) => toggleChildDone(c.id, d)} onStop={() => startChild(c.id, false)} />
         {/* name */}
         {editing ? (
           <input
@@ -630,7 +634,7 @@ export default function GoalDetail() {
         )}
         {/* 進行中の印 / 未着手なら「開始」(PC はホバー時だけ。スマホはタスクを開いた先のボタンで) */}
         <InProgressBadge t={c} wrapClass="hidden sm:inline-flex" />
-        {!editing && <StartButton t={c} onStart={() => startChild(c.id)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100" />}
+        {!editing && <StartButton t={c} onToggle={(on) => startChild(c.id, on)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100" />}
         {/* assignee avatars */}
         <Assignees members={ass} size={22} max={3} />
         {/* delete */}
@@ -783,7 +787,7 @@ export default function GoalDetail() {
               </div>
             ) : (
               <>
-              <StartButton t={goal} onStart={() => toggleSelfStarted(true)} className="start-btn-md" />
+              <StartButton t={goal} onToggle={toggleSelfStarted} className="start-btn-md" />
               <button
                 onClick={() => toggleSelfDone(true)}
                 className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] font-bold text-white hover:opacity-90 transition-opacity"
@@ -816,7 +820,6 @@ export default function GoalDetail() {
           {isInProgress(goal) && (
             <div className="flex items-center gap-2 mt-1.5 min-w-0">
               <InProgressBadge t={goal} detail />
-              <button onClick={() => toggleSelfStarted(false)} className="shrink-0 text-[12px] text-[var(--muted)] hover:text-[var(--foreground)] underline underline-offset-2">開始を取り消す</button>
             </div>
           )}
         </div>
