@@ -1,10 +1,12 @@
 import { json, first } from "../../../../lib/server/db";
 import { requireWorkspace } from "../../../../lib/server/workspace";
 import { createPasswordReset } from "../../../../lib/server/auth";
+import { mailConfigured, sendMail, passwordResetMail } from "../../../../lib/server/email";
 import { publicOrigin } from "@/app/lib/server/platform";
 
 // 管理者が、パスワードを忘れたメンバーのために再設定リンクを発行する。
-// メール送信の代わりに、管理者がこのリンクを LINE や Chatwork で本人に渡す。
+// 発行したリンクは本人の登録メールアドレスへそのまま送る。メールが使えない環境や
+// 送信に失敗したときは、管理者がこのリンクを LINE や Chatwork で本人に渡す。
 // リンクは24時間・1回限り。発行し直すと前のリンクは使えなくなる。
 //
 // 発行できるのは「このワークスペースにだけ所属している人」に限る。アカウントは
@@ -22,7 +24,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     "SELECT email FROM members WHERE id = ? AND workspace_id = ?", id, wctx.workspaceId
   );
   if (!member?.email) return json({ error: "このメンバーにはログイン用のアカウントがありません" }, { status: 404 });
-  const user = await first<{ id: string }>("SELECT id FROM users WHERE email = ?", member.email.toLowerCase().trim());
+  const user = await first<{ id: string; email: string; name: string | null }>(
+    "SELECT id, email, name FROM users WHERE email = ?", member.email.toLowerCase().trim()
+  );
   if (!user) return json({ error: "このメンバーにはログイン用のアカウントがありません" }, { status: 404 });
 
   const ws = await first<{ n: number; here: number }>(
@@ -40,5 +44,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const { token, expires } = await createPasswordReset(user.id, `admin:${wctx.user.id}`, ADMIN_RESET_TTL_MIN);
-  return json({ url: `${publicOrigin(req)}/reset/${token}`, expires_at: expires.toISOString() });
+  const url = `${publicOrigin(req)}/reset/${token}`;
+
+  // 送れなかったことは発行の失敗にしない。リンクは有効なので、画面で理由と一緒に
+  // リンクを見せ、管理者が別の手段で渡せるようにする。
+  let mailed_to: string | null = null;
+  let mail_error: string | null = null;
+  if (!mailConfigured()) {
+    mail_error = "メール送信が設定されていません";
+  } else {
+    const mail = passwordResetMail(url, user.name, { validFor: "24時間", byAdmin: true });
+    const sent = await sendMail({ to: user.email, ...mail });
+    if (sent.ok) mailed_to = user.email;
+    else mail_error = sent.reason === "not-configured" ? "メール送信が設定されていません" : `送信に失敗しました (${sent.message})`;
+  }
+
+  return json({ url, expires_at: expires.toISOString(), mailed_to, mail_error });
 }

@@ -203,7 +203,8 @@ export async function removeMember(id: string): Promise<void> {
 }
 
 /** 管理者が発行するパスワード再設定リンク (24時間・1回限り)。本人に LINE などで渡す。 */
-export async function createResetLink(id: string): Promise<{ url: string; expires_at: string }> {
+export type ResetLinkResult = { url: string; expires_at: string; mailed_to: string | null; mail_error: string | null };
+export async function createResetLink(id: string): Promise<ResetLinkResult> {
   return api(`/api/members/${id}/reset-link`, { method: "POST" });
 }
 
