@@ -94,6 +94,19 @@ export default function AgentLaunch({ goalId, goalName }: { goalId: string; goal
               {a.label}
             </a>
           ))}
+          {/* スマホの Claude アプリに指示文を直接渡す。claude.ai/code のリンクだとアプリに渡った時点で指示文が落ち、
+              貼り直しが要った (2026-09-29 黒崎)。claude:// は Mac 版で使えている形。iPhone 版で効くかは公式に記載なし */}
+          <a
+            role="menuitem"
+            href={`claude://code/new?q=${q}`}
+            onClick={() => { copy(); setOpen(false); }}
+            className="block md:hidden w-full text-left px-4 py-2.5 text-sm hover:bg-[var(--hover)]"
+          >
+            Claude アプリで進める
+            <span className="block text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>
+              指示文をそのままアプリに渡します
+            </span>
+          </a>
           <a
             role="menuitem"
             href={cloudUrl(q, repo.trim())}
