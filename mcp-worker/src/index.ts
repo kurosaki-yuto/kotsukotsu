@@ -68,6 +68,14 @@ const MUTATING_TOOLS = new Set([
 const PUSH_TOOLS = new Set([
   "complete_subtask", "create_notification", "assign_member_to_goal", "upload_file",
 ]);
+// 子を足した・移した先の親は一番下ではなくなるので、進行中を外す (app の clearStartedOnParent と同じ)
+async function clearStartedOnParent(env: Env, wsId: string, parentId: string | null): Promise<void> {
+  if (!parentId) return;
+  await env.DB.prepare(
+    "UPDATE projects SET started_at = NULL, started_by = NULL, started_by_name = NULL, started_via = NULL WHERE id = ? AND workspace_id = ? AND started_at IS NOT NULL"
+  ).bind(parentId, wsId).run();
+}
+
 async function notifyRealtime(env: Env, wsId: string): Promise<void> {
   if (!env.RT_URL || !env.RT_SECRET) return;
   try {
@@ -247,7 +255,7 @@ create_goal は completion_criteria / current_state をその場で受け取れ�
 砕いたタスクを add_subtask で1個ずつ該当ゴールの配下に登録します。複数アクションを1つに詰めないでください。やることを current_state や completion_criteria の文章として書くのも避けます。やることは必ずサブタスクとして持たせてください。
 
 7. 実行
-AIが進めるタスクも、着手前に作業ステップを2〜5個 add_subtask で登録してから始めます。手を動かし始める前に、そのタスク (と着手するステップ) を start_task で「進行中」にしてください。人は画面の印で「今どれが・誰のAIで動いているか」を見ています。開始を付けずに完了だけ付けると、途中経過が見えません。1ステップ終わるごとに complete_subtask でチェックしてください。裏で全部進めて最後にまとめて報告する形だと、人からは途中経過が見えません。全ステップ終わったらタスク本体も complete_subtask でチェックし、create_notification で完了を知らせます(何を完了したか、次の一手を一言)。判断や成果は send_chat でそのゴールのスレッドに残します。コメントは接続している本人の名義で投稿されるので、本人が書いたとして自然な内容にしてください。
+AIが進めるタスクも、着手前に作業ステップを2〜5個 add_subtask で登録してから始めます。手を動かし始める前に、今から手を付ける一番下の小タスク (登録したステップ) を start_task で「進行中」にしてください。進行中は一番下の小タスクにだけ付き、親 (顧客名などの箱) には付きません。ステップが終わったら complete_subtask し、次のステップに start_task します。人は画面の印で「今どれが・誰のAIで動いているか」を見ています。開始を付けずに完了だけ付けると、途中経過が見えません。1ステップ終わるごとに complete_subtask でチェックしてください。裏で全部進めて最後にまとめて報告する形だと、人からは途中経過が見えません。全ステップ終わったらタスク本体も complete_subtask でチェックし、create_notification で完了を知らせます(何を完了したか、次の一手を一言)。判断や成果は send_chat でそのゴールのスレッドに残します。コメントは接続している本人の名義で投稿されるので、本人が書いたとして自然な内容にしてください。
 
 8. 確認
 AIが進めたタスクの最終確認は人が行う前提です。完了基準に照らして満たせたかを判定し、結果を報告したうえで、人の承認が要る箇所を明示して止まります。重要判断・外向きの発信・金銭・契約は必ず人の承認を取ってください。
@@ -860,6 +868,7 @@ const tools: Record<string, ToolDef> = {
           args.current_state === undefined ? null : created
         )
         .run();
+      await clearStartedOnParent(env, wsId, parentId);
       const assignee =
         (await assignCreatorAsHolder(env, wsId, id, auth.actor)) ??
         (await inheritAssigneeFromAncestors(env, wsId, id, parentId));
@@ -963,6 +972,7 @@ const tools: Record<string, ToolDef> = {
       if (newParentId) {
         const dest = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?").bind(newParentId, wsId).first();
         if (!dest) throw new Error(`parent goal not found: ${newParentId}`);
+        await clearStartedOnParent(env, wsId, newParentId);
         // cycle guard: walk up from the destination; hitting `id` means the
         // destination is a descendant of the moved node -> reject.
         let cur: string | null = newParentId;
@@ -1045,6 +1055,7 @@ const tools: Record<string, ToolDef> = {
       )
         .bind(id, args.text.trim(), args.goalId, orderIdx, created, wsId)
         .run();
+      await clearStartedOnParent(env, wsId, args.goalId);
       const assignee =
         (await assignCreatorAsHolder(env, wsId, id, auth.actor)) ??
         (await inheritAssigneeFromAncestors(env, wsId, id, args.goalId));
@@ -1067,6 +1078,7 @@ const tools: Record<string, ToolDef> = {
   start_task: {
     description:
       "タスクを「進行中」にする。作業に入る前 (手を動かし始める前) に必ず呼ぶ。人は画面の進行中の印で、今どのタスクを誰のAIが進めているかを見ている。" +
+      "付けられるのは一番下の小タスク (未完了の子を持たないもの) だけ。ToDo と同じで、実際に手を動かす一番下を開始する。子を持つタスクを指定しても何もせず、その旨を返す。" +
       "開始した人 (接続している本人) と日時と使っているAIの名前が残る。既に進行中なら最初に始めた記録を残したまま何もしない。完了済みのタスクには付かない。" +
       "終わったら complete_subtask。started=false は押し間違いの取り消し用。",
     schema: z.object({
@@ -1086,14 +1098,17 @@ const tools: Record<string, ToolDef> = {
         const via = (args.agent ?? "").trim() || "AI";
         await env.DB.prepare(
           `UPDATE projects SET started_at = ?, started_by = ?, started_by_name = ?, started_via = ?
-            WHERE id = ? AND workspace_id = ? AND status = 'active' AND started_at IS NULL`
+            WHERE id = ? AND workspace_id = ? AND status = 'active' AND started_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM projects c WHERE c.parent_goal_id = projects.id AND c.workspace_id = projects.workspace_id AND c.status = 'active')`
         ).bind(nowIso(), who?.userId ?? null, who?.name ?? null, via, args.id, wsId).run();
       }
       const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first<{ status: string; started_at: string | null }>();
       if (!row) throw new Error(`task not found: ${args.id}`);
+      const hasKids = await env.DB.prepare("SELECT 1 AS x FROM projects WHERE parent_goal_id = ? AND workspace_id = ? AND status = 'active' LIMIT 1").bind(args.id, wsId).first();
       const note =
         args.started === false ? "進行中を取り消した。"
         : row.status !== "active" ? "完了済み (またはアーカイブ済み) のタスクなので進行中にしていない。開き直すなら complete_subtask で completed=false。"
+        : hasKids ? "子を持つタスクなので進行中にしていない。進行中は一番下の小タスクにだけ付ける。今から手を付ける小タスク (list_subtasks で見る) に start_task する。"
         : "進行中。終わったら complete_subtask で完了にする。";
       return { ...(row as object), note };
     },

@@ -340,6 +340,8 @@ function ItemRow({
   const stat = stats.get(node.id);
   const isRoot = depth === 0;
   const hasChildren = node.children.length > 0;
+  // 未完了の子を持つ = 親。進行中は一番下の小タスクにだけ付けるので、親には開始も印も出さない
+  const isParentRow = node.children.some((c) => c.status === "active");
   const isCollapsed = collapsed.has(node.id);
   // context row: shown only to convey where an assigned item connects (ancestor
   // chain). Read-only — no checkbox, no open, no actions; just a muted label.
@@ -460,7 +462,7 @@ function ItemRow({
 
         {/* done toggle: round checkbox (empty / filled accent with white check) — hidden on read-only context rows */}
         {!isContext && (
-          <TaskCheck t={node} onToggle={(d) => onToggleDone(node.id, d)} onStop={() => onStart(node.id, false)} square idleBorder="var(--border)" />
+          <TaskCheck t={node} onToggle={(d) => onToggleDone(node.id, d)} onStop={() => onStart(node.id, false)} square idleBorder="var(--border)" parent={isParentRow} />
         )}
 
         {/* name: drill in (operable) or muted read-only label (context) */}
@@ -497,7 +499,7 @@ function ItemRow({
           </span>
         )}
 
-        {!isContext && <InProgressBadge t={node} wrapClass="hidden sm:inline-flex" />}
+        {!isContext && <InProgressBadge t={node} wrapClass="hidden sm:inline-flex" parent={isParentRow} />}
 
         {/* 「完了 3/8」。この下の何件が終わったのかを開かずに出し、
             完了が1件でもあれば、この行だけ出す/隠すを切り替えられるようにする */}
@@ -524,7 +526,7 @@ function ItemRow({
         <div className="ml-auto flex items-center gap-1 md:gap-2 flex-none">
           {/* single holder indicator (primary permission-holder) — left of the actions */}
           {canEdit && !isContext && (
-            <StartButton t={node} onToggle={(on) => onStart(node.id, on)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover/row:opacity-100" />
+            <StartButton t={node} parent={isParentRow} onToggle={(on) => onStart(node.id, on)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover/row:opacity-100" />
           )}
           <HolderAvatar holder={pickHolder(mine, node.created_by)} others={Math.max(0, mine.length - 1)} />
           {canEdit && !isContext && (
@@ -689,7 +691,7 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
                 {activeTasks.map((t) => (
                   <li key={t.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--hover)] group" onMouseEnter={() => prefetchGoalBundle(t.id)}>
                     {/* done checkbox */}
-                    <TaskCheck t={t} onToggle={(d) => toggle(t.id, d)} onStop={() => start(t.id, false)} />
+                    <TaskCheck t={t} onToggle={(d) => toggle(t.id, d)} onStop={() => start(t.id, false)} parent={(t.open_children ?? 0) > 0} />
                     {/* name → open */}
                     <button
                       onClick={() => router.push(`/goals/${t.id}`)}
@@ -698,8 +700,8 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
                       {t.emoji && <span className="mr-1.5">{t.emoji}</span>}
                       {t.name || "（無題）"}
                     </button>
-                    <InProgressBadge t={t} wrapClass="hidden sm:inline-flex" />
-                    <StartButton t={t} onToggle={(on) => start(t.id, on)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100" />
+                    <InProgressBadge t={t} wrapClass="hidden sm:inline-flex" parent={(t.open_children ?? 0) > 0} />
+                    <StartButton t={t} parent={(t.open_children ?? 0) > 0} onToggle={(on) => start(t.id, on)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100" />
                   </li>
                 ))}
               </ul>

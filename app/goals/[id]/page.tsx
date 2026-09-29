@@ -598,7 +598,7 @@ export default function GoalDetail() {
           <span className="w-4 h-4 -ml-1 shrink-0" aria-hidden />
         )}
         {/* done checkbox */}
-        <TaskCheck t={c} onToggle={(d) => toggleChildDone(c.id, d)} onStop={() => startChild(c.id, false)} />
+        <TaskCheck t={c} onToggle={(d) => toggleChildDone(c.id, d)} onStop={() => startChild(c.id, false)} parent={!!prog && prog.total > prog.done} />
         {/* name */}
         {editing ? (
           <input
@@ -633,8 +633,8 @@ export default function GoalDetail() {
           </span>
         )}
         {/* 進行中の印 / 未着手なら「開始」(PC はホバー時だけ。スマホはタスクを開いた先のボタンで) */}
-        <InProgressBadge t={c} wrapClass="hidden sm:inline-flex" />
-        {!editing && <StartButton t={c} onToggle={(on) => startChild(c.id, on)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100" />}
+        <InProgressBadge t={c} wrapClass="hidden sm:inline-flex" parent={!!prog && prog.total > prog.done} />
+        {!editing && <StartButton t={c} parent={!!prog && prog.total > prog.done} onToggle={(on) => startChild(c.id, on)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100" />}
         {/* assignee avatars */}
         <Assignees members={ass} size={22} max={3} />
         {/* delete */}
@@ -787,7 +787,7 @@ export default function GoalDetail() {
               </div>
             ) : (
               <>
-              <StartButton t={goal} onToggle={toggleSelfStarted} className="start-btn-md" />
+              <StartButton t={goal} parent={children.some((c) => c.status === "active")} onToggle={toggleSelfStarted} className="start-btn-md" />
               <button
                 onClick={() => toggleSelfDone(true)}
                 className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] font-bold text-white hover:opacity-90 transition-opacity"
@@ -817,9 +817,9 @@ export default function GoalDetail() {
               className={`w-full resize-none bg-transparent font-bold leading-snug focus:outline-none placeholder:text-[var(--muted-soft)] placeholder:font-normal ${selfDone ? "text-[var(--muted)]" : ""}`}
             />
           </div>
-          {isInProgress(goal) && (
+          {isInProgress(goal) && !children.some((c) => c.status === "active") && (
             <div className="flex items-center gap-2 mt-1.5 min-w-0">
-              <InProgressBadge t={goal} detail />
+              <InProgressBadge t={goal} detail parent={children.some((c) => c.status === "active")} />
             </div>
           )}
         </div>

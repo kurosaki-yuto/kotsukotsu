@@ -30,8 +30,9 @@ export function startedSince(iso: string): string {
  * 進行中の印。detail=true で「誰が・いつから」を文字で出す (狭い行では印+名前だけ)。
  * wrapClass は出し分け用。行ではスマホで隠す (左のチェックの形で進行中は分かるので、名前の幅を優先する)
  */
-export function InProgressBadge({ t, detail = false, wrapClass }: { t: Startable; detail?: boolean; wrapClass?: string }) {
-  if (!isInProgress(t)) return null;
+export function InProgressBadge({ t, detail = false, wrapClass, parent = false }: { t: Startable; detail?: boolean; wrapClass?: string; parent?: boolean }) {
+  // 進行中は一番下の小タスクにだけ出す。親 (未完了の子を持つ) には出さない
+  if (parent || !isInProgress(t)) return null;
   const who = startedWho(t);
   const since = startedSince(t.started_at!);
   const badge = (
@@ -49,11 +50,11 @@ export function InProgressBadge({ t, detail = false, wrapClass }: { t: Startable
  * 押したとき: 未着手 → 完了、完了 → 未完了に戻す、進行中 → 停止 (未着手に戻す)。
  * 進行中の丸を押して完了になると「止めたつもりが終わっていた」になるため (9/29 黒崎指摘)。進行中から終えるときは「完了にする」
  */
-export function TaskCheck({ t, onToggle, onStop, square = false, idleBorder = "var(--border-strong)" }: {
-  t: Startable; onToggle: (done: boolean) => void; onStop: () => void; square?: boolean; idleBorder?: string;
+export function TaskCheck({ t, onToggle, onStop, square = false, idleBorder = "var(--border-strong)", parent = false }: {
+  t: Startable; onToggle: (done: boolean) => void; onStop: () => void; square?: boolean; idleBorder?: string; parent?: boolean;
 }) {
   const done = t.status === "done";
-  const doing = isInProgress(t);
+  const doing = !parent && isInProgress(t);
   const label = done ? "未完了に戻す" : doing ? "停止 (未着手に戻す)" : "完了にする";
   const title = doing ? `進行中 (${startedWho(t)}・${startedSince(t.started_at!)})。押すと停止して未着手に戻す` : label;
   return (
@@ -81,8 +82,9 @@ export function TaskCheck({ t, onToggle, onStop, square = false, idleBorder = "v
  * 「開始」と「停止」を同じ場所で切り替えるボタン。未着手なら開始、進行中なら停止 (未着手に戻す)。完了済みには出さない。
  * wrapClass は出し分け用 (例: "hidden lg:inline-flex")。ボタン自身の display と競合しないよう外側の span に付ける
  */
-export function StartButton({ t, onToggle, className = "", wrapClass }: { t: Startable; onToggle: (started: boolean) => void; className?: string; wrapClass?: string }) {
-  if (t.status !== "active") return null;
+export function StartButton({ t, onToggle, className = "", wrapClass, parent = false }: { t: Startable; onToggle: (started: boolean) => void; className?: string; wrapClass?: string; parent?: boolean }) {
+  // 開始できるのは一番下の小タスクだけ。親 (未完了の子を持つ) には出さない
+  if (t.status !== "active" || parent) return null;
   const doing = !!t.started_at;
   const btn = (
     <button

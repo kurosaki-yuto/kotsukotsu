@@ -412,7 +412,7 @@ export async function unassignNodeMember(nodeId: string, memberId: string): Prom
 }
 
 // ---------- my tasks (items assigned to the logged-in user) ----------
-export type MyTask = { id: string; name: string; emoji: string | null; status: string; parent_goal_id: string | null; parent_name: string | null; parent_emoji: string | null; started_at?: string | null; started_by_name?: string | null; started_via?: string | null };
+export type MyTask = { id: string; name: string; emoji: string | null; status: string; parent_goal_id: string | null; parent_name: string | null; parent_emoji: string | null; started_at?: string | null; started_by_name?: string | null; started_via?: string | null; open_children?: number };
 export async function getMyTasks(): Promise<MyTask[]> {
   return (await api("/api/my-tasks")) as MyTask[];
 }

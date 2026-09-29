@@ -81,6 +81,7 @@ export async function moveGoal(id: string, newParentId: string | null, beforeId:
   if (newParentId) {
     const dest = await first<{ id: string }>("SELECT id FROM projects WHERE id = ? AND workspace_id = ?", newParentId, wsId);
     if (!dest) return false;
+    await clearStartedOnParent(newParentId, wsId);
     // walk up from the destination; if we reach `id`, the destination is a
     // descendant of the node being moved -> cycle, reject.
     let cur: string | null = newParentId;
@@ -130,6 +131,7 @@ export async function createChild(parentId: string, name: string, wsId: string, 
     "INSERT INTO projects (id, name, order_idx, parent_goal_id, created_by, workspace_id) VALUES (?,?,?,?,?,?)",
     id, (name || "").trim() || "新しいタスク", c?.c ?? 0, parentId, userId ?? null, wsId
   );
+  await clearStartedOnParent(parentId, wsId);
   return getGoal(id, wsId);
 }
 export async function getAncestors(id: string, wsId: string) {
@@ -203,6 +205,10 @@ export async function cascadeNodeDone(id: string, wsId: string) {
  * タスクを「進行中」にする / 戻す。status は触らない (active のまま started_at だけ立てる)。
  * 開いた・編集した・コメントしただけでは呼ばない。人がボタンを押したか、AI が start_task を呼んだときだけ。
  * 既に進行中なら最初に始めた人・日時を上書きしない。
+ *
+ * 進行中は一番下の小タスク (未完了の子を持たないもの) にだけ付ける。ToDo と同じで、実際に手を動かすのは
+ * 一番下だから。親 (顧客名などの箱) には付けないし、親に印も出さない (2026-09-29 黒崎指示)。
+ * 子が足されて親になったタスクの開始は clearStartedOnParent で外す。
  */
 export async function setProjectStarted(
   id: string, started: boolean, wsId: string,
@@ -211,7 +217,8 @@ export async function setProjectStarted(
   if (started) {
     await run(
       `UPDATE projects SET started_at = ?, started_by = ?, started_by_name = ?, started_via = ?
-        WHERE id = ? AND workspace_id = ? AND status = 'active' AND started_at IS NULL`,
+        WHERE id = ? AND workspace_id = ? AND status = 'active' AND started_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM projects c WHERE c.parent_goal_id = projects.id AND c.workspace_id = projects.workspace_id AND c.status = 'active')`,
       nowIso(), by.userId, by.name, by.via, id, wsId
     );
   } else {
@@ -220,6 +227,15 @@ export async function setProjectStarted(
       id, wsId
     );
   }
+}
+
+/** 子を足した・移した先の親は一番下ではなくなるので、進行中を外す */
+export async function clearStartedOnParent(parentId: string | null, wsId: string) {
+  if (!parentId) return;
+  await run(
+    "UPDATE projects SET started_at = NULL, started_by = NULL, started_by_name = NULL, started_via = NULL WHERE id = ? AND workspace_id = ? AND started_at IS NOT NULL",
+    parentId, wsId
+  );
 }
 
 export async function toggleProjectDone(id: string, done: boolean, wsId: string) {
@@ -241,7 +257,9 @@ export async function listMyAssignedItems(user: { email: string }, wsId: string)
   const m = await first<{ id: string }>("SELECT id FROM members WHERE email = ? AND workspace_id = ?", email, wsId);
   if (!m) return [];
   return all(
-    `SELECT p.id, p.name, p.emoji, p.status, p.parent_goal_id, p.started_at, p.started_by_name, p.started_via, parent.name AS parent_name, parent.emoji AS parent_emoji
+    `SELECT p.id, p.name, p.emoji, p.status, p.parent_goal_id, p.started_at, p.started_by_name, p.started_via,
+            (SELECT COUNT(*) FROM projects c WHERE c.parent_goal_id = p.id AND c.workspace_id = p.workspace_id AND c.status = 'active') AS open_children,
+            parent.name AS parent_name, parent.emoji AS parent_emoji
      FROM goal_members gm
      JOIN projects p ON p.id = gm.goal_id
      LEFT JOIN projects parent ON parent.id = p.parent_goal_id
