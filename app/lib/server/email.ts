@@ -60,13 +60,14 @@ export async function sendMail(opts: {
 
   if (env.EMAIL) {
     try {
-      await env.EMAIL.send({
+      const r = await env.EMAIL.send({
         to: opts.to,
         from: parseFrom(env.MAIL_FROM || DEFAULT_FROM),
         subject: opts.subject,
         text: opts.text,
         html: opts.html,
       });
+      console.log("email binding accepted", r?.messageId);
       return { ok: true };
     } catch (e) {
       const err = e as { code?: string; message?: string };
