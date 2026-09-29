@@ -31,6 +31,13 @@ function promptFor(id: string, name: string): string {
 }
 
 // デスクトップアプリを開くリンク。スマホでは開けないので PC 幅だけ出す
+// スマホ用の短い指示文。iPhone の Claude アプリに渡すと、長い URL (5000文字超) では指示文が入ったり入らなかったりした
+// (2026-09-29 黒崎)。細かい手順はこつこつ MCP の運用ルールとして接続した AI に毎回渡っているので、ここでは要点だけ書く
+function shortPromptFor(id: string, name: string): string {
+  const n = name.length > 60 ? name.slice(0, 60) + "…" : name;
+  return `こつこつのタスク「${n}」(id: ${id}) を進めてください。こつこつの運用ルールどおりに、get_goal で完了の基準と現状を読み、作業ステップを add_subtask で登録し、手を付けるステップを start_task してから着手してください。外への送信・公開・金銭・契約・本番データの削除は、実行前に私の承認を取ってください。`;
+}
+
 const APPS = [
   { key: "codex", label: "Codex で進める", url: (q: string) => `codex://threads/new?prompt=${q}` },
   { key: "claude", label: "Claude Code で進める", url: (q: string) => `claude://code/new?q=${q}` },
@@ -65,6 +72,7 @@ export default function AgentLaunch({ goalId, goalName }: { goalId: string; goal
 
   const text = promptFor(goalId, goalName);
   const q = encodeURIComponent(text);
+  const qShort = encodeURIComponent(shortPromptFor(goalId, goalName));
   // 押した時点で指示文もコピーしておく (スマホで Claude アプリに渡ったときに URL の中身が落ちても、貼れば始められる)
   const copy = () => { try { void navigator.clipboard.writeText(text); } catch { /* 非対応 */ } };
   const repoOk = REPO_RE.test(repo.trim());
@@ -98,7 +106,7 @@ export default function AgentLaunch({ goalId, goalName }: { goalId: string; goal
               貼り直しが要った (2026-09-29 黒崎)。claude:// は Mac 版で使えている形。iPhone 版で効くかは公式に記載なし */}
           <a
             role="menuitem"
-            href={`claude://code/new?q=${q}`}
+            href={`claude://code/new?q=${qShort}`}
             onClick={() => { copy(); setOpen(false); }}
             className="block md:hidden w-full text-left px-4 py-2.5 text-sm hover:bg-[var(--hover)]"
           >
@@ -109,7 +117,7 @@ export default function AgentLaunch({ goalId, goalName }: { goalId: string; goal
           </a>
           <a
             role="menuitem"
-            href={cloudUrl(q, repo.trim())}
+            href={cloudUrl(qShort, repo.trim())}
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => { copy(); setOpen(false); }}
