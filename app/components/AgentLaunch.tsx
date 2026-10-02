@@ -7,9 +7,10 @@ import { mcpConnectHint } from "../lib/hosts";
 // このゴールの指示文を入れた状態で AI を開く (送信は本人が Enter)。
 //   Claude: claude://code/new?q=...          (Claude Desktop の Code 画面。PC のみ)
 //   Codex:  codex://threads/new?prompt=...   (Codex アプリ。PC のみ)
-//   クラウド: https://claude.ai/code?prompt=...&repositories=owner/repo
-//            (Claude Code on the web。スマホでも開ける。公式の Pre-fill sessions:
-//             https://code.claude.com/docs/en/web-quickstart.md )
+//   クラウド: https://claude.ai/code/new?q=...&repo=owner/repo
+//            (Claude Code on the web。スマホでは Claude アプリが開く universal link。公式:
+//             https://support.claude.com/en/articles/14898120-open-the-claude-mobile-app-with-a-link )
+//   スマホ:   claude://code/new?q=...&repo=owner/repo (iOS・Android の Claude アプリ。同じ記事)
 // claude.ai/code・chatgpt.com/codex は X-Frame-Options: SAMEORIGIN で埋め込めないため、別アプリ・別タブで開く形にしている。
 
 // 細かい書き方 (完了の基準・現状の形式など) はこつこつ MCP の instructions に任せ、ここは着手の順番と止まる場所だけ書く。
@@ -46,8 +47,17 @@ const APPS = [
 // クラウドの Claude Code で作業させるリポジトリ (owner/repo)。人によって違うので、その人の端末に覚えておく
 const CLOUD_REPO_KEY = "kk:cloudRepo";
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+// 以前は web 用の claude.ai/code?prompt=&repositories= を使っていたが、iPhone ではこのリンクが Claude アプリに渡ると
+// アプリの /code (一覧) に着いて指示文が落ちた (2026-09-29 黒崎)。モバイルアプリが受けるのは /code/new?q=&repo= の形だけで、
+// web でも同じ形で指示文とリポジトリが入る (2026-10-02 確認) ので、スマホ・PC ともこの形にそろえる
+function repoParam(repo: string): string {
+  return REPO_RE.test(repo) ? `&repo=${encodeURIComponent(repo)}` : "";
+}
 function cloudUrl(q: string, repo: string): string {
-  return `https://claude.ai/code?prompt=${q}` + (REPO_RE.test(repo) ? `&repositories=${encodeURIComponent(repo)}` : "");
+  return `https://claude.ai/code/new?q=${q}` + repoParam(repo);
+}
+function mobileAppUrl(q: string, repo: string): string {
+  return `claude://code/new?q=${q}` + repoParam(repo);
 }
 
 export default function AgentLaunch({ goalId, goalName }: { goalId: string; goalName: string }) {
@@ -135,11 +145,10 @@ export default function AgentLaunch({ goalId, goalName }: { goalId: string; goal
               {a.label}
             </a>
           ))}
-          {/* スマホの Claude アプリに指示文を直接渡す。claude.ai/code のリンクだとアプリに渡った時点で指示文が落ち、
-              貼り直しが要った (2026-09-29 黒崎)。claude:// は Mac 版で使えている形。iPhone 版で効くかは公式に記載なし */}
+          {/* スマホの Claude アプリに指示文とリポジトリを直接渡す (公式のモバイル用リンク) */}
           <a
             role="menuitem"
-            href={`claude://code/new?q=${qShort}`}
+            href={mobileAppUrl(qShort, repo.trim())}
             onClick={() => { copy(); setOpen(false); }}
             className="block md:hidden w-full text-left px-4 py-2.5 text-sm hover:bg-[var(--hover)]"
           >
@@ -163,7 +172,7 @@ export default function AgentLaunch({ goalId, goalName }: { goalId: string; goal
             </span>
           </a>
           <label className="block px-4 pt-1 pb-2 text-[11px]" style={{ color: "var(--muted)" }}>
-            クラウドで使うリポジトリ (owner/repo)
+            Claude アプリ・クラウドで使うリポジトリ (owner/repo)
             <input
               value={repo}
               onChange={(e) => saveRepo(e.target.value)}
@@ -176,7 +185,7 @@ export default function AgentLaunch({ goalId, goalName }: { goalId: string; goal
               style={{ borderColor: repo && !repoOk ? "var(--danger)" : "var(--border-strong)" }}
             />
             <span className="block mt-1">
-              {repo && !repoOk ? "owner/repo の形で入れてください" : "空なら claude.ai/code で選びます。この端末に覚えます"}
+              {repo && !repoOk ? "owner/repo の形で入れてください" : "空なら開いた先で選びます。この端末に覚えます"}
             </span>
           </label>
           <div className="px-4 pt-1 pb-1.5 text-[11px] border-t" style={{ color: "var(--muted)", borderColor: "var(--border)" }}>
