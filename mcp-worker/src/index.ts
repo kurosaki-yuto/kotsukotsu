@@ -657,7 +657,7 @@ function assertOwnMessage(auth: McpAuth, msg: { author: string | null; author_em
 const SUBTREE_CTE = `WITH RECURSIVE sub(id) AS (
   SELECT id FROM projects WHERE workspace_id = ? AND id IN (SELECT value FROM json_each(?))
   UNION ALL
-  SELECT p.id FROM projects p JOIN sub s ON p.parent_goal_id = s.id
+  SELECT p.id FROM sub s CROSS JOIN projects p ON p.parent_goal_id = s.id
 )`;
 
 function jsonResponse(body: unknown, status = 200, extra?: HeadersInit): Response {
@@ -935,7 +935,7 @@ const tools: Record<string, ToolDef> = {
           `WITH RECURSIVE sub(id) AS (
              SELECT id FROM projects WHERE parent_goal_id = ? AND workspace_id = ?
              UNION
-             SELECT c.id FROM projects c JOIN sub ON c.parent_goal_id = sub.id WHERE c.workspace_id = ?
+             SELECT c.id FROM sub CROSS JOIN projects c ON c.parent_goal_id = sub.id WHERE c.workspace_id = ?
            )
            UPDATE projects SET status='archived', archived_at=?
             WHERE workspace_id = ? AND status != 'archived' AND id IN (SELECT id FROM sub)`
@@ -1140,7 +1140,7 @@ const tools: Record<string, ToolDef> = {
           `WITH RECURSIVE sub(id) AS (
              SELECT id FROM projects WHERE id = ?1 AND workspace_id = ?2
              UNION ALL
-             SELECT p.id FROM projects p JOIN sub ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
+             SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
            )
            UPDATE projects SET status = 'done', completed_at = ?3
             WHERE workspace_id = ?2 AND status = 'active' AND id IN (SELECT id FROM sub)`
@@ -1151,7 +1151,7 @@ const tools: Record<string, ToolDef> = {
           `WITH RECURSIVE sub(id) AS (
              SELECT id FROM projects WHERE id = ?1 AND workspace_id = ?2
              UNION ALL
-             SELECT p.id FROM projects p JOIN sub ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
+             SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
            )
            UPDATE nodes SET completed_at = ?3, updated_at = ?3
             WHERE workspace_id = ?2 AND completed_at IS NULL AND project_id IN (SELECT id FROM sub)`

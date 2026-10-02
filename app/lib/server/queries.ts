@@ -14,7 +14,7 @@ export async function listGoals(wsId: string, scopeGoalId: string | null = null)
     `WITH RECURSIVE sub(id) AS (
        SELECT id FROM projects WHERE id = ? AND workspace_id = ?
        UNION ALL
-       SELECT p.id FROM projects p JOIN sub ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?
+       SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?
      )
      SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id, started_at, started_by_name, started_via FROM projects WHERE workspace_id = ? AND status != 'archived' AND id IN (SELECT id FROM sub)
      ORDER BY order_idx ASC, created_at ASC`,
@@ -61,7 +61,7 @@ export async function archiveGoal(id: string, wsId: string) {
     `WITH RECURSIVE sub(id) AS (
        SELECT id FROM projects WHERE id = ? AND workspace_id = ?
        UNION
-       SELECT c.id FROM projects c JOIN sub ON c.parent_goal_id = sub.id WHERE c.workspace_id = ?
+       SELECT c.id FROM sub CROSS JOIN projects c ON c.parent_goal_id = sub.id WHERE c.workspace_id = ?
      )
      UPDATE projects SET status='archived', archived_at=?
       WHERE workspace_id = ? AND id IN (SELECT id FROM sub)`,
@@ -168,7 +168,7 @@ export async function cascadeGoalDone(id: string, wsId: string) {
     `WITH RECURSIVE sub(id) AS (
        SELECT id FROM projects WHERE id = ?1 AND workspace_id = ?2
        UNION ALL
-       SELECT p.id FROM projects p JOIN sub ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
+       SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
      )
      UPDATE projects SET status = 'done', completed_at = COALESCE(completed_at, ?3)
       WHERE workspace_id = ?2 AND status = 'active' AND id IN (SELECT id FROM sub)`,
@@ -179,7 +179,7 @@ export async function cascadeGoalDone(id: string, wsId: string) {
     `WITH RECURSIVE sub(id) AS (
        SELECT id FROM projects WHERE id = ?1 AND workspace_id = ?2
        UNION ALL
-       SELECT p.id FROM projects p JOIN sub ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
+       SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
      )
      UPDATE nodes SET completed_at = ?3, updated_at = ?3
       WHERE workspace_id = ?2 AND completed_at IS NULL AND project_id IN (SELECT id FROM sub)`,
@@ -193,7 +193,7 @@ export async function cascadeNodeDone(id: string, wsId: string) {
     `WITH RECURSIVE sub(id) AS (
        SELECT id FROM nodes WHERE id = ?1 AND workspace_id = ?2
        UNION ALL
-       SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id WHERE n.workspace_id = ?2
+       SELECT n.id FROM sub CROSS JOIN nodes n ON n.parent_id = sub.id WHERE n.workspace_id = ?2
      )
      UPDATE nodes SET completed_at = ?3, updated_at = ?3
       WHERE workspace_id = ?2 AND completed_at IS NULL AND id IN (SELECT id FROM sub)`,
@@ -566,13 +566,16 @@ export async function memberRelevantGoalIds(email: string, wsId: string): Promis
   if (!roots.length) return [];
   // walk down from the member's assignments inside SQL — passing every root id
   // as a bound parameter blows D1's per-query parameter cap once someone holds
-  // more than ~100 assignments
+  // more than ~100 assignments.
+  // UNION (not UNION ALL): a member assigned to both a goal and its subtasks
+  // walked the same subtree once per assignment — 3,370万行・15秒 on the real
+  // DB, which stalled every other query (login included) behind it.
   const rows = await all<{ id: string }>(
     `WITH RECURSIVE sub(id) AS (
        SELECT p.id FROM projects p JOIN goal_members gm ON gm.goal_id = p.id
         WHERE gm.member_id = ? AND p.workspace_id = ?
-       UNION ALL
-       SELECT p.id FROM projects p JOIN sub ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?
+       UNION
+       SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?
      )
      SELECT id FROM sub`,
     m.id, wsId, wsId
@@ -640,6 +643,10 @@ async function goalVisibilityClause(viewerEmail: string, wsId: string): Promise<
   const email = viewerEmail.toLowerCase().trim();
   const m = await first<{ id: string }>("SELECT id FROM members WHERE email = ? AND workspace_id = ?", email, wsId);
   if (!m) return { clause: "goal_id IS NULL", args: [] };
+  // 再帰の各段は `down CROSS JOIN projects` の順で書く。`projects JOIN down` だと
+  // SQLite が projects 側を workspace_id で全件走査し、1段ごとに全タスクを読む
+  // (バッジの件数1回で129万行・0.7秒。15秒ごとに叩かれて D1 が詰まり、ログインまで止まった)。
+  // CROSS JOIN は結合順を固定するので、parent_goal_id のインデックスで子だけを引く。
   const clause =
     `(goal_id IS NULL
       OR EXISTS (SELECT 1 FROM notification_recipients nrc WHERE nrc.notification_id = n.id AND nrc.email = ?)
@@ -650,7 +657,7 @@ async function goalVisibilityClause(viewerEmail: string, wsId: string): Promise<
             SELECT p.id FROM projects p JOIN goal_members gm ON gm.goal_id = p.id
              WHERE gm.member_id = ? AND p.workspace_id = ?
             UNION
-            SELECT p.id FROM projects p JOIN down ON p.parent_goal_id = down.id WHERE p.workspace_id = ?
+            SELECT p.id FROM down CROSS JOIN projects p ON p.parent_goal_id = down.id WHERE p.workspace_id = ?
           )
         SELECT id FROM down)))`;
   return { clause, args: [email, m.id, wsId, wsId] };

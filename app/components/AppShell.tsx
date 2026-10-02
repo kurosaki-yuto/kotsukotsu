@@ -80,6 +80,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [authed, setAuthed] = useState<boolean | null>(null); // null = checking
+  const authedRef = useRef(authed);
+  authedRef.current = authed;
+  const [authRetry, setAuthRetry] = useState(0); // bumps to re-run the check after a transient failure
   const fileInputRef = useRef<HTMLInputElement>(null);
   // workspaces (logo / top-right switcher)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -269,6 +272,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const r = await fetch("/api/auth/me", { credentials: "same-origin" });
+        // 5xx / 通信失敗は「ログインしていない」ではない。D1 が詰まった日に
+        // ここで /login へ飛ばしていたため、タスクを開くたびにログアウトされた。
+        // 追い出すのは、サーバーが「ユーザー無し」と答えたときだけにする。
+        if (!r.ok && r.status !== 401) throw new Error(`auth/me ${r.status}`);
         const d = (await r.json()) as { user?: unknown };
         if (!alive) return;
         if (d.user) {
@@ -277,10 +284,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           setAuthed(false);
           router.replace("/login");
         }
-      } catch { if (alive) { setAuthed(false); router.replace("/login"); } }
+      } catch {
+        // 確認できなかっただけ。ログイン済みならそのまま、初回なら少し待って再確認
+        if (alive && authedRef.current !== true) setTimeout(() => { if (alive) setAuthRetry((n) => n + 1); }, 2000);
+      }
     })();
     return () => { alive = false; };
-  }, [pathname, router, isAuthPage]);
+  }, [pathname, router, isAuthPage, authRetry]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
