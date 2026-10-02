@@ -44,6 +44,7 @@ async function api(path: string, init?: RequestInit): Promise<any> {
   announce(FETCH_OK_EVENT, { path });
   // tell other devices (via the realtime bridge) that we changed something
   const method = (init?.method ?? "GET").toUpperCase();
+  if (method !== "GET") prefetched.clear(); // 書いたあとに、書く前の先読みを渡さない
   if (method !== "GET" && typeof window !== "undefined") window.dispatchEvent(new Event("kotsukotsu:mutated"));
   return r.status === 204 ? null : r.json();
 }
@@ -117,7 +118,26 @@ export async function switchWorkspace(workspaceId: string): Promise<void> {
 // ---------- goals (projects) ----------
 // activeOnly: 完了を除いた一覧。トップ画面が先に描くために使う (完了が全体の9割を占める)
 export async function listGoals(opts?: { activeOnly?: boolean }): Promise<Goal[]> {
-  return (await api(opts?.activeOnly ? "/api/goals?active=1" : "/api/goals")) as Goal[];
+  const path = opts?.activeOnly ? "/api/goals?active=1" : "/api/goals";
+  return (await takePrefetched(path, () => api(path))) as Goal[];
+}
+
+// トップ画面の初回の取得を、AppShell のログイン確認と同時に始めるための受け渡し。
+// 1回取り出したら消し、10秒で捨てる。書き込みがあれば全部捨てる (api() 内)。
+const prefetched = new Map<string, { at: number; p: Promise<unknown> }>();
+function takePrefetched(path: string, fetcher: () => Promise<unknown>): Promise<unknown> {
+  const hit = prefetched.get(path);
+  prefetched.delete(path);
+  if (hit && Date.now() - hit.at < 10000) return hit.p;
+  return fetcher();
+}
+export function prefetchHome(): void {
+  const at = Date.now();
+  for (const path of ["/api/goals?active=1", "/api/goals", "/api/goal-members/batch?all=1"]) {
+    const p = api(path);
+    p.catch(() => {}); // 未ログインなら 401。使われずに捨てられるだけ
+    prefetched.set(path, { at, p });
+  }
 }
 
 export async function getGoal(id: string): Promise<Goal | null> {
@@ -382,7 +402,8 @@ export async function listGoalMembersBatch(goalIds: string[]): Promise<Record<st
   return (await api(`/api/goal-members/batch`, { method: "POST", body: JSON.stringify({ ids: goalIds }) })) as Record<string, GoalMember[]>;
 }
 export async function listGoalMembersAll(): Promise<Record<string, GoalMember[]>> {
-  return (await api(`/api/goal-members/batch?all=1`)) as Record<string, GoalMember[]>;
+  const path = "/api/goal-members/batch?all=1";
+  return (await takePrefetched(path, () => api(path))) as Record<string, GoalMember[]>;
 }
 export async function assignGoalMember(goalId: string, memberId: string, canEdit = false): Promise<void> {
   await api(`/api/goals/${goalId}/members`, { method: "POST", body: JSON.stringify({ memberId, canEdit }) });

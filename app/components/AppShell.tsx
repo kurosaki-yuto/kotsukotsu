@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { unreadCount, listGoals, getMyProfile, updateMyAvatar, listWorkspaces, createWorkspace, switchWorkspace, createInvite, UNREAD_CHANGED_EVENT, type MyProfile, type Workspace } from "../lib/addness";
+import { unreadCount, listGoals, getMe, invalidateMe, prefetchHome, getMyProfile, updateMyAvatar, listWorkspaces, createWorkspace, switchWorkspace, createInvite, UNREAD_CHANGED_EVENT, type MyProfile, type Workspace } from "../lib/addness";
 import { type Goal } from "../lib/db";
 import RealtimeBridge from "./RealtimeBridge";
 import LoadFailureBanner from "./LoadFailureBanner";
@@ -271,12 +271,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     let alive = true;
     (async () => {
       try {
-        const r = await fetch("/api/auth/me", { credentials: "same-origin" });
-        // 5xx / 通信失敗は「ログインしていない」ではない。D1 が詰まった日に
-        // ここで /login へ飛ばしていたため、タスクを開くたびにログアウトされた。
+        // 初回は画面がまだ無いので、確認を待たずにトップの一覧を取りに行く (直列待ちを消す)
+        if (authedRef.current === null && pathname === "/") prefetchHome();
+        // ここで取った答えを getMe() の共有キャッシュに載せ、画面側の「自分は誰か」に使い回す
+        invalidateMe();
+        // 5xx / 通信失敗は「ログインしていない」ではない (getMe が throw する)。D1 が
+        // 詰まった日にここで /login へ飛ばしていたため、タスクを開くたびにログアウトされた。
         // 追い出すのは、サーバーが「ユーザー無し」と答えたときだけにする。
-        if (!r.ok && r.status !== 401) throw new Error(`auth/me ${r.status}`);
-        const d = (await r.json()) as { user?: unknown };
+        const d = await getMe();
         if (!alive) return;
         if (d.user) {
           setAuthed(true);
