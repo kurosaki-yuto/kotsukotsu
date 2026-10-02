@@ -75,6 +75,27 @@ export default function AgentLaunch({ goalId, goalName }: { goalId: string; goal
   const qShort = encodeURIComponent(shortPromptFor(goalId, goalName));
   // 押した時点で指示文もコピーしておく (スマホで Claude アプリに渡ったときに URL の中身が落ちても、貼れば始められる)
   const copy = () => { try { void navigator.clipboard.writeText(text); } catch { /* 非対応 */ } };
+  // 「指示文をコピー」: 開かずにコピーだけする (Cursor や別の AI に貼るとき用)。押した結果をその場で見せてから閉じる
+  const [copied, setCopied] = useState<"idle" | "ok" | "ng">("idle");
+  const copyOnly = async () => {
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch {
+      // clipboard API が使えない環境 (http・古いブラウザ) の代わり
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        ok = document.execCommand("copy");
+        ta.remove();
+      } catch { /* 非対応 */ }
+    }
+    setCopied(ok ? "ok" : "ng");
+    if (ok) setTimeout(() => { setCopied("idle"); setOpen(false); }, 1200);
+  };
+  useEffect(() => { if (!open) setCopied("idle"); }, [open]);
   const repoOk = REPO_RE.test(repo.trim());
   return (
     <div ref={ref} className="relative">
@@ -91,6 +112,18 @@ export default function AgentLaunch({ goalId, goalName }: { goalId: string; goal
       </button>
       {open && (
         <div role="menu" className="absolute left-0 md:left-auto md:right-0 mt-1 z-20 w-[min(300px,calc(100vw-48px))] card py-1" style={{ boxShadow: "var(--shadow-pop)" }}>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => { void copyOnly(); }}
+            className="block w-full text-left px-4 py-2.5 text-sm hover:bg-[var(--hover)] border-b"
+            style={{ borderColor: "var(--border)" }}
+          >
+            {copied === "ok" ? "コピーしました" : "指示文をコピー"}
+            <span className="block text-[11px] mt-0.5" style={{ color: copied === "ng" ? "var(--danger)" : "var(--muted)" }}>
+              {copied === "ng" ? "コピーできませんでした。ブラウザの設定を確認してください" : "開かずにコピーだけします。好きな AI に貼って使えます"}
+            </span>
+          </button>
           {APPS.map((a) => (
             <a
               key={a.key}
