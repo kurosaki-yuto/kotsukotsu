@@ -5,9 +5,10 @@ import { notifyWorkspace } from "./realtime";
 import { resolveMentionedMembers } from "./mentions";
 
 // ---------------- goals (projects) ----------------
-export async function listGoals(wsId: string, scopeGoalId: string | null = null) {
+export async function listGoals(wsId: string, scopeGoalId: string | null = null, activeOnly = false) {
+  const statusClause = activeOnly ? "status NOT IN ('archived', 'done')" : "status != 'archived'";
   if (!scopeGoalId) {
-    return all("SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id, started_at, started_by_name, started_via FROM projects WHERE status != 'archived' AND workspace_id = ? ORDER BY order_idx ASC, created_at ASC", wsId);
+    return all(`SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id, started_at, started_by_name, started_via FROM projects WHERE ${statusClause} AND workspace_id = ? ORDER BY order_idx ASC, created_at ASC`, wsId);
   }
   // scoped member: only the scope goal and its descendants
   return all(
@@ -16,7 +17,7 @@ export async function listGoals(wsId: string, scopeGoalId: string | null = null)
        UNION ALL
        SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?
      )
-     SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id, started_at, started_by_name, started_via FROM projects WHERE workspace_id = ? AND status != 'archived' AND id IN (SELECT id FROM sub)
+     SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id, started_at, started_by_name, started_via FROM projects WHERE workspace_id = ? AND ${statusClause} AND id IN (SELECT id FROM sub)
      ORDER BY order_idx ASC, created_at ASC`,
     scopeGoalId, wsId, wsId, wsId
   );

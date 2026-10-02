@@ -115,8 +115,9 @@ export async function switchWorkspace(workspaceId: string): Promise<void> {
 }
 
 // ---------- goals (projects) ----------
-export async function listGoals(): Promise<Goal[]> {
-  return (await api("/api/goals")) as Goal[];
+// activeOnly: 完了を除いた一覧。トップ画面が先に描くために使う (完了が全体の9割を占める)
+export async function listGoals(opts?: { activeOnly?: boolean }): Promise<Goal[]> {
+  return (await api(opts?.activeOnly ? "/api/goals?active=1" : "/api/goals")) as Goal[];
 }
 
 export async function getGoal(id: string): Promise<Goal | null> {

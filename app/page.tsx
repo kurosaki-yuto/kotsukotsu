@@ -775,7 +775,7 @@ export default function TasksPage() {
   const [operableIds, setOperableIds] = useState<Set<string> | null>(null); // null = full editor view
   const [dragId, setDragId] = useState<string | null>(null); // row being dragged
   const [dropHint, setDropHint] = useState<DropHint>(null); // active drop indicator
-  const seededCollapse = useRef(false);
+  const seededCollapse = useRef<"none" | "active" | "full">("none");
   const toggleCollapse = (id: string) =>
     setCollapsed((prev) => {
       const n = new Set(prev);
@@ -788,18 +788,30 @@ export default function TasksPage() {
   // seed the collapsed set so the tree opens closed — but keep the ancestor
   // context chain expanded (only collapse operable parents) so an assigned
   // member can immediately see their item and what it connects to.
-  const applyView = (visible: Goal[], operable: Set<string> | null) => {
+  // `activeOnly` = the first, done-less list. When the full list lands after it,
+  // only the done parents are added to the collapsed set, so rows the viewer
+  // already opened in the meantime stay open.
+  const applyView = (visible: Goal[], operable: Set<string> | null, activeOnly = false) => {
     setItems(visible);
     setOperableIds(operable);
-    if (!seededCollapse.current && visible.length > 0) {
-      const parents = new Set<string>();
-      for (const it of visible) {
-        const p = it.parent_goal_id;
-        if (p && (operable == null || operable.has(p))) parents.add(p);
-      }
-      setCollapsed(parents);
-      seededCollapse.current = true;
+    if (seededCollapse.current === "full" || visible.length === 0) return;
+    if (activeOnly && seededCollapse.current === "active") return;
+    const parents = new Set<string>();
+    for (const it of visible) {
+      const p = it.parent_goal_id;
+      if (p && (operable == null || operable.has(p))) parents.add(p);
     }
+    if (seededCollapse.current === "none") {
+      setCollapsed(parents);
+    } else {
+      const done = new Set(visible.filter((it) => it.status === "done").map((it) => it.id));
+      setCollapsed((prev) => {
+        const n = new Set(prev);
+        for (const p of parents) if (done.has(p)) n.add(p);
+        return n;
+      });
+    }
+    seededCollapse.current = activeOnly ? "active" : "full";
   };
 
   const load = async () => {
@@ -836,7 +848,10 @@ export default function TasksPage() {
         setLoading(true);
         // the tree and its assignees don't depend on who we are — start them now
         // and let /api/auth/me resolve in parallel (it used to gate everything)
-        const goalsP = listGoals().catch(() => [] as Goal[]);
+        // 完了は全体の9割 (2026-10 時点で2,600件超・一覧の大半のバイト数)。未完了だけを
+        // 先に取って描き、完了込みの全体は裏で追いかけて差し替える。
+        const activeP = listGoals({ activeOnly: true }).catch(() => null);
+        const goalsP = listGoals().catch(() => null);
         const membersP = listGoalMembersAll().catch(() => ({}) as Record<string, GoalMember[]>);
         const me = await getMe().catch(() => ({ user: null, needsBootstrap: false, scopeGoalId: null }));
         const isAdmin = me?.user?.role === "admin";
@@ -848,17 +863,26 @@ export default function TasksPage() {
         // those connect to (read-only context); unrelated branches are dropped.
         // admins / scoped: assignees don't depend on the id list, so fetch them in
         // parallel with the tree instead of after it
-        const all = await goalsP;
+        const mineP = !isAdmin && !isScoped ? getMyTasks().catch(() => [] as MyTask[]) : null;
+        const view = async (all: Goal[]) => {
+          if (!mineP) return { visible: all, operable: null };
+          const mine = await mineP;
+          return pruneToAssigned(all, new Set(mine.map((t) => t.id)));
+        };
+        let fullApplied = false;
+        void activeP.then(async (active) => {
+          if (!active) return;
+          const v = await view(active);
+          if (!alive || fullApplied) return;
+          applyView(v.visible, v.operable, true);
+          setLoading(false);
+        });
+        // 全体の取得に失敗したら、先に出した未完了のツリーは消さずに残す (失敗はバナーが出る)
+        const all = (await goalsP) ?? (await activeP) ?? [];
         if (!alive) return;
-        let visible = all;
-        let operable: Set<string> | null = null;
-        if (!isAdmin && !isScoped) {
-          const mine = await getMyTasks().catch(() => [] as MyTask[]);
-          if (!alive) return;
-          const pruned = pruneToAssigned(all, new Set(mine.map((t) => t.id)));
-          visible = pruned.visible;
-          operable = pruned.operable;
-        }
+        const { visible, operable } = await view(all);
+        if (!alive) return;
+        fullApplied = true;
         applyView(visible, operable);
         setLoading(false); // render the tree immediately; holder avatars stream in after
         // holder avatars — one batched request, background, non-blocking

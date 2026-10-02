@@ -5,8 +5,9 @@ import { listGoals, listTopGoals, createGoal, setGoalCreator, assignCreatorAsHol
 export async function GET(req: Request) {
   const ctx = await requireWorkspace(req);
   if (!ctx) return json({ error: "unauthorized" }, { status: 401 });
-  const top = new URL(req.url).searchParams.get("top");
-  return json(top ? await listTopGoals(ctx.workspaceId, ctx.scopeGoalId) : await listGoals(ctx.workspaceId, ctx.scopeGoalId));
+  const params = new URL(req.url).searchParams;
+  if (params.get("top")) return json(await listTopGoals(ctx.workspaceId, ctx.scopeGoalId));
+  return json(await listGoals(ctx.workspaceId, ctx.scopeGoalId, params.get("active") === "1"));
 }
 
 export async function POST(req: Request) {
