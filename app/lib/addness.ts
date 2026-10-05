@@ -446,6 +446,16 @@ export async function getMyTurn(): Promise<MyTurnItem[]> {
   return (await api("/api/my-turn")) as MyTurnItem[];
 }
 
+// ---------- 終えたタスク (メンバー全員の今日・今週の完了数。タスク名は本人の分だけ) ----------
+export type DoneCounts = {
+  timezone: string; dayStart: string; weekStart: string;
+  members: { name: string; email: string; today: number; week: number }[];
+  mineToday: { id: string; name: string; completed_at: string }[];
+};
+export async function getDoneCounts(): Promise<DoneCounts> {
+  return (await api("/api/done-counts")) as DoneCounts;
+}
+
 // ---------- recursive items (goal == task; subtasks are child goals) ----------
 export async function listTopGoals(): Promise<Goal[]> {
   return (await api("/api/goals?top=1")) as Goal[];

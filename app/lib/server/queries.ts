@@ -240,12 +240,13 @@ export async function clearStartedOnParent(parentId: string | null, wsId: string
   );
 }
 
-export async function toggleProjectDone(id: string, done: boolean, wsId: string) {
+export async function toggleProjectDone(id: string, done: boolean, wsId: string, byEmail: string | null = null) {
   // completed_at を残す (MCP の complete_subtask と同じ)。無いと「いつ終わったか」が
   // 分からず、ゴールの自動の進捗欄に「最近の完了」を出せない。
+  // completed_by は「終えたタスク」の数え上げ用 (0025)。一緒に閉じる配下 (cascadeGoalDone) には入れない。
   await run(
-    "UPDATE projects SET status = ?, completed_at = ? WHERE id = ? AND workspace_id = ?",
-    done ? "done" : "active", done ? nowIso() : null, id, wsId
+    "UPDATE projects SET status = ?, completed_at = ?, completed_by = ? WHERE id = ? AND workspace_id = ?",
+    done ? "done" : "active", done ? nowIso() : null, done && byEmail ? byEmail.toLowerCase().trim() : null, id, wsId
   );
   if (done) {
     await cascadeGoalDone(id, wsId);
@@ -322,6 +323,81 @@ export async function listMyTurn(
     if (a.direct !== b.direct) return a.direct ? -1 : 1;
     return (b.state_updated_at ?? "").localeCompare(a.state_updated_at ?? "");
   });
+}
+
+// 「終えたタスク」: 今日・今週 (月曜から) に誰が何件タスクを完了にしたか。メンバー全員が全員分の数を見られる
+// (2026-10-05 黒崎の指示)。見せるのは数だけで、タスク名は本人の分だけ返す (担当外のタスクの中身は見せない)。
+// 数え方: 完了にした人 (completed_by)。列ができる前 (0025 より前) の完了は担当者で数える。
+// 親を完了にして一緒に閉じた配下 (親と5秒以内に閉じたもの) は、担当者で数えるときに除く。
+function zonedStart(tz: string, kind: "day" | "week", now = new Date()): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", weekday: "short", hour12: false })
+      .formatToParts(now).map((p) => [p.type, p.value])
+  ) as Record<string, string>;
+  const y = Number(parts.year), m = Number(parts.month), d = Number(parts.day);
+  const hh = Number(parts.hour) % 24, mm = Number(parts.minute), ss = Number(parts.second);
+  // その時刻の UTC とのずれ (分)
+  const offsetMs = Date.UTC(y, m - 1, d, hh, mm, ss) - Math.floor(now.getTime() / 1000) * 1000;
+  let startLocal = Date.UTC(y, m - 1, d);
+  if (kind === "week") {
+    const wd = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(parts.weekday);
+    startLocal -= Math.max(0, wd) * 86400000;
+  }
+  return new Date(startLocal - offsetMs).toISOString();
+}
+
+export type DoneCount = { name: string; email: string; today: number; week: number };
+export async function listDoneCounts(viewerEmail: string, wsId: string) {
+  const ws = await first<{ timezone: string | null }>("SELECT timezone FROM workspaces WHERE id = ?", wsId);
+  const tz = ws?.timezone?.trim() || "Asia/Tokyo";
+  let dayStart: string, weekStart: string;
+  try { dayStart = zonedStart(tz, "day"); weekStart = zonedStart(tz, "week"); }
+  catch { dayStart = zonedStart("Asia/Tokyo", "day"); weekStart = zonedStart("Asia/Tokyo", "week"); }
+  // 今週ぶんを1回で取り、今日かどうかは JS で分ける
+  const rows = await all<{ who: string; completed_at: string }>(
+    `SELECT lower(p.completed_by) AS who, p.completed_at
+       FROM projects p
+      WHERE p.workspace_id = ?1 AND p.status = 'done' AND p.completed_at >= ?2 AND p.completed_by IS NOT NULL
+     UNION ALL
+     SELECT lower(m.email) AS who, p.completed_at
+       FROM projects p
+       JOIN goal_members gm ON gm.goal_id = p.id
+       JOIN members m ON m.id = gm.member_id AND m.workspace_id = ?1
+       LEFT JOIN projects par ON par.id = p.parent_goal_id
+      WHERE p.workspace_id = ?1 AND p.status = 'done' AND p.completed_at >= ?2 AND p.completed_by IS NULL
+        AND NOT (par.completed_at IS NOT NULL AND abs(julianday(p.completed_at) - julianday(par.completed_at)) * 86400 < 5)`,
+    wsId, weekStart
+  );
+  const roster = await all<{ name: string | null; email: string | null }>(
+    "SELECT name, email FROM members WHERE workspace_id = ? AND email IS NOT NULL ORDER BY name", wsId
+  );
+  const counts = new Map<string, { today: number; week: number }>();
+  for (const r of rows) {
+    if (!r.who) continue;
+    const c = counts.get(r.who) ?? { today: 0, week: 0 };
+    c.week++;
+    if (r.completed_at >= dayStart) c.today++;
+    counts.set(r.who, c);
+  }
+  const members: DoneCount[] = roster.map((m) => {
+    const email = (m.email ?? "").toLowerCase().trim();
+    const c = counts.get(email) ?? { today: 0, week: 0 };
+    return { name: m.name || email, email, ...c };
+  }).sort((a, b) => b.today - a.today || b.week - a.week || a.name.localeCompare(b.name, "ja"));
+  // 本人の分だけはタスク名も返す
+  const me = viewerEmail.toLowerCase().trim();
+  const mine = await all<{ id: string; name: string; completed_at: string }>(
+    `SELECT p.id, p.name, p.completed_at FROM projects p
+      WHERE p.workspace_id = ?1 AND p.status = 'done' AND p.completed_at >= ?2
+        AND (lower(p.completed_by) = ?3 OR (p.completed_by IS NULL AND EXISTS (
+              SELECT 1 FROM goal_members gm JOIN members m ON m.id = gm.member_id
+               WHERE gm.goal_id = p.id AND m.workspace_id = ?1 AND lower(m.email) = ?3)
+             AND NOT EXISTS (SELECT 1 FROM projects par WHERE par.id = p.parent_goal_id AND par.completed_at IS NOT NULL
+                              AND abs(julianday(p.completed_at) - julianday(par.completed_at)) * 86400 < 5)))
+      ORDER BY p.completed_at DESC`,
+    wsId, dayStart, me
+  );
+  return { timezone: tz, dayStart, weekStart, members, mineToday: mine };
 }
 
 // ---------------- nodes (subtasks) ----------------

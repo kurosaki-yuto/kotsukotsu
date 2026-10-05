@@ -1167,10 +1167,11 @@ const tools: Record<string, ToolDef> = {
       // completed_at を残す。projects には status='done' しか無かったため
       // 「いつ終わったか」が一切残らず、速度も「提案は実行されたか」も測れなかった
       // (done_log は nodes 側の完了しか書かない)。
+      // completed_by は「終えたタスク」の数え上げ用 (0025)。AI が閉じたらトークンの持ち主の完了として数える
       const res = await env.DB.prepare(
-        "UPDATE projects SET status = ?, completed_at = ? WHERE id = ? AND workspace_id = ?"
+        "UPDATE projects SET status = ?, completed_at = ?, completed_by = ? WHERE id = ? AND workspace_id = ?"
       )
-        .bind(status, args.completed ? nowIso() : null, args.id, wsId)
+        .bind(status, args.completed ? nowIso() : null, args.completed ? (auth.actor?.email?.toLowerCase().trim() || null) : null, args.id, wsId)
         .run();
       if (!res.meta.changes) throw new Error(`subtask not found: ${args.id}`);
       if (args.current_state?.trim()) {

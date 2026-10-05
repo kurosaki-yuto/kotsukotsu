@@ -66,7 +66,7 @@ export default function PlanDayLaunch() {
         title="こつこつのタスクを Google カレンダーの空き時間に入れる"
       >
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-        AIで今日の予定を組む
+        <span className="hidden md:inline">AIで今日の予定を組む</span><span className="md:hidden">予定を組む</span>
       </button>
       {open && (
         <div role="menu" className="absolute right-0 mt-1 z-20 w-[min(300px,calc(100vw-48px))] card py-1" style={{ boxShadow: "var(--shadow-pop)" }}>

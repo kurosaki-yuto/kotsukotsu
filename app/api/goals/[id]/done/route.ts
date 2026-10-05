@@ -9,6 +9,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (!(await canEditGoal({ id: wctx.user.id, email: wctx.user.email, role: wctx.role }, id, wctx.workspaceId))) return json({ error: "forbidden" }, { status: 403 });
   if (!(await goalInScope(wctx.workspaceId, id, wctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
   const body = (await req.json().catch(() => ({}))) as { done?: boolean };
-  await toggleProjectDone(id, !!body.done, wctx.workspaceId);
+  await toggleProjectDone(id, !!body.done, wctx.workspaceId, wctx.user.email);
   return json({ ok: true });
 }

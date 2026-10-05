@@ -24,6 +24,8 @@ import { Avatar } from "./components/Assignees";
 import { InProgressBadge, StartButton, TaskCheck } from "./components/InProgress";
 import PlanDayLaunch from "./components/PlanDayLaunch";
 import MyTurn from "./components/MyTurn";
+import DoneCounts from "./components/DoneCounts";
+import { Chevron, useCollapsed } from "./lib/useCollapsed";
 
 type ItemNode = Goal & { children: ItemNode[] };
 type DropPos = "before" | "after" | "inside"; // drag-drop placement relative to a row
@@ -767,6 +769,9 @@ export default function TasksPage() {
   const router = useRouter();
   const indent = useIndent();
   const [admin, setAdmin] = useState<boolean | null>(null);
+  const [myEmail, setMyEmail] = useState<string | null>(null);
+  // 「期限が近い」の開け閉め (スマホの上の段と PC の右の段で同じ状態を使う。端末に覚える)
+  const [deadlinesClosed, toggleDeadlines] = useCollapsed("deadlines");
   const [scoped, setScoped] = useState(false); // task-scoped member: sees their subtree
   const [items, setItems] = useState<Goal[]>([]);
   const [members, setMembers] = useState<Record<string, GoalMember[]>>({});
@@ -859,7 +864,7 @@ export default function TasksPage() {
         const isAdmin = me?.user?.role === "admin";
         const isScoped = !!me?.scopeGoalId;
         if (!alive) return;
-        setAdmin(isAdmin); setScoped(isScoped);
+        setAdmin(isAdmin); setScoped(isScoped); setMyEmail(me?.user?.email ?? null);
         // admins / scoped editors see the full tree (and can mutate it). Plain
         // members see only their assigned items + the ancestor chain showing what
         // those connect to (read-only context); unrelated branches are dropped.
@@ -1094,7 +1099,7 @@ export default function TasksPage() {
               title={showDone ? "すべてのタスクの完了を隠す" : "すべてのタスクの完了をその場に表示する"}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
-              {showDone ? "完了を全部隠す" : "完了を全部表示"}
+              <span className="hidden md:inline">{showDone ? "完了を全部隠す" : "完了を全部表示"}</span><span className="md:hidden">{showDone ? "完了を隠す" : "完了"}</span>
               {doneCount > 0 && <span className="opacity-70">{doneCount}</span>}
             </button>
             {admin && (
@@ -1111,17 +1116,19 @@ export default function TasksPage() {
         </p>
 
         <MyTurn />
+        <DoneCounts myEmail={myEmail} />
 
         {/* PC(lg+): 左=ゴールツリー / 右=期限が近い。スマホは期限が近い→ツリーの縦1列 */}
         <div className="lg:flex lg:gap-8 lg:items-start">
         <div className="lg:hidden">
         {upcomingDeadlines.length > 0 && (
           <div className="card px-4 py-1 mb-6 divide-y divide-[var(--border)]">
-            <div className="flex items-center gap-1.5 py-2 text-[13px] font-semibold text-[var(--muted)] cjk">
+            <button type="button" onClick={toggleDeadlines} aria-expanded={!deadlinesClosed} className="flex w-full items-center gap-1.5 py-2 text-left text-[13px] font-semibold text-[var(--muted)] cjk">
+              <Chevron closed={deadlinesClosed} />
               期限が近い
               <span className="font-normal text-[var(--muted-soft)]">{upcomingDeadlines.length}</span>
-            </div>
-            {upcomingDeadlines.map((g) => (
+            </button>
+            {!deadlinesClosed && upcomingDeadlines.map((g) => (
               <button
                 key={g.id}
                 type="button"
@@ -1275,11 +1282,12 @@ export default function TasksPage() {
         {upcomingDeadlines.length > 0 && (
           <aside className="hidden lg:block w-80 shrink-0 lg:sticky lg:top-6">
                   <div className="card px-4 py-1 mb-6 lg:mb-0 divide-y divide-[var(--border)]">
-            <div className="flex items-center gap-1.5 py-2 text-[13px] font-semibold text-[var(--muted)] cjk">
+            <button type="button" onClick={toggleDeadlines} aria-expanded={!deadlinesClosed} className="flex w-full items-center gap-1.5 py-2 text-left text-[13px] font-semibold text-[var(--muted)] cjk">
+              <Chevron closed={deadlinesClosed} />
               期限が近い
               <span className="font-normal text-[var(--muted-soft)]">{upcomingDeadlines.length}</span>
-            </div>
-            {upcomingDeadlines.map((g) => (
+            </button>
+            {!deadlinesClosed && upcomingDeadlines.map((g) => (
               <button
                 key={g.id}
                 type="button"
