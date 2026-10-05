@@ -852,13 +852,10 @@ function CopyBox({ url }: { url: string }) {
       className="flex items-center justify-between gap-3 rounded-[10px] border px-3.5 py-2.5"
       style={{ borderColor: "var(--border)", background: "#fafafb" }}
     >
-      <input
-        readOnly
-        value={url}
-        onFocus={(e) => e.currentTarget.select()}
-        className="min-w-0 flex-1 truncate bg-transparent font-mono text-[13px] outline-none"
-        style={{ color: "var(--foreground)" }}
-      />
+      {/* 入力欄にすると横に動かさないと全部見えないので、折り返す文字で出す (押すと全選択) */}
+      <div className="min-w-0 flex-1 select-all break-all font-mono text-[13px]" style={{ color: "var(--foreground)" }}>
+        {url}
+      </div>
       <button type="button" className="chip flex-none" onClick={handleCopy}>
         {copied ? "コピー済" : "コピー"}
       </button>
@@ -1016,7 +1013,8 @@ function Snippet({ label, code, note }: { label: string; code: string; note?: st
         <span className="text-[12.5px] font-bold" style={{ color: "var(--foreground)" }}>{label}</span>
         <button type="button" className="chip flex-none" onClick={copy}>{copied ? "コピー済" : "コピー"}</button>
       </div>
-      <pre className="overflow-x-auto rounded-[8px] px-3 py-2.5 font-mono text-[12px] leading-relaxed" style={{ background: "#0f1420", color: "#e6e9ef", whiteSpace: "pre" }}>{code}</pre>
+      {/* 横スクロールさせず折り返して全文を見せる。長い URL・キーも途中で折る (コピーは元の1行のまま) */}
+      <pre className="rounded-[8px] px-3 py-2.5 font-mono text-[12px] leading-relaxed" style={{ background: "#0f1420", color: "#e6e9ef", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{code}</pre>
       {note && <div className="mt-1.5 text-[11.5px] leading-relaxed" style={{ color: "var(--muted)" }}>{note}</div>}
     </div>
   );
@@ -1130,13 +1128,9 @@ function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: (
           className="mb-3 flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5"
           style={{ borderColor: "var(--border)", background: "#fff" }}
         >
-          <input
-            readOnly
-            value={headlineUrl}
-            onFocus={(e) => e.currentTarget.select()}
-            className="min-w-0 flex-1 truncate bg-transparent font-mono text-[13px] outline-none"
-            style={{ color: "var(--foreground)" }}
-          />
+          <div className="min-w-0 flex-1 select-all break-all font-mono text-[13px]" style={{ color: "var(--foreground)" }}>
+            {headlineUrl}
+          </div>
         </div>
 
         <button type="button" className="btn-dark w-full" onClick={handleCopyShared}>

@@ -557,13 +557,9 @@ export default function MembersPage() {
                   className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
                   style={{ background: "var(--background)", borderColor: "var(--border)" }}
                 >
-                  <input
-                    readOnly
-                    value={inviteUrl}
-                    onFocus={(e) => e.currentTarget.select()}
-                    className="min-w-0 flex-1 truncate bg-transparent font-mono text-[12px] outline-none"
-                    style={{ color: "var(--foreground)" }}
-                  />
+                  <div className="min-w-0 flex-1 select-all break-all font-mono text-[12px]" style={{ color: "var(--foreground)" }}>
+                    {inviteUrl}
+                  </div>
                   <button type="button" className="chip flex-none" onClick={copyInviteUrl}>
                     {inviteCopied ? "コピー済" : "コピー"}
                   </button>
@@ -779,13 +775,9 @@ export default function MembersPage() {
                   </p>
                 )}
                 <div className="mt-2 flex items-center gap-2">
-                  <input
-                    readOnly
-                    value={resetLink.url}
-                    onFocus={(e) => e.currentTarget.select()}
-                    className="min-w-0 flex-1 truncate rounded-md border px-2.5 py-1.5 font-mono text-[12px] outline-none"
-                    style={{ borderColor: "var(--border)" }}
-                  />
+                  <div className="min-w-0 flex-1 select-all break-all rounded-md border px-2.5 py-1.5 font-mono text-[12px]" style={{ borderColor: "var(--border)" }}>
+                    {resetLink.url}
+                  </div>
                   <button type="button" className="btn-dark shrink-0 px-3 py-1.5 text-[12.5px]" onClick={copyResetLink}>
                     {resetCopied ? "コピー済" : "コピー"}
                   </button>
