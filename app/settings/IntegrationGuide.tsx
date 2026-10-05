@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Figure } from "../components/ColumnBody";
 import { COLUMNS } from "../lib/columns";
 import { planDayAutoPrompt, planDayPrompt } from "../lib/planDay";
+import { diagnosePrompt, setupAllPrompt } from "../lib/aiSetup";
 import {
   CONNECTOR_GROUPS,
   STATE_SOURCES,
@@ -148,6 +149,8 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
   const ccPrompt = claudeCodeSetupPrompt(connectUrl, official);
   const cxPrompt = codexSetupPrompt(keyUrl);
   const chk = checkPrompt();
+  const setupAll = setupAllPrompt(connectUrl, official);
+  const diag = diagnosePrompt();
   const [origin, setOrigin] = useState("");
   useEffect(() => setOrigin(window.location.origin), []);
 
@@ -159,6 +162,34 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
         AI が Chatwork・メール・カレンダーを読み、分かったことをこつこつの「現状」に書きます。
         いま使っているツールを変えずに、AI が読めるタスク一覧を保てます。
       </p>
+
+      {/* ---------- AI にまとめて入れてもらう (「AIで進める」と同じく、指示文入りで Claude Code を開く) ---------- */}
+      <div className="mt-5 rounded-[12px] border p-4 md:p-5" style={{ borderColor: "var(--accent)", background: "var(--accent-soft)" }}>
+        <div className="text-[14.5px] font-bold" style={{ color: "var(--foreground)" }}>AI にまとめて入れてもらう</div>
+        <p className="mt-1 text-[12.5px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>
+          下の連携やプラグインは、1つずつ設定しなくても Claude Code に頼めば入ります。ボタンを押すと指示文が入った状態で開くので、送信するだけです。
+          入れる前に一覧を見せて確認を取り、ログインやトークンが要るところだけあなたに頼みます。
+        </p>
+        <div className="mt-3 flex flex-col gap-3">
+          <div>
+            <div className="text-[13px] font-bold">まとめて入れる</div>
+            <div className="text-[12px]" style={{ color: "var(--muted)" }}>こつこつ・Notion・Chatwork・GitHub の接続と、公式プラグイン (メモの整理・スキル化・自動化の提案) を入れます</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className="hidden md:inline-flex"><OpenButton href={claudeCodeUrl(setupAll)} text={setupAll} label="Claude Code でまとめて入れる" dark /></span>
+              <CopyButton text={setupAll} />
+            </div>
+          </div>
+          <div>
+            <div className="text-[13px] font-bold">何を足すとよいか診断する</div>
+            <div className="text-[12px]" style={{ color: "var(--muted)" }}>あなたのタスクを読んで、足すと AI が自分で進められるようになる道具を5つまで提案します (まだ何も入れません)</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className="hidden md:inline-flex"><OpenButton href={claudeCodeUrl(diag)} text={diag} label="Claude Code で診断" dark /></span>
+              <OpenButton href={claudeChatUrl(diag)} text={diag} label="Claude で診断" />
+              <CopyButton text={diag} />
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* ---------- 何がどう繋がるか (図) ---------- */}
       <Figure
