@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { validateInvite, acceptInviteAsUser } from "../lib/addness";
+import OfficialOnly from "../column/OfficialOnly";
 
 const feather = (
   <svg
@@ -446,6 +447,19 @@ export default function LoginPage() {
             </button>
           )}
         </form>
+
+        {/* 当社ホスト版の新規登録だけ、規約とプライバシーポリシーへの案内を出す (自社専用版は各社が自分で決める) */}
+        {mode === "register" && (
+          <OfficialOnly>
+            <p className="mt-4 text-center text-[12px] leading-relaxed" style={{ color: "var(--muted)" }}>
+              登録すると、
+              <a href="/terms" target="_blank" rel="noopener" className="underline underline-offset-2">利用規約</a>
+              と
+              <a href="/privacy" target="_blank" rel="noopener" className="underline underline-offset-2">プライバシーポリシー</a>
+              に同意したものとみなします。
+            </p>
+          </OfficialOnly>
+        )}
 
         {/* footer toggle */}
         <p className="mt-5 text-center text-[13px]" style={{ color: "var(--muted)" }}>
