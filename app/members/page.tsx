@@ -444,7 +444,8 @@ export default function MembersPage() {
   };
 
   return (
-    <div className="flex flex-1 min-h-0 h-screen" style={{ background: "var(--app-bg)" }}>
+    // 高さは main に合わせる (h-screen だと上のバーの分はみ出し、下のナビに最後の行が隠れていた)
+    <div className="flex flex-1 min-h-0 h-full" style={{ background: "var(--app-bg)" }}>
       {/* LEFT: list pane */}
       <aside
         className={`${
@@ -662,7 +663,7 @@ export default function MembersPage() {
       <section
         className={`${
           selected ? "flex" : "hidden md:flex"
-        } flex-1 min-h-0 flex-col`}
+        } min-w-0 flex-1 min-h-0 flex-col`}
         style={{ background: "var(--background)" }}
       >
         {!selected ? (
@@ -670,18 +671,22 @@ export default function MembersPage() {
             一覧からメンバーを選択してください
           </div>
         ) : (
-          <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-4 md:p-10 pb-24 md:pb-10">
+          // min-w-0: 中身 (長いタスク名の選択肢など) に押されて画面より広がり、横スクロールになるのを防ぐ
+          <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto overflow-x-hidden p-4 md:p-10 pb-24 md:pb-10">
             {/* mobile-only back button to return to the list */}
-            <button
-              type="button"
-              className="md:hidden chip self-start"
-              onClick={() => setSelectedId(null)}
-            >
-              ← 戻る
-            </button>
-            <div className="flex items-center gap-4">
+            {/* .chip の display が md:hidden より強く PC でも出ていたので、外側の箱で隠す */}
+            <div className="md:hidden">
+              <button
+                type="button"
+                className="chip"
+                onClick={() => setSelectedId(null)}
+              >
+                ← 戻る
+              </button>
+            </div>
+            <div className="flex min-w-0 items-center gap-4">
               <Avatar member={selected} size={72} />
-              <div className="flex min-w-0 flex-col gap-1.5">
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                 <div className="flex min-w-0 items-center gap-2">
                   <h1 className="min-w-0 break-words text-2xl font-semibold" style={{ color: "var(--foreground)" }}>
                     {selected.name}
@@ -811,7 +816,7 @@ export default function MembersPage() {
                       <button
                         type="button"
                         onClick={() => router.push(`/goals/${g.id}`)}
-                        className="min-w-0 flex-1 truncate text-left text-[14px] font-medium hover:underline"
+                        className="min-w-0 flex-1 break-words text-left text-[14px] font-medium hover:underline"
                         style={{ color: "var(--foreground)" }}
                       >
                         {g.name}
@@ -837,7 +842,7 @@ export default function MembersPage() {
                     <select
                       value={assignGoalId}
                       onChange={(e) => setAssignGoalId(e.target.value)}
-                      className="min-w-0 flex-1 rounded-lg px-3 py-2 text-[14px] focus:outline-none border"
+                      className="w-0 min-w-0 flex-1 rounded-lg px-3 py-2 text-[14px] focus:outline-none border"
                       style={{ background: "var(--hover)", borderColor: "var(--border)", color: "var(--foreground)" }}
                     >
                       <option value="">タスクを選択…</option>
