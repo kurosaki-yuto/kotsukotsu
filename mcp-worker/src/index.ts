@@ -226,7 +226,7 @@ list_goals / get_goal / list_subtasks / list_today で現状を取得します�
 読んだ完了基準・現状が下の「書き方」を満たしていない場合 (「検討する」「対応中」しか書いていない等) は、そのまま作業に入らず、分かっている事実で update_goal して具体化してから進みます。分からない部分は埋めずに、何が分からないかを send_chat で聞いてください。
 
 2. 分解
-完了基準から逆算して、実行可能な単位に砕きます。1タスク = 1アクション。「○○を検討する」ではなく「○○のドラフトを作成してチャットに投稿する」のように、終わったかどうかが判定できる形にします。
+完了基準から逆算して、実行可能な単位に砕きます。1タスク = 1アクション。小タスクを add_subtask で作るときも completion_criteria に「何ができたら終わりか」を1〜2行で入れ、complete_subtask するときは current_state に結果 (何をして何が確認できたか・未確認は何か) を1〜3行で渡します。小タスクを開いた人や次の AI が、親を読まなくても終わり方と結果が分かるようにするためです。「○○を検討する」ではなく「○○のドラフトを作成してチャットに投稿する」のように、終わったかどうかが判定できる形にします。
 
 3. 完了基準と現状の書き方 (ここが甘いと共有した意味が消える)
 この2つは、人とAIが同じ文章を読んで動く唯一の場所です。抽象的に書くと、読んだ側は結局本人に聞き直すことになります。
@@ -1039,6 +1039,10 @@ const tools: Record<string, ToolDef> = {
       text: z.string().min(1).describe(
         "Subtask text。1タスク=1アクションで登録する (複数アクションを1個に詰めない)。[AI] / [人+AI] / [人] のプレフィックスは付けない (担当はアサインで表す)"
       ),
+      completion_criteria: z.string().optional().describe(
+        "この小タスクの完了の基準。1〜2行で「何ができたら終わりか」を、他人が○×を付けられる形で書く (成果物名・数値・確認方法のどれかを入れる)。例: 「原稿3本を 20_法務/ に置き、本番ビルドで 404 になることを確認」"
+      ),
+      current_state: z.string().optional().describe("作る時点で分かっている前提があれば1〜2行。無ければ省く"),
     }),
     handler: async (args, env, wsId, auth) => {
       await assertGoalInScope(env, auth, args.goalId);
@@ -1050,10 +1054,16 @@ const tools: Record<string, ToolDef> = {
         "SELECT COALESCE(MAX(order_idx), -1) AS m FROM projects WHERE workspace_id = ? AND parent_goal_id = ?"
       ).bind(wsId, args.goalId).first<{ m: number }>();
       const orderIdx = (max?.m ?? -1) + 1;
+      // 小タスクにも完了の基準・現状を持たせる (親だけに書くと、小タスクを開いた人や AI が「何ができたら終わりか」を読めない)
+      const criteria = args.completion_criteria?.trim() || null;
+      const state = args.current_state?.trim() || null;
       await env.DB.prepare(
-        "INSERT INTO projects (id, name, parent_goal_id, order_idx, created_at, status, workspace_id) VALUES (?, ?, ?, ?, ?, 'active', ?)"
+        `INSERT INTO projects (id, name, parent_goal_id, order_idx, created_at, status, workspace_id,
+                               completion_criteria, current_state, criteria_updated_at, state_updated_at)
+         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`
       )
-        .bind(id, args.text.trim(), args.goalId, orderIdx, created, wsId)
+        .bind(id, args.text.trim(), args.goalId, orderIdx, created, wsId,
+          criteria, state, criteria ? created : null, state ? created : null)
         .run();
       await clearStartedOnParent(env, wsId, args.goalId);
       const assignee =
@@ -1115,10 +1125,13 @@ const tools: Record<string, ToolDef> = {
   },
 
   complete_subtask: {
-    description: "Mark a subtask (child goal) complete or incomplete. Sets status to 'done' or 'active'.",
+    description:
+      "Mark a subtask (child goal) complete or incomplete. Sets status to 'done' or 'active'. " +
+      "完了にするときは current_state に結果 (何をして、何が確認できたか・未確認は何か) を1〜3行で渡すと、その小タスクの現状に残る。",
     schema: z.object({
       id: z.string().min(1).describe("Subtask (goal) id"),
       completed: z.boolean().describe("true = complete, false = reopen"),
+      current_state: z.string().optional().describe("この小タスクの結果。何をして・何が確認できたか・未確認は何か (コミットや成果物の場所があれば添える)"),
     }),
     handler: async (args, env, wsId, auth) => {
       await assertGoalInScope(env, auth, args.id);
@@ -1132,6 +1145,10 @@ const tools: Record<string, ToolDef> = {
         .bind(status, args.completed ? nowIso() : null, args.id, wsId)
         .run();
       if (!res.meta.changes) throw new Error(`subtask not found: ${args.id}`);
+      if (args.current_state?.trim()) {
+        await env.DB.prepare("UPDATE projects SET current_state = ?, state_updated_at = ? WHERE id = ? AND workspace_id = ?")
+          .bind(args.current_state.trim(), nowIso(), args.id, wsId).run();
+      }
       if (args.completed) {
         // 親を完了したら配下も完了にする (queries.ts の cascadeGoalDone と同じ挙動)。
         // 伝播させないと閉じた親の下に未完のものが残り、一覧・検索・「今日」に出続ける。

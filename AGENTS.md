@@ -50,6 +50,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 2. Claude から使えるようにする: 利用者に 設定 → APIキー の「Claude Code（ターミナル）」のコマンドをコピーしてもらい、実行する。
    キー入りなので、コマンドやキーをファイル・コミット・ログに残さない。claude.ai で使うときは同じ画面の「接続用URL」をカスタムコネクタに貼る
 3. 繋がったら、`list_goals` などのツールで読み書きできることを確かめて完了を伝える
+4. ほかのツール (Chatwork・Notion・GitHub・Gmail など) も AI に繋ぎたいと言われたら、こつこつの 設定 → 連携ガイド の
+   「AI にまとめて入れてもらう」を押してもらう (指示文入りで Claude Code が開く)。こつこつ本体は外部ツールと直接は繋がず、AI の側に繋ぐ
 
 「最新にして」「アップデートして」と頼まれたら `npm run update` を実行する (タイムアウトは 10 分以上)。
 Cloudflare 版・Docker 版のどちらでも同じコマンドで、git pull → データベースのバックアップ (backups/) → 足りないテーブルだけ追加して再デプロイ、の順に進む。データは消えない。

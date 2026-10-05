@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import ColumnBody from "../../components/ColumnBody";
 import { COLUMNS, findColumn } from "../../lib/columns";
 import ColumnFrame from "../ColumnFrame";
+import OfficialOnly from "../OfficialOnly";
 
 export function generateStaticParams() {
   return COLUMNS.map((c) => ({ slug: c.slug }));
@@ -33,6 +34,7 @@ export default async function ColumnPage({ params }: { params: Promise<{ slug: s
           <ColumnBody body={c.body} />
         </div>
       </article>
+      <OfficialOnly>
       <div className="mt-12 rounded-[14px] p-6" style={{ background: "#eef3ff" }}>
         <div className="text-[15px] font-bold">こつこつを使ってみる</div>
         <p className="mt-1.5 text-[13.5px] leading-relaxed" style={{ color: "#3a4459" }}>
@@ -42,6 +44,7 @@ export default async function ColumnPage({ params }: { params: Promise<{ slug: s
           はじめる
         </a>
       </div>
+      </OfficialOnly>
     </ColumnFrame>
   );
 }
