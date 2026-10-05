@@ -26,12 +26,14 @@ import {
 } from "../lib/addness";
 import type { OrgSettings } from "../lib/db";
 import { MCP_HOST, NODE_RUNTIME } from "../lib/hosts";
+import IntegrationGuide from "./IntegrationGuide";
 
-type Tab = "team" | "api";
+type Tab = "team" | "api" | "guide";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "team", label: "チーム設定" },
   { key: "api", label: "APIキー" },
+  { key: "guide", label: "連携ガイド" },
 ];
 
 const FALLBACK_ORG: OrgSettings = {
@@ -270,6 +272,7 @@ export default function SettingsPage() {
           </div>
         )}
         {tab === "api" && <ApiKeyTab token={apiKey} onRegen={handleRegenApiKey} admin={admin} />}
+        {tab === "guide" && <GuideTab token={apiKey} />}
       </div>
 
       {/* segmented control: large variant for the page-level tab bar */}
@@ -1017,6 +1020,19 @@ function Snippet({ label, code, note }: { label: string; code: string; note?: st
       {note && <div className="mt-1.5 text-[11.5px] leading-relaxed" style={{ color: "var(--muted)" }}>{note}</div>}
     </div>
   );
+}
+
+// 連携ガイド (IntegrationGuide.tsx) に、APIキータブと同じ接続先を渡す。
+// 接続先の出し分け (当社ホスト版 / 自社専用版) はこのファイルに集めてある (公開版の書き出しの検査対象)。
+function GuideTab({ token }: { token: string | null }) {
+  const [official, setOfficial] = useState(true);
+  const [endpoint, setEndpoint] = useState(MCP_WORKERS_DEV);
+  useEffect(() => {
+    setOfficial(sharedLoginAvailable());
+    setEndpoint(mcpEndpoint());
+  }, []);
+  const keyUrl = token ? `${endpoint}/${token}` : "";
+  return <IntegrationGuide connectUrl={official ? MCP_SHARED : keyUrl} keyUrl={keyUrl} official={official} />;
 }
 
 function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: () => Promise<void>; admin: boolean }) {
