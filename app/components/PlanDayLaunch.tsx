@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { planDayPrompt, planTeamPrompt } from "../lib/planDay";
+import { claudeChatUrl } from "../lib/claudeLinks";
 
 // タスク画面の「AIで今日の予定を組む」。こつこつのタスクと Google カレンダーの空きを AI に読ませて、
 // 今日の予定を組ませる指示文を入れた状態で AI を開く (送信は本人)。指示文は lib/planDay.ts。
 // カレンダーのコネクタがあるのは Claude なので、Claude (チャット) と Claude Code だけを出す。
-//   Claude:      https://claude.ai/new?q=...   (入力欄に入った状態で開く。2026-10-05 確認)
+//   Claude:      https://claude.ai/new?q=...#no_universal_links (ブラウザで入力欄に入った状態で開く。lib/claudeLinks.ts)
 //   Claude Code: claude://code/new?q=...       (Claude Desktop の Code 画面。PC のみ)
 
 async function copyText(text: string): Promise<boolean> {
@@ -69,7 +70,7 @@ export default function PlanDayLaunch() {
       </button>
       {open && (
         <div role="menu" className="absolute right-0 mt-1 z-20 w-[min(300px,calc(100vw-48px))] card py-1" style={{ boxShadow: "var(--shadow-pop)" }}>
-          <a role="menuitem" href={`https://claude.ai/new?q=${q}`} target="_blank" rel="noopener noreferrer" onClick={() => { void copyText(text); setOpen(false); }} className={item}>
+          <a role="menuitem" href={claudeChatUrl(text)} target="_blank" rel="noopener noreferrer" onClick={() => { void copyText(text); setOpen(false); }} className={item}>
             Claude で組む
             <span className={sub} style={{ color: "var(--muted)" }}>案を表で見せて、OK したらカレンダーに入れます</span>
           </a>
@@ -103,7 +104,7 @@ export default function PlanDayLaunch() {
             />
             <a
               role="menuitem"
-              href={nameList.length ? `https://claude.ai/new?q=${encodeURIComponent(teamText)}` : undefined}
+              href={nameList.length ? claudeChatUrl(teamText) : undefined}
               target="_blank"
               rel="noopener noreferrer"
               aria-disabled={!nameList.length}

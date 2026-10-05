@@ -6,6 +6,7 @@ import { Figure } from "../components/ColumnBody";
 import { COLUMNS } from "../lib/columns";
 import { planDayAutoPrompt, planDayPrompt } from "../lib/planDay";
 import { diagnosePrompt, setupAllPrompt } from "../lib/aiSetup";
+import { claudeChatUrl } from "../lib/claudeLinks";
 import {
   CONNECTOR_GROUPS,
   STATE_SOURCES,
@@ -82,7 +83,6 @@ function OpenButton({ href, text, label, dark }: { href: string; text: string; l
 
 const claudeCodeUrl = (text: string) => `claude://code/new?q=${encodeURIComponent(text)}`;
 const codexUrl = (text: string) => `codex://threads/new?prompt=${encodeURIComponent(text)}`;
-const claudeChatUrl = (text: string) => `https://claude.ai/new?q=${encodeURIComponent(text)}`;
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
@@ -173,7 +173,7 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
         <div className="mt-3 flex flex-col gap-3">
           <div>
             <div className="text-[13px] font-bold">まとめて入れる</div>
-            <div className="text-[12px]" style={{ color: "var(--muted)" }}>こつこつ・Notion・Chatwork・GitHub の接続と、公式プラグイン (メモの整理・スキル化・自動化の提案) を入れます</div>
+            <div className="text-[12px]" style={{ color: "var(--muted)" }}>こつこつ・Notion・Chatwork・GitHub の接続と、公式プラグイン (メモの整理・スキル化・自動化の提案) を入れます。パソコンの Claude Code で使います (スマホではコピーしてパソコンに送ってください)</div>
             <div className="mt-2 flex flex-wrap gap-2">
               <span className="hidden md:inline-flex"><OpenButton href={claudeCodeUrl(setupAll)} text={setupAll} label="Claude Code でまとめて入れる" dark /></span>
               <CopyButton text={setupAll} />

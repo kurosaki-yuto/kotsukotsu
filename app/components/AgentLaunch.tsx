@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { mcpConnectHint } from "../lib/hosts";
+import { claudeCodeWebUrl } from "../lib/claudeLinks";
 
 // ゴール詳細の「完了にする」の横に置く「AIで進める」プルダウン。
 // このゴールの指示文を入れた状態で AI を開く (送信は本人が Enter)。
@@ -53,8 +54,10 @@ const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 function repoParam(repo: string): string {
   return REPO_RE.test(repo) ? `&repo=${encodeURIComponent(repo)}` : "";
 }
-function cloudUrl(q: string, repo: string): string {
-  return `https://claude.ai/code/new?q=${q}` + repoParam(repo);
+// ブラウザで開く (アプリに渡さない)。アプリに渡すと指示文が落ちることがあるため、確実に入れたいときはこちら。
+// ブラウザなら長い指示文も入るので、短縮版ではなく全文を渡す (lib/claudeLinks.ts)
+function cloudUrl(text: string, repo: string): string {
+  return claudeCodeWebUrl(text, repoParam(repo));
 }
 function mobileAppUrl(q: string, repo: string): string {
   return `claude://code/new?q=${q}` + repoParam(repo);
@@ -154,21 +157,21 @@ export default function AgentLaunch({ goalId, goalName }: { goalId: string; goal
           >
             Claude アプリで進める
             <span className="block text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>
-              指示文をそのままアプリに渡します
+              アプリに渡します。入っていなければ貼り付けてください (コピー済み)
             </span>
           </a>
           <a
             role="menuitem"
-            href={cloudUrl(qShort, repo.trim())}
+            href={cloudUrl(text, repo.trim())}
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => { copy(); setOpen(false); }}
             className="block w-full text-left px-4 py-2.5 text-sm hover:bg-[var(--hover)] md:border-t"
             style={{ borderColor: "var(--border)" }}
           >
-            Claude Code (クラウド) で進める
+            ブラウザの Claude Code で進める
             <span className="block text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>
-              スマホ・ブラウザから。claude.ai/code が開きます
+              アプリに渡さずブラウザで claude.ai/code を開きます。指示文が確実に入ります
             </span>
           </a>
           <label className="block px-4 pt-1 pb-2 text-[11px]" style={{ color: "var(--muted)" }}>
