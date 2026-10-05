@@ -42,7 +42,12 @@ function AutoGrowTextarea({ minRows = 3, style, onInput, ...rest }: ComponentPro
     el.style.height = "auto";
     el.style.height = `${Math.max(el.scrollHeight, minRows * 24)}px`;
   };
-  useEffect(() => { fit(); }, []);
+  // 中身が後から読み込まれる (タイトルなど) ・画面の幅が変わる と高さも変わるので、そのたびに測り直す
+  useEffect(() => { fit(); }, [rest.value]);
+  useEffect(() => {
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
   return (
     <textarea
       ref={ref}
@@ -97,7 +102,7 @@ function SubTree({ parentId, depth, router }: { parentId: string; depth: number;
             <svg viewBox="0 0 16 16" className="w-3 h-3 transition-transform" style={{ transform: isOpen ? "rotate(90deg)" : "none" }} fill="currentColor"><path d="M6 3l5 5-5 5V3z" /></svg>
           </button>
           <TaskCheck t={k} onToggle={(d) => toggleDone(k.id, d)} onStop={() => stopKid(k.id)} />
-          <button onClick={() => router.push(`/goals/${k.id}`)} className={`flex-1 min-w-0 text-left text-[14px] truncate hover:underline ${done ? "done-label" : ""}`} title={k.name}>{k.name || "無題のタスク"}</button>
+          <button onClick={() => router.push(`/goals/${k.id}`)} className={`flex-1 min-w-0 text-left text-[14px] break-words hover:underline ${done ? "done-label" : ""}`} title={k.name}>{k.name || "無題のタスク"}</button>
           <InProgressBadge t={k} wrapClass="hidden sm:inline-flex" />
           <Assignees members={kidAssignees[k.id] ?? []} size={22} max={3} />
         </div>
@@ -617,7 +622,7 @@ export default function GoalDetail() {
         ) : (
           <button
             onClick={() => router.push(`/goals/${c.id}`)}
-            className={`flex-1 min-w-0 text-left text-[14.5px] truncate hover:underline ${done ? "done-label" : ""}`}
+            className={`flex-1 min-w-0 text-left text-[14.5px] break-words hover:underline ${done ? "done-label" : ""}`}
             title={c.name}
           >
             {c.name || "無題のタスク"}
@@ -807,7 +812,8 @@ export default function GoalDetail() {
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
               </span>
             )}
-            <textarea
+            <AutoGrowTextarea
+              minRows={1}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onBlur={saveTitle}
@@ -876,10 +882,10 @@ export default function GoalDetail() {
         {/* ===== タスク (recursive child items) ===== */}
         <div className="mt-6">
           <div className="flex items-center justify-between mb-2 gap-3">
-            <h3 className="text-[16px] font-bold flex items-center gap-2">
+            <h3 className="shrink-0 whitespace-nowrap text-[16px] font-bold flex items-center gap-2">
               <I d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />タスク
             </h3>
-            <span className="text-[11.5px] text-[var(--muted-soft)]">クリックで中に入れます（タスクの中にさらにタスク）</span>
+            <span className="hidden sm:inline text-[11.5px] text-[var(--muted-soft)]">クリックで中に入れます（タスクの中にさらにタスク）</span>
           </div>
           <div className="rounded-2xl border overflow-hidden" style={{ borderColor: "var(--border)" }}>
             {children.length === 0 && editingChild === null ? (

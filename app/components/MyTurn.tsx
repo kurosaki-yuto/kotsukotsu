@@ -56,7 +56,7 @@ export default function MyTurn() {
                 className="block w-full py-2.5 text-left hover:opacity-80"
               >
                 <div className="flex items-baseline gap-2">
-                  <span className="min-w-0 flex-1 truncate text-[14px] font-semibold" style={{ color: "var(--foreground)" }}>{t.name}</span>
+                  <span className="min-w-0 flex-1 break-words text-[14px] font-semibold" style={{ color: "var(--foreground)" }}>{t.name}</span>
                   {dl && (
                     <span className="flex-none text-[11.5px] font-bold" style={{ color: dl.startsWith("期限切れ") || dl === "今日まで" ? "var(--danger)" : "var(--muted)" }}>{dl}</span>
                   )}

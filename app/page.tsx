@@ -361,7 +361,7 @@ function ItemRow({
   return (
     <>
       <div
-        className={`group/row relative flex items-center gap-2 md:gap-2.5 py-2 lg:py-1.5${done ? " done-row" : ""}`}
+        className={`group/row relative flex flex-wrap items-center gap-x-2 gap-y-1 md:gap-x-2.5 py-2 lg:py-1.5${done ? " done-row" : ""}`}
         style={{
           paddingLeft: depth * indent,
           opacity: dragging ? 0.4 : 1,
@@ -472,7 +472,7 @@ function ItemRow({
         {/* name: drill in (operable) or muted read-only label (context) */}
         {isContext ? (
           <span
-            className="min-w-0 truncate text-left text-[14px] cjk text-[var(--muted)]"
+            className="min-w-0 basis-[10rem] grow md:grow-0 md:basis-auto break-words text-left text-[14px] cjk text-[var(--muted)]"
             title="つながり（読み取り）"
           >
             {node.emoji && <span className="mr-1.5">{node.emoji}</span>}
@@ -482,7 +482,7 @@ function ItemRow({
           <button
             type="button"
             onClick={() => onOpen(node.id)}
-            className={`min-w-0 truncate text-left text-[14px] cjk hover:underline ${
+            className={`min-w-0 basis-[10rem] grow md:grow-0 md:basis-auto break-words text-left text-[14px] cjk hover:underline ${
               done ? "done-label" : "text-[var(--foreground)]"
             } ${isRoot ? "font-semibold" : ""}`}
           >
@@ -687,7 +687,7 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
             >
               <svg viewBox="0 0 16 16" className="w-3 h-3 flex-none transition-transform" style={{ transform: gopen ? "rotate(90deg)" : "none" }} fill="currentColor"><path d="M6 3l5 5-5 5V3z" /></svg>
               {g.emoji && <span className="flex-none">{g.emoji}</span>}
-              <span className="truncate min-w-0">{g.name}</span>
+              <span className="break-words min-w-0">{g.name}</span>
               <span className="flex-none font-normal text-[var(--muted-soft)]">{activeTasks.length}</span>
             </button>
             {gopen && activeTasks.length > 0 && (
@@ -699,7 +699,7 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
                     {/* name → open */}
                     <button
                       onClick={() => router.push(`/goals/${t.id}`)}
-                      className="flex-1 min-w-0 text-left text-[14.5px] truncate cjk hover:underline text-[var(--foreground)]"
+                      className="flex-1 min-w-0 text-left text-[14.5px] break-words cjk hover:underline text-[var(--foreground)]"
                     >
                       {t.emoji && <span className="mr-1.5">{t.emoji}</span>}
                       {t.name || "（無題）"}
@@ -747,7 +747,7 @@ function MemberTasks({ router }: { router: ReturnType<typeof useRouter> }) {
                         {/* name → open */}
                         <button
                           onClick={() => router.push(`/goals/${t.id}`)}
-                          className="flex-1 min-w-0 text-left text-[14.5px] truncate cjk hover:underline line-through text-[var(--muted-soft)]"
+                          className="flex-1 min-w-0 text-left text-[14.5px] break-words cjk hover:underline line-through text-[var(--muted-soft)]"
                         >
                           {t.emoji && <span className="mr-1.5">{t.emoji}</span>}
                           {t.name || "（無題）"}
@@ -1137,7 +1137,7 @@ export default function TasksPage() {
                 className="flex items-center gap-2 w-full text-left py-2.5 hover:bg-[var(--hover)]"
               >
                 {g.emoji && <span className="shrink-0">{g.emoji}</span>}
-                <span className="flex-1 min-w-0 truncate text-[14px] cjk text-[var(--foreground)]">{g.name || "（無題）"}</span>
+                <span className="flex-1 min-w-0 break-words text-[14px] cjk text-[var(--foreground)]">{g.name || "（無題）"}</span>
                 <span
                   className="shrink-0 text-[12.5px] font-medium"
                   style={{ color: g.daysLeft < 0 ? "#dc2626" : g.daysLeft <= 2 ? "#d97706" : "var(--muted)" }}
@@ -1259,7 +1259,7 @@ export default function TasksPage() {
                         <button
                           type="button"
                           onClick={() => router.push(`/goals/${it.id}`)}
-                          className="min-w-0 truncate text-left text-[14px] cjk hover:underline done-label"
+                          className="min-w-0 break-words text-left text-[14px] cjk hover:underline done-label"
                         >
                           {it.emoji && <span className="mr-1.5">{it.emoji}</span>}
                           {it.name || "（無題）"}
@@ -1296,7 +1296,7 @@ export default function TasksPage() {
                 className="flex items-center gap-2 w-full text-left py-2.5 hover:bg-[var(--hover)]"
               >
                 {g.emoji && <span className="shrink-0">{g.emoji}</span>}
-                <span className="flex-1 min-w-0 truncate text-[14px] cjk text-[var(--foreground)]">{g.name || "（無題）"}</span>
+                <span className="flex-1 min-w-0 break-words text-[14px] cjk text-[var(--foreground)]">{g.name || "（無題）"}</span>
                 <span
                   className="shrink-0 text-[12.5px] font-medium"
                   style={{ color: g.daysLeft < 0 ? "#dc2626" : g.daysLeft <= 2 ? "#d97706" : "var(--muted)" }}
