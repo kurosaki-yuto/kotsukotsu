@@ -16,12 +16,14 @@ import {
   assignGoalMember,
   unassignGoalMember,
   getMemberTaskProgress,
+  getDoneCounts,
   type Me,
   type MemberGoal,
   type MemberProgress,
 } from "../lib/addness";
 import type { Member, Goal } from "../lib/db";
 import { supabase } from "../lib/db";
+import { useAutoRefresh } from "../lib/useAutoRefresh";
 
 function firstChar(name: string): string {
   return (name.trim()[0] ?? "?").toUpperCase();
@@ -74,6 +76,14 @@ function CalendarGlyph() {
       <line x1="16" y1="2" x2="16" y2="6" />
       <line x1="8" y1="2" x2="8" y2="6" />
       <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  );
+}
+
+function CheckGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="20 6 9 17 4 12" />
     </svg>
   );
 }
@@ -224,6 +234,22 @@ export default function MembersPage() {
   useEffect(() => {
     void loadProgress();
   }, [loadProgress]);
+
+  // 今日・今週に終えたタスクの数 (タスク画面の「終えたタスク」と同じ /api/done-counts)。数はメンバー全員が全員分見られる
+  const [done, setDone] = useState<Record<string, { today: number; week: number }>>({});
+  const loadDone = useCallback(async () => {
+    try {
+      const d = await getDoneCounts();
+      setDone(Object.fromEntries(d.members.map((m) => [m.email.toLowerCase(), { today: m.today, week: m.week }])));
+    } catch {
+      /* api() が上部のバナーで知らせる */
+    }
+  }, []);
+  useEffect(() => {
+    void loadDone();
+  }, [loadDone]);
+  useAutoRefresh(() => { void loadDone(); }, { intervalMs: 60000 });
+  const doneOf = (m: Member) => (m.email ? done[m.email.toLowerCase()] : undefined);
 
   // goals sorted parents-first with children indented under them
   const goalOptions = useMemo(() => {
@@ -569,18 +595,28 @@ export default function MembersPage() {
                     </span>
                   )}
                   <Avatar member={m} size={40} />
+                  {/* スマホは名前を1行目、数字を2行目に置く (横に並べると名前が潰れる) */}
+                  <div className="flex min-w-0 flex-1 flex-col gap-1 md:flex-row md:items-center md:gap-1.5">
                   <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                    <span className="min-w-0 truncate font-medium" style={{ color: "var(--foreground)" }}>
+                    <span className="min-w-0 break-words font-medium" style={{ color: "var(--foreground)" }}>
                       {m.name}
                     </span>
-                    {isYou(m) && <YouPill />}
+                    {isYou(m) && <span className="flex-none"><YouPill /></span>}
                   </div>
-                  <div className="flex flex-none items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5 md:flex-none">
                     {admin && (progress[m.id]?.pending ?? 0) > 0 && (
                       <StatPill color="var(--danger)">
                         <AlertGlyph />
                         {progress[m.id]!.pending}
                       </StatPill>
+                    )}
+                    {doneOf(m) && (
+                      <span title={`今日終えたタスク ${doneOf(m)!.today}件`}>
+                        <StatPill color={doneOf(m)!.today ? "var(--done-strong)" : undefined}>
+                          <CheckGlyph />
+                          今日 {doneOf(m)!.today}
+                        </StatPill>
+                      </span>
                     )}
                     <StatPill>
                       <ThumbsUpGlyph />
@@ -590,10 +626,11 @@ export default function MembersPage() {
                       <CalendarGlyph />
                       {m.streak}
                     </StatPill>
-                    <span className="flex-none" style={{ color: "var(--muted-soft)" }}>
-                      <ChevronGlyph />
-                    </span>
                   </div>
+                  </div>
+                  <span className="flex-none" style={{ color: "var(--muted-soft)" }}>
+                    <ChevronGlyph />
+                  </span>
                 </button>
               );
             })
@@ -626,7 +663,7 @@ export default function MembersPage() {
               <Avatar member={selected} size={72} />
               <div className="flex min-w-0 flex-col gap-1.5">
                 <div className="flex min-w-0 items-center gap-2">
-                  <h1 className="min-w-0 truncate text-2xl font-semibold" style={{ color: "var(--foreground)" }}>
+                  <h1 className="min-w-0 break-words text-2xl font-semibold" style={{ color: "var(--foreground)" }}>
                     {selected.name}
                   </h1>
                   {isYou(selected) && <YouPill />}
@@ -640,8 +677,28 @@ export default function MembersPage() {
               </div>
             </div>
 
-            <div className="flex gap-4">
-              <div className="card flex-1 px-5 py-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+              {doneOf(selected) && (
+                <>
+                  <div className="card min-w-0 px-4 py-3 md:px-5 md:py-4">
+                    <div className="text-[12px]" style={{ color: "var(--muted)" }}>
+                      今日終えたタスク
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold tabular-nums" style={{ color: "var(--done-strong)" }}>
+                      {doneOf(selected)!.today}
+                    </div>
+                  </div>
+                  <div className="card min-w-0 px-4 py-3 md:px-5 md:py-4">
+                    <div className="text-[12px]" style={{ color: "var(--muted)" }}>
+                      今週終えたタスク
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold tabular-nums" style={{ color: "var(--done-strong)" }}>
+                      {doneOf(selected)!.week}
+                    </div>
+                  </div>
+                </>
+              )}
+              <div className="card min-w-0 px-4 py-3 md:px-5 md:py-4">
                 <div className="text-[12px]" style={{ color: "var(--muted)" }}>
                   達成ポイント
                 </div>
@@ -649,7 +706,7 @@ export default function MembersPage() {
                   {selected.points}
                 </div>
               </div>
-              <div className="card flex-1 px-5 py-4">
+              <div className="card min-w-0 px-4 py-3 md:px-5 md:py-4">
                 <div className="text-[12px]" style={{ color: "var(--muted)" }}>
                   連続日数
                 </div>
@@ -658,9 +715,14 @@ export default function MembersPage() {
                 </div>
               </div>
             </div>
+            {doneOf(selected) && (
+              <p className="-mt-3 text-[11px] leading-relaxed" style={{ color: "var(--muted)" }}>
+                今週は月曜から。数え方はタスク画面の「終えたタスク」と同じです。
+              </p>
+            )}
 
             {admin && !isYou(selected) && (
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <button type="button" className="chip" onClick={() => void toggleRole(selected)}>
                   権限: {selected.role === "Admin" ? "Admin" : "None"}
                 </button>
