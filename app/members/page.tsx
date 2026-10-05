@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   listMembers,
-  rankedMembers,
   createInvite,
   removeMember,
   createResetLink,
@@ -155,6 +154,8 @@ export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [query, setQuery] = useState("");
   const [ranking, setRanking] = useState(false);
+  // ランキングの並べ方。既定は今日終えたタスクの数 (同数は名前順)
+  const [rankBy, setRankBy] = useState<"today" | "week" | "points">("today");
   const [pendingOnly, setPendingOnly] = useState(false);
   const [progress, setProgress] = useState<Record<string, MemberProgress>>({});
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -249,7 +250,7 @@ export default function MembersPage() {
     void loadDone();
   }, [loadDone]);
   useAutoRefresh(() => { void loadDone(); }, { intervalMs: 60000 });
-  const doneOf = (m: Member) => (m.email ? done[m.email.toLowerCase()] : undefined);
+  const doneOf = useCallback((m: Member) => (m.email ? done[m.email.toLowerCase()] : undefined), [done]);
 
   // goals sorted parents-first with children indented under them
   const goalOptions = useMemo(() => {
@@ -322,13 +323,13 @@ export default function MembersPage() {
 
   const reload = useCallback(async () => {
     try {
-      const rows = ranking ? await rankedMembers() : await listMembers();
+      const rows = await listMembers();
       setMembers(rows);
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [ranking]);
+  }, []);
 
   useEffect(() => {
     void reload();
@@ -356,10 +357,15 @@ export default function MembersPage() {
     let base = q ? members.filter((m) => m.name.toLowerCase().includes(q)) : members;
     if (pendingOnly) base = base.filter((m) => (progress[m.id]?.pending ?? 0) > 0);
     if (pendingOnly) return [...base].sort((a, b) => (progress[b.id]?.pending ?? 0) - (progress[a.id]?.pending ?? 0));
+    if (ranking) {
+      // 順位を付けるので「あなた」を先頭に浮かせない
+      const score = (m: Member) => (rankBy === "points" ? m.points : (doneOf(m)?.[rankBy] ?? 0));
+      return [...base].sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name, "ja"));
+    }
     if (!meEmail) return base;
     // float the current viewer to the top by email match (stable for everyone else)
     return [...base].sort((a, b) => Number(isYou(b)) - Number(isYou(a)));
-  }, [members, query, meEmail, isYou, pendingOnly, progress]);
+  }, [members, query, meEmail, isYou, pendingOnly, progress, ranking, rankBy, doneOf]);
 
   const selected = useMemo(
     () => members.find((m) => m.id === selectedId) ?? null,
@@ -502,6 +508,19 @@ export default function MembersPage() {
           )}
         </div>
 
+        {ranking && !pendingOnly && (
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b text-[12px]" style={{ borderColor: "var(--border)", color: "var(--muted)" }}>
+            並べ方
+            <div className="tab-seg" role="tablist" aria-label="ランキングの並べ方">
+              {([["today", "今日終えた数"], ["week", "今週終えた数"], ["points", "達成ポイント"]] as const).map(([k, label]) => (
+                <button key={k} type="button" role="tab" aria-selected={rankBy === k} className={rankBy === k ? "active" : ""} onClick={() => setRankBy(k)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* invite form */}
         {admin && inviteOpen && (
           <form
@@ -595,29 +614,34 @@ export default function MembersPage() {
                     </span>
                   )}
                   <Avatar member={m} size={40} />
-                  {/* スマホは名前を1行目、数字を2行目に置く (横に並べると名前が潰れる) */}
-                  <div className="flex min-w-0 flex-1 flex-col gap-1 md:flex-row md:items-center md:gap-1.5">
+                  {/* 名前を1行目、数字を2行目に置く (一覧の幅が狭く、横に並べると名前が潰れる) */}
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <div className="flex min-w-0 flex-1 items-center gap-1.5">
                     <span className="min-w-0 break-words font-medium" style={{ color: "var(--foreground)" }}>
                       {m.name}
                     </span>
                     {isYou(m) && <span className="flex-none"><YouPill /></span>}
                   </div>
-                  <div className="flex flex-wrap items-center gap-1.5 md:flex-none">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {admin && (progress[m.id]?.pending ?? 0) > 0 && (
                       <StatPill color="var(--danger)">
                         <AlertGlyph />
                         {progress[m.id]!.pending}
                       </StatPill>
                     )}
-                    {doneOf(m) && (
-                      <span title={`今日終えたタスク ${doneOf(m)!.today}件`}>
-                        <StatPill color={doneOf(m)!.today ? "var(--done-strong)" : undefined}>
-                          <CheckGlyph />
-                          今日 {doneOf(m)!.today}
-                        </StatPill>
-                      </span>
-                    )}
+                    {doneOf(m) && (() => {
+                      // 今週の数で並べているときは今週の数を出す
+                      const week = ranking && rankBy === "week";
+                      const n = week ? doneOf(m)!.week : doneOf(m)!.today;
+                      return (
+                        <span title={`${week ? "今週" : "今日"}終えたタスク ${n}件`}>
+                          <StatPill color={n ? "var(--done-strong)" : undefined}>
+                            <CheckGlyph />
+                            {week ? "今週" : "今日"} {n}
+                          </StatPill>
+                        </span>
+                      );
+                    })()}
                     <StatPill>
                       <ThumbsUpGlyph />
                       {m.points}
