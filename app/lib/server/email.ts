@@ -143,7 +143,7 @@ export function passwordResetMail(
     "--",
     "こつこつ",
     site,
-    "運営: 合同会社もちもつ",
+    "運営: 株式会社こつこつ",
     "このメールは送信専用のアドレスから送っています。",
   ].join("\n");
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Noto Sans JP',sans-serif;font-size:14px;line-height:1.8;color:#22252a">
@@ -153,7 +153,7 @@ export function passwordResetMail(
   <p>このURLは${escapeHtml(validFor)}有効で、1回だけ使えます。<br>
     新しいパスワードを決めると、ほかの端末ではログアウトされます。</p>
   <p>申し込んだ覚えがない場合は、このメールは開かずに削除してください。今のパスワードはそのまま使えます。</p>
-  <p style="color:#6b7280">--<br>こつこつ<br>${escapeHtml(site)}<br>運営: 合同会社もちもつ<br>このメールは送信専用のアドレスから送っています。</p>
+  <p style="color:#6b7280">--<br>こつこつ<br>${escapeHtml(site)}<br>運営: 株式会社こつこつ<br>このメールは送信専用のアドレスから送っています。</p>
 </div>`;
   return { subject, text, html };
 }
