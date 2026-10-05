@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" font-family="'Hiragino Kaku Gothic ProN','Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">
+  <title>AI に今日の予定を組ませる</title>
+  <rect width="1200" height="630" fill="#1d3b9e"/>
+  <circle cx="1120" cy="560" r="240" fill="#2c4cb5"/>
+
+  <text x="70" y="96" font-size="24" font-weight="700" fill="#c9d4f5">こつこつ コラム</text>
+  <text x="70" y="186" font-size="58" font-weight="700" fill="#ffffff">AI に今日の予定を</text>
+  <text x="70" y="262" font-size="58" font-weight="700" fill="#ffffff">組ませる</text>
+  <text x="70" y="318" font-size="24" fill="#dbe3fb">タスクを見積もって、カレンダーの空きに入れる。</text>
+  <text x="70" y="356" font-size="24" fill="#dbe3fb">毎朝の自動実行もできる。</text>
+
+  <!-- calendar card -->
+  <rect x="690" y="70" width="440" height="470" rx="22" fill="#ffffff"/>
+  <text x="724" y="122" font-size="24" font-weight="700" fill="#18233d">今日</text>
+  <g font-size="18" fill="#60697b">
+    <text x="724" y="176">9:00</text><text x="724" y="246">10:00</text><text x="724" y="316">11:00</text>
+    <text x="724" y="386">13:00</text><text x="724" y="456">14:00</text>
+  </g>
+  <g stroke="#e3e8f2"><line x1="800" y1="170" x2="1100" y2="170"/><line x1="800" y1="240" x2="1100" y2="240"/><line x1="800" y1="310" x2="1100" y2="310"/><line x1="800" y1="380" x2="1100" y2="380"/><line x1="800" y1="450" x2="1100" y2="450"/></g>
+  <rect x="806" y="152" width="290" height="58" rx="10" fill="#1d3b9e"/>
+  <text x="822" y="188" font-size="18" font-weight="700" fill="#fff">[こつこつ] 提案書の修正</text>
+  <rect x="806" y="226" width="290" height="44" rx="10" fill="#dfe4ee"/>
+  <text x="822" y="254" font-size="18" fill="#3a4459">定例 MTG (既存)</text>
+  <rect x="806" y="292" width="290" height="58" rx="10" fill="#1d3b9e"/>
+  <text x="822" y="328" font-size="18" font-weight="700" fill="#fff">[こつこつ] 請求書を送る</text>
+  <rect x="806" y="432" width="290" height="80" rx="10" fill="#17864a"/>
+  <text x="822" y="470" font-size="18" font-weight="700" fill="#fff">[こつこつ] LP の文面</text>
+  <text x="822" y="496" font-size="15" fill="#d6f2e2">見積もり 1時間</text>
+</svg>

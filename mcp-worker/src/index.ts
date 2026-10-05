@@ -221,7 +221,7 @@ const INSTRUCTIONS = `「こつこつ」はゴール起点のToDo・実行管理
 ## 基本ループ
 
 1. 把握
-list_goals / get_goal / list_subtasks / list_today で現状を取得します。get_goal では完了基準(completion_criteria)と現状(current_state)を読み、何が満たされれば完了なのかを掴んでから動いてください。方針転換やフィードバックはコメント経由で来ることが多いので、そのゴールを触る前に list_comments も読みます。完了基準や現状が未記入なら、推測で進めず先に人へ確認するか記入を促してください。
+list_goals / get_goal / list_subtasks / list_today で現状を取得します。自分が今やるタスクを選ぶとき (今日の予定を組むときなど) は list_my_tasks を使います。get_goal では完了基準(completion_criteria)と現状(current_state)を読み、何が満たされれば完了なのかを掴んでから動いてください。方針転換やフィードバックはコメント経由で来ることが多いので、そのゴールを触る前に list_comments も読みます。完了基準や現状が未記入なら、推測で進めず先に人へ確認するか記入を促してください。
 
 読んだ完了基準・現状が下の「書き方」を満たしていない場合 (「検討する」「対応中」しか書いていない等) は、そのまま作業に入らず、分かっている事実で update_goal して具体化してから進みます。分からない部分は埋めずに、何が分からないかを send_chat で聞いてください。
 
@@ -1275,6 +1275,66 @@ const tools: Record<string, ToolDef> = {
       const nodes = await env.DB.prepare(nodeSql).bind(...nodeBinds).all();
 
       return { date, items: [...(goals.results ?? []), ...(nodes.results ?? [])] };
+    },
+  },
+
+  // 「自分の、今手を動かすタスク」の一覧。list_goals は会社全体・完了込みで担当も出ないので、
+  // 予定を組む (app/lib/planDay.ts) ときに AI が自分のタスクを選べなかった (2026-10-05 実データで確認)。
+  // 担当 (goal_members) が自分で、未完了で、未完了の子を持たない一番下のタスクだけを、優先の順で返す。
+  list_my_tasks: {
+    description:
+      "自分が担当している未完了のタスク (未完了の子を持たない一番下のもの) を、優先の順で返す。" +
+      "順番: 今日に入れたもの → 期限切れ・今日まで → 進行中 → 期限が3日以内 → その他。各行の why がどれに当たるか。" +
+      "今日の予定を組む・今日やることを選ぶときは list_goals ではなくこれを使う。completion_criteria / current_state は先頭300字。" +
+      "ワークスペース全体のキーで繋いでいて本人が分からないときは email を渡す。",
+    schema: z.object({
+      email: z.string().optional().describe("誰のタスクか。省略時は接続している本人"),
+      limit: z.number().int().min(1).max(100).optional().describe("既定 30"),
+      offset: z.number().int().min(0).optional().describe("既定 0"),
+    }),
+    handler: async (args, env, wsId, auth) => {
+      const email = (args.email || auth.actor?.email || "").trim();
+      if (!email) throw new Error("誰のタスクか分かりません。email を渡してください (ワークスペース全体のキーで繋いでいるとき)");
+      const { date: today } = await workspaceToday(env.DB, wsId);
+      const soon = new Date(`${today}T00:00:00Z`);
+      soon.setUTCDate(soon.getUTCDate() + 3);
+      const soonDate = soon.toISOString().slice(0, 10);
+      const limit = args.limit ?? 30;
+      const offset = args.offset ?? 0;
+      const scoped = !!auth.scopeRoots;
+      // 番号付きの引数で書く。?7 は担当範囲 (scopeRoots) の JSON。範囲が無いときは使わない
+      const cte = `WITH RECURSIVE sub(id) AS (
+          SELECT id FROM projects WHERE workspace_id = ?3 AND id IN (SELECT value FROM json_each(?7))
+          UNION ALL
+          SELECT p.id FROM sub s CROSS JOIN projects p ON p.parent_goal_id = s.id)`;
+      const sql = `${scoped ? cte : ""}
+        SELECT p.id, p.name, p.deadline, p.today_date, p.started_at, p.started_via,
+               p.parent_goal_id, par.name AS parent_name,
+               substr(p.completion_criteria, 1, 300) AS completion_criteria,
+               substr(p.current_state, 1, 300) AS current_state,
+               CASE WHEN p.today_date = ?1 THEN 'today'
+                    WHEN p.deadline IS NOT NULL AND substr(p.deadline, 1, 10) <= ?1 THEN 'overdue_or_due_today'
+                    WHEN p.started_at IS NOT NULL THEN 'in_progress'
+                    WHEN p.deadline IS NOT NULL AND substr(p.deadline, 1, 10) <= ?2 THEN 'due_soon'
+                    ELSE 'other' END AS why
+          FROM projects p
+          LEFT JOIN projects par ON par.id = p.parent_goal_id
+         WHERE p.workspace_id = ?3
+           AND p.status NOT IN ('done', 'archived') AND p.archived_at IS NULL
+           AND EXISTS (SELECT 1 FROM goal_members gm JOIN members m ON m.id = gm.member_id
+                        WHERE gm.goal_id = p.id AND m.workspace_id = ?3 AND lower(m.email) = lower(?4))
+           AND NOT EXISTS (SELECT 1 FROM projects c
+                            WHERE c.parent_goal_id = p.id AND c.workspace_id = ?3
+                              AND c.status NOT IN ('done', 'archived') AND c.archived_at IS NULL)
+           ${scoped ? "AND p.id IN (SELECT id FROM sub)" : ""}
+         ORDER BY CASE why WHEN 'today' THEN 0 WHEN 'overdue_or_due_today' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'due_soon' THEN 3 ELSE 4 END,
+                  p.deadline IS NULL, p.deadline, p.order_idx
+         LIMIT ?5 OFFSET ?6`;
+      const binds: unknown[] = [today, soonDate, wsId, email, limit + 1, offset];
+      if (scoped) binds.push(JSON.stringify(auth.scopeRoots));
+      const stmt = env.DB.prepare(sql).bind(...binds);
+      const rows = (await stmt.all()).results ?? [];
+      return { today, email, items: rows.slice(0, limit), hasMore: rows.length > limit, offset };
     },
   },
 

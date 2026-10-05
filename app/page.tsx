@@ -22,6 +22,7 @@ import type { Goal } from "./lib/db";
 import { useAutoRefresh } from "./lib/useAutoRefresh";
 import { Avatar } from "./components/Assignees";
 import { InProgressBadge, StartButton, TaskCheck } from "./components/InProgress";
+import PlanDayLaunch from "./components/PlanDayLaunch";
 
 type ItemNode = Goal & { children: ItemNode[] };
 type DropPos = "before" | "after" | "inside"; // drag-drop placement relative to a row
@@ -1082,7 +1083,8 @@ export default function TasksPage() {
       <div className="max-w-3xl lg:max-w-[1360px] mx-auto px-4 md:px-10 py-9 pb-24 md:pb-12">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-1">
           <h1 className="text-[22px] font-bold">タスク</h1>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <PlanDayLaunch />
             <button
               type="button"
               onClick={toggleShowDone}

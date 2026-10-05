@@ -4,6 +4,7 @@ import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { Figure } from "../components/ColumnBody";
 import { COLUMNS } from "../lib/columns";
+import { planDayAutoPrompt, planDayPrompt } from "../lib/planDay";
 import {
   CONNECTOR_GROUPS,
   STATE_SOURCES,
@@ -147,6 +148,8 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
   const ccPrompt = claudeCodeSetupPrompt(connectUrl, official);
   const cxPrompt = codexSetupPrompt(keyUrl);
   const chk = checkPrompt();
+  const [origin, setOrigin] = useState("");
+  useEffect(() => setOrigin(window.location.origin), []);
 
   return (
     <section className="card max-w-[760px] p-4 md:p-6">
@@ -258,6 +261,41 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
             </div>
           ))}
         </div>
+      </div>
+
+      {/* ---------- おすすめの使い方 ---------- */}
+      <div className="mt-8">
+        <SectionHead
+          title="おすすめの使い方"
+          lead="こつこつと Google カレンダーを繋いだ AI にできることです。ボタンを押すと指示文が入った状態で開きます。"
+        />
+        <Card>
+          <div className="text-[14.5px] font-bold">AI に今日の予定を組ませる</div>
+          <p className="mt-1.5 text-[13px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>
+            今日やるタスク・期限が近いタスク・進行中のタスクを AI が選び、かかる時間を見積もって、Google カレンダーの空き時間に「[こつこつ] タスク名」の予定を入れます。
+            既存の予定は動かしません。タスク画面の「AIで今日の予定を組む」からも開けます。
+          </p>
+          <div className="mt-3.5 flex flex-wrap gap-2">
+            <OpenButton href={claudeChatUrl(planDayPrompt(origin))} text={planDayPrompt(origin)} label="Claude で組む" dark />
+            <CopyButton text={planDayPrompt(origin)} />
+          </div>
+          <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
+            <div className="text-[13px] font-bold">毎朝自動で組ませる</div>
+            <p className="mt-1 text-[12.5px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>
+              Claude の「スケジュール済みタスク」→「新規タスク」→「手動で設定」で、手順に下の指示文を貼り、頻度を「平日」と時刻にします。
+              自動版は確認を待たずに予定を入れます (既存の予定は触りません)。
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <CopyButton text={planDayAutoPrompt(origin)} label="自動版の指示文をコピー" />
+              <a href="https://claude.ai/scheduled-task" target="_blank" rel="noopener noreferrer" className="chip flex-none">スケジュール済みタスクを開く</a>
+            </div>
+            <details className="mt-3">
+              <summary className="cursor-pointer text-[12.5px] font-bold" style={{ color: "var(--accent)" }}>画面で見る手順（2枚）</summary>
+              <Figure src="/guide/claude-schedule-menu.png" alt="① スケジュール済みタスク → 右上の「新規タスク」→「手動で設定」" />
+              <Figure src="/guide/claude-schedule-form.png" alt="② 名前と手順 (自動版の指示文) を入れ、頻度を「平日」と時刻にして保存" />
+            </details>
+          </div>
+        </Card>
       </div>
 
       {/* ---------- コラム ---------- */}
