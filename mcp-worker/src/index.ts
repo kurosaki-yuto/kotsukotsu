@@ -22,6 +22,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 // Same matcher the app uses for comment @mentions — one source of truth, so a
 // name that notifies someone in the app notifies them through MCP too.
 import { resolveMentionedMembers } from "../../app/lib/server/mentions";
+import { ballRank, ballText, personKeys } from "../../app/lib/ball";
 import { workspaceToday } from "./today";
 // 型 (誰かが終えたタスクのやり方) を、似たタスクを触る AI の返り値に添える。
 import { findPrecedents, PRECEDENTS_NOTE, privacyProblem, upsertPlaybook, shouldRecordPlaybook, recordPlaybookAction } from "./playbooks";
@@ -221,7 +222,7 @@ const INSTRUCTIONS = `「こつこつ」はゴール起点のToDo・実行管理
 ## 基本ループ
 
 1. 把握
-list_goals / get_goal / list_subtasks / list_today で現状を取得します。自分が今やるタスクを選ぶとき (今日の予定を組むときなど) は list_my_tasks を使います。get_goal では完了基準(completion_criteria)と現状(current_state)を読み、何が満たされれば完了なのかを掴んでから動いてください。方針転換やフィードバックはコメント経由で来ることが多いので、そのゴールを触る前に list_comments も読みます。完了基準や現状が未記入なら、推測で進めず先に人へ確認するか記入を促してください。
+list_goals / get_goal / list_subtasks / list_today で現状を取得します。自分が今やるタスクを選ぶとき (今日の予定を組むときなど) は list_my_tasks を使います。自分 (やメンバー) の返事・判断待ちになっているタスクは list_my_turn で引けます。get_goal では完了基準(completion_criteria)と現状(current_state)を読み、何が満たされれば完了なのかを掴んでから動いてください。方針転換やフィードバックはコメント経由で来ることが多いので、そのゴールを触る前に list_comments も読みます。完了基準や現状が未記入なら、推測で進めず先に人へ確認するか記入を促してください。
 
 読んだ完了基準・現状が下の「書き方」を満たしていない場合 (「検討する」「対応中」しか書いていない等) は、そのまま作業に入らず、分かっている事実で update_goal して具体化してから進みます。分からない部分は埋めずに、何が分からないかを send_chat で聞いてください。
 
@@ -597,6 +598,33 @@ async function resolveAuth(req: Request, env: Env): Promise<McpAuth | null> {
     if (row?.mcp_token && safeEqual(presented, row.mcp_token)) return { wsId: "default", scopeRoots: null, actor: null };
   } catch { /* column may not exist yet */ }
   return null;
+}
+
+
+/** list_my_tasks / list_my_turn の「誰の」。member (名前・姓だけ・メール) → 接続している本人。
+ *  名前はコメントの @メンションと同じ照合。0件・複数件はメンバー名を添えてエラーにする。 */
+async function resolveWho(env: Env, wsId: string, auth: McpAuth, who: string): Promise<{ email: string; name: string | null }> {
+  if (who) {
+    const { results: roster } = await env.DB.prepare(
+      "SELECT id, name, email FROM members WHERE workspace_id = ?"
+    ).bind(wsId).all<{ id: string; name: string | null; email: string | null }>();
+    const list = (roster ?? []).map((m) => ({ id: m.id, name: m.name ?? "", email: m.email }));
+    const byEmail = list.filter((m) => m.email && m.email.toLowerCase() === who.toLowerCase());
+    const hits = byEmail.length ? byEmail : resolveMentionedMembers(`@${who.replace(/^@/, "")}`, list);
+    const withMail = hits.filter((m) => m.email);
+    if (withMail.length !== 1) {
+      const names = list.map((m) => m.name).filter(Boolean).join("、");
+      throw new Error(withMail.length === 0
+        ? `「${who}」に当たるメンバーがいません。メンバー: ${names}`
+        : `「${who}」に当たるメンバーが複数います: ${withMail.map((m) => m.name).join("、")}。フルネームかメールで指定してください`);
+    }
+    return { email: withMail[0].email!, name: withMail[0].name };
+  }
+  const email = (auth.actor?.email || "").trim();
+  if (!email) throw new Error("誰のタスクか分かりません。member に名前かメールを渡してください (ワークスペース全体のキーで繋いでいるとき)");
+  // 名簿の表示名を優先 (ボールの行に書かれる名前と合わせる)
+  const row = await env.DB.prepare("SELECT name FROM members WHERE workspace_id = ? AND lower(email) = lower(?)").bind(wsId, email).first<{ name: string | null }>();
+  return { email, name: row?.name || auth.actor?.name || null };
 }
 
 // ---- scope enforcement helpers -------------------------------------------
@@ -1313,30 +1341,7 @@ const tools: Record<string, ToolDef> = {
     }),
     handler: async (args, env, wsId, auth) => {
       // 誰のタスクか: member (名前かメール) → 接続している本人。名前はコメントの @メンションと同じ照合
-      const who = (args.member || args.email || "").trim();
-      let email = "";
-      let memberName: string | null = null;
-      if (who) {
-        const { results: roster } = await env.DB.prepare(
-          "SELECT id, name, email FROM members WHERE workspace_id = ?"
-        ).bind(wsId).all<{ id: string; name: string | null; email: string | null }>();
-        const list = (roster ?? []).map((m) => ({ id: m.id, name: m.name ?? "", email: m.email }));
-        const byEmail = list.filter((m) => m.email && m.email.toLowerCase() === who.toLowerCase());
-        const hits = byEmail.length ? byEmail : resolveMentionedMembers(`@${who.replace(/^@/, "")}`, list);
-        const withMail = hits.filter((m) => m.email);
-        if (withMail.length !== 1) {
-          const names = list.map((m) => m.name).filter(Boolean).join("、");
-          throw new Error(withMail.length === 0
-            ? `「${who}」に当たるメンバーがいません。メンバー: ${names}`
-            : `「${who}」に当たるメンバーが複数います: ${withMail.map((m) => m.name).join("、")}。フルネームかメールで指定してください`);
-        }
-        email = withMail[0].email!;
-        memberName = withMail[0].name;
-      } else {
-        email = (auth.actor?.email || "").trim();
-        memberName = auth.actor?.name ?? null;
-      }
-      if (!email) throw new Error("誰のタスクか分かりません。member に名前かメールを渡してください (ワークスペース全体のキーで繋いでいるとき)");
+      const { email, name: memberName } = await resolveWho(env, wsId, auth, (args.member || args.email || "").trim());
       const { date: today } = await workspaceToday(env.DB, wsId);
       const soon = new Date(`${today}T00:00:00Z`);
       soon.setUTCDate(soon.getUTCDate() + 3);
@@ -1377,6 +1382,47 @@ const tools: Record<string, ToolDef> = {
       const stmt = env.DB.prepare(sql).bind(...binds);
       const rows = (await stmt.all()).results ?? [];
       return { today, member: memberName, email, items: rows.slice(0, limit), hasMore: rows.length > limit, offset };
+    },
+  },
+
+  // 「あなたの番」: 現状の「ボール:」の行に名前があるタスク (app/lib/ball.ts。アプリのタスク画面と同じ判定)
+  list_my_turn: {
+    description:
+      "自分 (または member で指定したメンバー) の番になっている未完了タスクを返す。各タスクの現状の「ボール:」の行に、その人の名前 (フルネームか姓) が書かれているもの。" +
+      "direct=true は「ボール: 黒崎 (…)」のように持ち主として書かれたもの、false は「ボール: こちら (黒崎の判断待ち)」のように括弧の中に出るもの。" +
+      "「私の番は」「返事待ちになっているのは」と聞かれたらこれを使う。期限があるもの → 持ち主として書かれたもの → 現状が新しい順。",
+    schema: z.object({
+      member: z.string().optional().describe("誰の番か。名前 (姓だけでも可) かメール。省略時は接続している本人"),
+    }),
+    handler: async (args, env, wsId, auth) => {
+      const { email, name } = await resolveWho(env, wsId, auth, (args.member || "").trim());
+      const keys = personKeys(name || "");
+      if (!keys.length) throw new Error("名簿に表示名が無いので、ボールの行と照らせません");
+      const scoped = !!auth.scopeRoots;
+      const cte = `WITH RECURSIVE sub(id) AS (
+          SELECT id FROM projects WHERE workspace_id = ?1 AND id IN (SELECT value FROM json_each(?2))
+          UNION ALL
+          SELECT p.id FROM sub s CROSS JOIN projects p ON p.parent_goal_id = s.id)`;
+      const sql = `${scoped ? cte : ""}
+        SELECT p.id, p.name, par.name AS parent_name, p.deadline, p.state_updated_at, p.current_state
+          FROM projects p LEFT JOIN projects par ON par.id = p.parent_goal_id
+         WHERE p.workspace_id = ?1 AND p.status NOT IN ('done', 'archived') AND p.archived_at IS NULL
+           AND p.current_state LIKE '%ボール%'
+           ${scoped ? "AND p.id IN (SELECT id FROM sub)" : ""}`;
+      const stmt = scoped ? env.DB.prepare(sql).bind(wsId, JSON.stringify(auth.scopeRoots)) : env.DB.prepare(sql).bind(wsId);
+      const rows = ((await stmt.all()).results ?? []) as { id: string; name: string; parent_name: string | null; deadline: string | null; state_updated_at: string | null; current_state: string }[];
+      const items = rows.flatMap((r) => {
+        const ball = ballText(r.current_state);
+        const rank = ball ? ballRank(ball, keys) : 0;
+        return rank ? [{ id: r.id, name: r.name, parent_name: r.parent_name, deadline: r.deadline, state_updated_at: r.state_updated_at, ball, direct: rank === 1 }] : [];
+      });
+      items.sort((a, b) => {
+        if (!!a.deadline !== !!b.deadline) return a.deadline ? -1 : 1;
+        if (a.deadline && b.deadline && a.deadline !== b.deadline) return a.deadline < b.deadline ? -1 : 1;
+        if (a.direct !== b.direct) return a.direct ? -1 : 1;
+        return (b.state_updated_at ?? "").localeCompare(a.state_updated_at ?? "");
+      });
+      return { member: name, email, count: items.length, items };
     },
   },
 

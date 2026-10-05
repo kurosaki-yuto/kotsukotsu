@@ -440,6 +440,12 @@ export async function getMyTasks(): Promise<MyTask[]> {
   return (await api("/api/my-tasks")) as MyTask[];
 }
 
+// ---------- あなたの番 (現状の「ボール:」に本人の名前があるタスク) ----------
+export type MyTurnItem = { id: string; name: string; parent_name: string | null; deadline: string | null; state_updated_at: string | null; ball: string; direct: boolean };
+export async function getMyTurn(): Promise<MyTurnItem[]> {
+  return (await api("/api/my-turn")) as MyTurnItem[];
+}
+
 // ---------- recursive items (goal == task; subtasks are child goals) ----------
 export async function listTopGoals(): Promise<Goal[]> {
   return (await api("/api/goals?top=1")) as Goal[];

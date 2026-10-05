@@ -23,6 +23,7 @@ import { useAutoRefresh } from "./lib/useAutoRefresh";
 import { Avatar } from "./components/Assignees";
 import { InProgressBadge, StartButton, TaskCheck } from "./components/InProgress";
 import PlanDayLaunch from "./components/PlanDayLaunch";
+import MyTurn from "./components/MyTurn";
 
 type ItemNode = Goal & { children: ItemNode[] };
 type DropPos = "before" | "after" | "inside"; // drag-drop placement relative to a row
@@ -1108,6 +1109,8 @@ export default function TasksPage() {
             ? "番号付きのゴールと、その下のタスク（クリックで中へ）"
             : "あなたのタスク"}
         </p>
+
+        <MyTurn />
 
         {/* PC(lg+): 左=ゴールツリー / 右=期限が近い。スマホは期限が近い→ツリーの縦1列 */}
         <div className="lg:flex lg:gap-8 lg:items-start">

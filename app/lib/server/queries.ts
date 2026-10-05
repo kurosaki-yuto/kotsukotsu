@@ -3,6 +3,7 @@ import { all, first, run, batch, uid, nowIso } from "./db";
 import { queuePushToWorkspace, queuePushToMembers } from "./push";
 import { notifyWorkspace } from "./realtime";
 import { resolveMentionedMembers } from "./mentions";
+import { ballRank, ballText, personKeys } from "../ball";
 
 // ---------------- goals (projects) ----------------
 export async function listGoals(wsId: string, scopeGoalId: string | null = null, activeOnly = false) {
@@ -268,6 +269,59 @@ export async function listMyAssignedItems(user: { email: string }, wsId: string)
      ORDER BY (p.status = 'done') ASC, parent.name ASC, p.order_idx ASC`,
     m.id, wsId
   );
+}
+
+// 「あなたの番」: 現状の「ボール:」の行に本人の名前があるタスク (lib/ball.ts)。
+// 見える範囲はほかの一覧と同じ: 管理者はワークスペース全体、それ以外は担当しているタスクとその配下、
+// 招待で範囲が決まっている人はその範囲だけ。候補はボールの行がある未完了タスクだけなので件数は小さい
+// (2026-10-05 本番で 136件) — LIMIT で切らずに全件返す。
+export type MyTurnItem = {
+  id: string; name: string; parent_name: string | null; deadline: string | null;
+  state_updated_at: string | null; ball: string; direct: boolean;
+};
+export async function listMyTurn(
+  viewer: { email: string; name: string | null }, wsId: string, opts: { admin: boolean; scopeGoalId: string | null }
+): Promise<MyTurnItem[]> {
+  const email = viewer.email.toLowerCase().trim();
+  const m = await first<{ id: string; name: string | null }>("SELECT id, name FROM members WHERE email = ? AND workspace_id = ?", email, wsId);
+  const keys = personKeys(m?.name || viewer.name || "");
+  if (!keys.length) return [];
+  const where: string[] = [
+    "p.workspace_id = ?", "p.status NOT IN ('done', 'archived')", "p.archived_at IS NULL", "p.current_state LIKE '%ボール%'",
+  ];
+  const args: unknown[] = [wsId];
+  // 再帰は `down CROSS JOIN projects` の順 (goalVisibilityClause のコメント参照。逆にすると全件走査になる)
+  if (opts.scopeGoalId) {
+    where.push(`p.id IN (WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT c.id FROM down CROSS JOIN projects c ON c.parent_goal_id = down.id WHERE c.workspace_id = ?) SELECT id FROM down)`);
+    args.push(opts.scopeGoalId, wsId);
+  } else if (!opts.admin) {
+    if (!m) return [];
+    where.push(`p.id IN (WITH RECURSIVE down(id) AS (
+        SELECT gm.goal_id FROM goal_members gm WHERE gm.member_id = ?
+        UNION SELECT c.id FROM down CROSS JOIN projects c ON c.parent_goal_id = down.id WHERE c.workspace_id = ?) SELECT id FROM down)`);
+    args.push(m.id, wsId);
+  }
+  const rows = await all<{ id: string; name: string; parent_name: string | null; deadline: string | null; state_updated_at: string | null; current_state: string }>(
+    `SELECT p.id, p.name, par.name AS parent_name, p.deadline, p.state_updated_at, p.current_state
+       FROM projects p LEFT JOIN projects par ON par.id = p.parent_goal_id
+      WHERE ${where.join(" AND ")}`,
+    ...args
+  );
+  const items: MyTurnItem[] = [];
+  for (const r of rows) {
+    const ball = ballText(r.current_state);
+    if (!ball) continue;
+    const rank = ballRank(ball, keys);
+    if (!rank) continue;
+    items.push({ id: r.id, name: r.name, parent_name: r.parent_name, deadline: r.deadline, state_updated_at: r.state_updated_at, ball, direct: rank === 1 });
+  }
+  // 期限があるものを期限順に先へ、残りは持ち主として書かれたもの → 現状が新しい順
+  return items.sort((a, b) => {
+    if (!!a.deadline !== !!b.deadline) return a.deadline ? -1 : 1;
+    if (a.deadline && b.deadline && a.deadline !== b.deadline) return a.deadline < b.deadline ? -1 : 1;
+    if (a.direct !== b.direct) return a.direct ? -1 : 1;
+    return (b.state_updated_at ?? "").localeCompare(a.state_updated_at ?? "");
+  });
 }
 
 // ---------------- nodes (subtasks) ----------------
