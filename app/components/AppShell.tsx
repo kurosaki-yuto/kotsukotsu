@@ -66,7 +66,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // ログインしていない人が開くページ。ここでログイン画面へ回すと、パスワード再設定の
   // メールのリンク (/reset/...) を開いた人がログイン画面に着いて先へ進めなくなる。
   // /column はコラムの公開ページ (ログインせずに読める。検索から来た人向け)。
-  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/reset/") || pathname === "/column" || pathname.startsWith("/column/");
+  // /company /terms /privacy は会社概要・規約 (当社ホスト版だけ。app/(official)/)。
+  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/reset/") || pathname === "/column" || pathname.startsWith("/column/")
+    || pathname === "/company" || pathname === "/terms" || pathname === "/privacy";
   const router = useRouter();
   const mainRef = useRef<HTMLElement | null>(null);
   // <main> is a shared layout element that persists across route changes —
