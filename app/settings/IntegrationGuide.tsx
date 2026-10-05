@@ -2,7 +2,7 @@
 
 import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
-import ColumnBody from "../components/ColumnBody";
+import { Figure } from "../components/ColumnBody";
 import { COLUMNS } from "../lib/columns";
 import {
   CONNECTOR_GROUPS,
@@ -147,7 +147,6 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
   const ccPrompt = claudeCodeSetupPrompt(connectUrl, official);
   const cxPrompt = codexSetupPrompt(keyUrl);
   const chk = checkPrompt();
-  const [openSlug, setOpenSlug] = useState<string | null>(null);
 
   return (
     <section className="card max-w-[760px] p-4 md:p-6">
@@ -157,6 +156,13 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
         AI が Chatwork・メール・カレンダーを読み、分かったことをこつこつの「現状」に書きます。
         いま使っているツールを変えずに、AI が読めるタスク一覧を保てます。
       </p>
+
+      {/* ---------- 何がどう繋がるか (図) ---------- */}
+      <Figure
+        src="/guide/connect-map-wide.svg"
+        mobileSrc="/guide/connect-map-tall.svg"
+        alt="各ツールを読むのも、こつこつに書くのも AI。こつこつと各ツールは直接は繋がない"
+      />
 
       {/* ---------- 現状の各項目をどこから取るか ---------- */}
       <div className="mt-6">
@@ -197,6 +203,12 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
               </a>
               <OpenButton href={claudeChatUrl(chk)} text={chk} label="繋がりを確かめる" />
             </div>
+            <details className="mt-3">
+              <summary className="cursor-pointer text-[12.5px] font-bold" style={{ color: "var(--accent)" }}>画面で見る手順（3枚）</summary>
+              <Figure src="/guide/kotsukotsu-connect-url.png" alt="① こつこつの 設定 → APIキー で接続用URLをコピー (画面は kotukotu.app の場合)" />
+              <Figure src="/guide/claude-add-menu.png" alt="② Claude の カスタマイズ → コネクタ → 右上の「追加」→「カスタムコネクタを追加」" />
+              <Figure src="/guide/claude-custom-connector.png" alt="③ 名前に「こつこつ」、URL に接続用URLを貼って「続ける」→ こつこつにログイン" />
+            </details>
           </Card>
           <Card>
             <div className="text-[14.5px] font-bold">Claude Code</div>
@@ -233,6 +245,9 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
         <div className="mb-3">
           <OpenButton href={claudeChatUrl(chk)} text={chk} label="今どれが繋がっているか AI に確かめる" />
         </div>
+        <div className="mb-5">
+          <Figure src="/guide/claude-connectors.png" alt="Claude の カスタマイズ → コネクタ。Gmail・Google Calendar・Google Drive・Notion などはここから追加し、繋がると緑のチェックが付く" />
+        </div>
         <div className="flex flex-col gap-6">
           {CONNECTOR_GROUPS.map((g) => (
             <div key={g.title}>
@@ -249,32 +264,29 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
       <div className="mt-8">
         <SectionHead title="使い方のコラム" lead="繋ぎ方とおすすめのやり方を記事にしています。" />
         <div className="flex flex-col gap-3">
-          {COLUMNS.map((c) => {
-            const open = openSlug === c.slug;
-            return (
-              <Card key={c.slug}>
-                <button
-                  type="button"
-                  className="block w-full text-left"
-                  onClick={() => setOpenSlug(open ? null : c.slug)}
-                  aria-expanded={open}
-                >
-                  <div className="text-[11.5px]" style={{ color: "var(--muted)" }}>{c.date}</div>
-                  <div className="mt-0.5 text-[14.5px] font-bold leading-snug" style={{ color: "var(--foreground)" }}>{c.title}</div>
-                  <div className="mt-1 text-[12.5px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>{c.summary}</div>
-                  <div className="mt-2 text-[12px] font-bold" style={{ color: "var(--accent)" }}>{open ? "閉じる" : "読む"}</div>
-                </button>
-                {open && (
-                  <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
-                    <ColumnBody body={c.body} />
-                    <a href={`/column/${c.slug}`} target="_blank" rel="noopener noreferrer" className="col-link mt-5 inline-block text-[12.5px]">
-                      公開ページで開く（共有用）
-                    </a>
-                  </div>
-                )}
-              </Card>
-            );
-          })}
+          {COLUMNS.map((c) => (
+            // 設定画面を離れずに読めるよう、別ウィンドウで公開ページを開く
+            <a
+              key={c.slug}
+              href={`/column/${c.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => {
+                // 別ウィンドウ (タブではなく窓) で開く。ポップアップが止められたらリンクどおり新しいタブで開く
+                const w = window.open(`/column/${c.slug}`, `column-${c.slug}`, "popup,width=900,height=900");
+                if (w) { e.preventDefault(); w.focus(); }
+              }}
+              className="block rounded-[12px] border p-4 transition-colors hover:bg-[var(--hover)] md:p-5"
+              style={{ borderColor: "var(--border)", background: "#fff" }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={c.thumb} alt="" className="mb-3 aspect-[1200/630] w-full rounded-[8px] object-cover" style={{ border: "1px solid var(--border)" }} />
+              <div className="text-[11.5px]" style={{ color: "var(--muted)" }}>{c.date}</div>
+              <div className="mt-0.5 text-[14.5px] font-bold leading-snug" style={{ color: "var(--foreground)" }}>{c.title}</div>
+              <div className="mt-1 text-[12.5px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>{c.summary}</div>
+              <div className="mt-2 text-[12px] font-bold" style={{ color: "var(--accent)" }}>別ウィンドウで読む ↗</div>
+            </a>
+          ))}
         </div>
       </div>
     </section>

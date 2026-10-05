@@ -7,6 +7,7 @@ export type Column = {
   title: string;
   date: string; // YYYY-MM-DD
   summary: string;
+  thumb: string; // サムネ画像 (public/column/)。一覧のカードと記事の頭に出す。1200x630
   body: string;
 };
 
@@ -17,6 +18,7 @@ export const COLUMNS: Column[] = [
     date: "2026-10-05",
     summary:
       "Excel・Word・PDF は手元のフォルダに置いたまま AI に読ませます。フォルダの分け方と、こつこつのタスクから置き場所を指す書き方をまとめました。",
+    thumb: "/column/files-and-folders.svg",
     body: `## Excel・Word はどう読ませるか
 
 - **Claude Code・Codex**: 手元のフォルダにあるファイルをそのまま開けます。.xlsx・.docx・.pdf も中身を読み、直したファイルを作ることもできます。ドライブに上げ直す必要はありません
@@ -76,6 +78,7 @@ export const COLUMNS: Column[] = [
     date: "2026-10-05",
     summary:
       "こつこつ本体は Chatwork やメールと繋がる機能を持ちません。連携は AI の側に入れ、AI が読んで「現状」に書きます。その考え方と、繋ぐ順番をまとめました。",
+    thumb: "/column/what-to-connect.svg",
     body: `## こつこつ自体には連携機能がない
 
 こつこつは、Chatwork・メール・カレンダーと直接は繋がりません。繋ぐのは AI の側です。
@@ -89,6 +92,8 @@ export const COLUMNS: Column[] = [
 1. AI に、こつこつと連絡ツールを繋ぐ
 2. 「このゴールの現状を書き直して」と頼む
 3. AI が Chatwork・メールの直近のやり取りを読み、こつこつの「現状」に書く
+
+![こつこつ・AI・各ツールの繋がり。各ツールを読むのも、こつこつに書くのも AI](/guide/connect-map-wide.svg|/guide/connect-map-tall.svg)
 
 ## 現状の項目と、その材料
 
@@ -105,6 +110,26 @@ export const COLUMNS: Column[] = [
 2. **Gmail・Google カレンダー・Google ドライブ**: Claude なら カスタマイズ → コネクタ から追加するだけです
 3. **Chatwork**: Chatwork で API トークンを発行し、Claude Code・Codex に登録します。設定 → 連携ガイド のボタンから、AI に登録を頼めます
 4. 必要に応じて **スプレッドシート・Notion・GitHub・Zoom**
+
+### こつこつを Claude に追加する
+
+こつこつの 設定 → APIキー にある「接続用URL」をコピーします。
+
+![こつこつの 設定 → APIキー の接続用URL (kotukotu.app の場合)](/guide/kotsukotsu-connect-url.png)
+
+Claude の カスタマイズ → コネクタ を開き、右上の「追加」から「カスタムコネクタを追加」を選びます。
+
+![右上の「追加」→「カスタムコネクタを追加」](/guide/claude-add-menu.png)
+
+名前に「こつこつ」、URL 欄にコピーした接続用URLを貼って「続ける」。こつこつのログイン画面が出たらログインして終わりです。
+
+![名前と接続用URLを入れて「続ける」](/guide/claude-custom-connector.png)
+
+### Gmail・カレンダー・ドライブを Claude に追加する
+
+同じ カスタマイズ → コネクタ の一覧から、Gmail・Google Calendar・Google Drive を選んで Google でログインします。繋がったものには緑のチェックが付きます。
+
+![カスタマイズ → コネクタ。繋がったものは右上に緑のチェック](/guide/claude-connectors.png)
 
 ## 繋いだあとの頼み方
 

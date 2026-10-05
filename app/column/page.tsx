@@ -20,12 +20,16 @@ export default function ColumnIndex() {
           <li key={c.slug}>
             <Link
               href={`/column/${c.slug}`}
-              className="block rounded-[14px] border p-5 transition-colors hover:bg-[#f6f8fd]"
+              className="flex flex-col overflow-hidden rounded-[14px] border transition-colors hover:bg-[#f6f8fd] md:flex-row"
               style={{ borderColor: "#dce2ee" }}
             >
-              <div className="text-[12px]" style={{ color: "#60697b" }}>{c.date}</div>
-              <div className="mt-1 text-[17px] font-bold leading-snug">{c.title}</div>
-              <div className="mt-1.5 text-[13.5px] leading-relaxed" style={{ color: "#3a4459" }}>{c.summary}</div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={c.thumb} alt="" className="aspect-[1200/630] w-full flex-none object-cover md:w-[300px]" />
+              <div className="p-5">
+                <div className="text-[12px]" style={{ color: "#60697b" }}>{c.date}</div>
+                <div className="mt-1 text-[17px] font-bold leading-snug">{c.title}</div>
+                <div className="mt-1.5 text-[13.5px] leading-relaxed" style={{ color: "#3a4459" }}>{c.summary}</div>
+              </div>
             </Link>
           </li>
         ))}

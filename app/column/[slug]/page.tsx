@@ -12,7 +12,7 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const c = findColumn((await params).slug);
   if (!c) return { title: "コラム | こつこつ" };
-  return { title: `${c.title} | こつこつ`, description: c.summary };
+  return { title: `${c.title} | こつこつ`, description: c.summary, openGraph: { title: c.title, description: c.summary } };
 }
 
 export default async function ColumnPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -24,6 +24,8 @@ export default async function ColumnPage({ params }: { params: Promise<{ slug: s
         コラム一覧
       </Link>
       <article className="mt-5">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={c.thumb} alt="" className="mb-6 aspect-[1200/630] w-full rounded-[14px] object-cover" style={{ border: "1px solid #dce2ee" }} />
         <div className="text-[12.5px]" style={{ color: "#60697b" }}>{c.date}</div>
         <h1 className="mt-1.5 text-[24px] font-bold leading-snug md:text-[28px]">{c.title}</h1>
         <p className="mt-3 text-[14.5px] leading-relaxed" style={{ color: "#3a4459" }}>{c.summary}</p>

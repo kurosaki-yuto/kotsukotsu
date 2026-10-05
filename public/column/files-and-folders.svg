@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" font-family="'Hiragino Kaku Gothic ProN','Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">
+  <title>Excel・Word とフォルダの置き方</title>
+  <rect width="1200" height="630" fill="#f4f7ff"/>
+  <rect x="0" y="0" width="14" height="630" fill="#1d3b9e"/>
+
+  <text x="70" y="96" font-size="24" font-weight="700" fill="#1d3b9e">こつこつ コラム</text>
+  <text x="70" y="186" font-size="56" font-weight="700" fill="#18233d">Excel・Word と</text>
+  <text x="70" y="262" font-size="56" font-weight="700" fill="#18233d">フォルダの置き方</text>
+  <text x="70" y="318" font-size="24" fill="#60697b">AI が迷わない置き場所と、タスクからの指し方。</text>
+
+  <!-- file chips -->
+  <g font-size="22" font-weight="700" fill="#ffffff" text-anchor="middle">
+    <rect x="70" y="390" width="110" height="130" rx="12" fill="#17864a"/><text x="125" y="470">.xlsx</text>
+    <rect x="196" y="390" width="110" height="130" rx="12" fill="#1d5fc4"/><text x="251" y="470">.docx</text>
+    <rect x="322" y="390" width="110" height="130" rx="12" fill="#c2410c"/><text x="377" y="470">.pdf</text>
+  </g>
+
+  <!-- folder tree -->
+  <rect x="660" y="120" width="470" height="420" rx="20" fill="#0f1420"/>
+  <g font-family="ui-monospace,'SF Mono',Menlo,monospace" font-size="24" fill="#e6e9ef">
+    <text x="700" y="180">00_経営/</text>
+    <text x="700" y="222">40_営業/</text>
+    <text x="700" y="264" fill="#9fb4ff">50_カスタマーサクセス/</text>
+    <text x="730" y="306">顧客/</text>
+    <text x="760" y="348" fill="#9fb4ff">株式会社◯◯/</text>
+    <text x="790" y="390">README.md</text>
+    <text x="790" y="432">提案/  議事録/</text>
+    <text x="700" y="490" fill="#8a93a6">99_アーカイブ/</text>
+  </g>
+</svg>

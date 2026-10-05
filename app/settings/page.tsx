@@ -1148,7 +1148,7 @@ function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: (
             <>① 上の「接続用URL」をコピー</>,
             <>
               ② Claudeの<strong>「カスタムコネクタを追加」</strong>を開き、
-              名前に <strong>kotsukotsu</strong>（半角英数）、
+              名前に <strong>こつこつ</strong>、
               <strong>「リモートMCPサーバーURL」</strong>にペーストして<strong>「追加」</strong>
               （OAuth欄は空のままでOK）
             </>,
@@ -1172,7 +1172,7 @@ function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: (
         </ol>
 
         <div className="mt-3.5 text-[12px] leading-relaxed" style={{ color: "var(--muted)" }}>
-          名前を日本語にするとツールが見つからなくなる環境があるため、半角英数を推奨します。
+          繋いだのにツールが見つからないときは、名前を <strong>kotsukotsu</strong>（半角英数）にして追加し直してください。
         </div>
       </div>
 

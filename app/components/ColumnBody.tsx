@@ -2,6 +2,7 @@ import type * as React from "react";
 
 // コラム本文 (app/lib/columns.ts) の簡易 markdown を描く。設定の連携ガイドと公開ページ /column の両方で使う。
 // 対応: ## / ### 見出し、- 箇条書き、1. 番号付き、``` コードブロック、> 引用、**太字**、`コード`、[文字](URL)、空行で段落。
+// 画像は1行で ![説明](/path.png)。説明は画像の下に出る。スマホ用を分けるときは ![説明](/wide.svg|/tall.svg)。
 // 原稿は自分たちで書くものだけなので、HTML はそのまま文字として出す (dangerouslySetInnerHTML は使わない)。
 
 function inline(text: string, keyBase: string): React.ReactNode[] {
@@ -30,6 +31,21 @@ function inline(text: string, keyBase: string): React.ReactNode[] {
   return out;
 }
 
+// 画像1枚 + 説明。mobileSrc があれば 640px 未満ではそちらを出す (横長の図は縦長版に差し替える)
+export function Figure({ src, alt, mobileSrc }: { src: string; alt: string; mobileSrc?: string }) {
+  return (
+    <figure className="col-figure">
+      <picture>
+        {mobileSrc && <source media="(max-width: 639px)" srcSet={mobileSrc} />}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {/* スクショ (png) は Retina で撮った2倍の大きさなので、2x として半分の大きさで出す */}
+        <img src={src} srcSet={src.endsWith(".png") ? `${src} 2x` : undefined} alt={alt} loading="lazy" />
+      </picture>
+      {alt && <figcaption>{alt}</figcaption>}
+    </figure>
+  );
+}
+
 export default function ColumnBody({ body }: { body: string }) {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
   const blocks: React.ReactNode[] = [];
@@ -45,6 +61,13 @@ export default function ColumnBody({ body }: { body: string }) {
       while (i < lines.length && !lines[i].startsWith("```")) code.push(lines[i++]);
       i++;
       blocks.push(<pre key={key} className="col-pre">{code.join("\n")}</pre>);
+      continue;
+    }
+    const img = line.match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/);
+    if (img) {
+      const [wide, tall] = img[2].split("|");
+      blocks.push(<Figure key={key} alt={img[1]} src={wide} mobileSrc={tall} />);
+      i++;
       continue;
     }
     if (line.startsWith("### ")) { blocks.push(<h3 key={key} className="col-h3">{inline(line.slice(4), key)}</h3>); i++; continue; }
@@ -68,7 +91,7 @@ export default function ColumnBody({ body }: { body: string }) {
       continue;
     }
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{2,3} |- |\d+\. |> |```)/.test(lines[i])) para.push(lines[i++]);
+    while (i < lines.length && lines[i].trim() && !/^(#{2,3} |- |\d+\. |> |```|!\[)/.test(lines[i])) para.push(lines[i++]);
     blocks.push(<p key={key} className="col-p">{inline(para.join(""), key)}</p>);
   }
   return <div className="col-body">{blocks}</div>;

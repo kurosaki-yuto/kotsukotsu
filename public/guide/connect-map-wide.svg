@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="1000" height="600" font-family="'Hiragino Kaku Gothic ProN','Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">
+  <title>こつこつ・AI・各ツールの繋がり</title>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#1d3b9e"/>
+    </marker>
+    <marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#17864a"/>
+    </marker>
+  </defs>
+  <rect width="1000" height="600" rx="18" fill="#ffffff"/>
+
+  <!-- こつこつ -->
+  <rect x="30" y="150" width="250" height="250" rx="16" fill="#1d3b9e"/>
+  <text x="155" y="196" text-anchor="middle" font-size="26" font-weight="700" fill="#fff">こつこつ</text>
+  <text x="155" y="224" text-anchor="middle" font-size="13" fill="#c9d4f5">AI が読み書きする ToDo</text>
+  <g font-size="15" fill="#fff">
+    <rect x="58" y="244" width="194" height="32" rx="8" fill="#2c4cb5"/><text x="155" y="266" text-anchor="middle">ゴール・タスク</text>
+    <rect x="58" y="284" width="194" height="32" rx="8" fill="#2c4cb5"/><text x="155" y="306" text-anchor="middle">完了の基準</text>
+    <rect x="58" y="324" width="194" height="32" rx="8" fill="#2c4cb5"/><text x="155" y="346" text-anchor="middle">現状（ボール・詰まり）</text>
+  </g>
+
+  <!-- AI -->
+  <rect x="385" y="150" width="230" height="250" rx="16" fill="#eef3ff" stroke="#1d3b9e" stroke-width="2"/>
+  <text x="500" y="196" text-anchor="middle" font-size="26" font-weight="700" fill="#18233d">AI</text>
+  <text x="500" y="224" text-anchor="middle" font-size="13" fill="#60697b">ここに全部を繋ぐ</text>
+  <g font-size="15" fill="#18233d">
+    <rect x="410" y="244" width="180" height="32" rx="8" fill="#fff" stroke="#c9d4f5"/><text x="500" y="266" text-anchor="middle">Claude</text>
+    <rect x="410" y="284" width="180" height="32" rx="8" fill="#fff" stroke="#c9d4f5"/><text x="500" y="306" text-anchor="middle">Claude Code</text>
+    <rect x="410" y="324" width="180" height="32" rx="8" fill="#fff" stroke="#c9d4f5"/><text x="500" y="346" text-anchor="middle">Codex</text>
+  </g>
+
+  <!-- AI -> こつこつ : 書く -->
+  <line x1="383" y1="232" x2="284" y2="232" stroke="#1d3b9e" stroke-width="3" marker-end="url(#ah)"/>
+  <text x="333" y="212" text-anchor="middle" font-size="14" font-weight="700" fill="#1d3b9e">② 書く</text>
+  <!-- こつこつ -> AI : AIで進める -->
+  <line x1="284" y1="330" x2="383" y2="330" stroke="#1d3b9e" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#ah)"/>
+  <text x="333" y="356" text-anchor="middle" font-size="13" fill="#1d3b9e">AIで進める</text>
+  <text x="333" y="374" text-anchor="middle" font-size="12" fill="#60697b">(指示文)</text>
+
+  <!-- 連携先 -->
+  <g font-size="14" fill="#18233d">
+    <text x="720" y="58" font-size="13" font-weight="700" fill="#60697b">連絡 — ボールが分かる</text>
+    <rect x="720" y="68" width="120" height="36" rx="9" fill="#fff" stroke="#dce2ee"/><text x="780" y="91" text-anchor="middle">Chatwork</text>
+    <rect x="850" y="68" width="120" height="36" rx="9" fill="#fff" stroke="#dce2ee"/><text x="910" y="91" text-anchor="middle">Gmail</text>
+
+    <text x="720" y="146" font-size="13" font-weight="700" fill="#60697b">予定・資料 — 済んだこと・次の予定</text>
+    <rect x="720" y="156" width="120" height="36" rx="9" fill="#fff" stroke="#dce2ee"/><text x="780" y="179" text-anchor="middle">カレンダー</text>
+    <rect x="850" y="156" width="120" height="36" rx="9" fill="#fff" stroke="#dce2ee"/><text x="910" y="179" text-anchor="middle">ドライブ</text>
+    <rect x="720" y="200" width="120" height="36" rx="9" fill="#fff" stroke="#dce2ee"/><text x="780" y="223" text-anchor="middle">スプレッドシート</text>
+    <rect x="850" y="200" width="120" height="36" rx="9" fill="#fff" stroke="#dce2ee"/><text x="910" y="223" text-anchor="middle">Notion</text>
+
+    <text x="720" y="278" font-size="13" font-weight="700" fill="#60697b">開発 — どのコミットで直したか</text>
+    <rect x="720" y="288" width="250" height="36" rx="9" fill="#fff" stroke="#dce2ee"/><text x="845" y="311" text-anchor="middle">GitHub</text>
+
+    <text x="720" y="366" font-size="13" font-weight="700" fill="#60697b">議事録 — 商談で決まったこと</text>
+    <rect x="720" y="376" width="250" height="36" rx="9" fill="#fff" stroke="#dce2ee"/><text x="845" y="399" text-anchor="middle">Zoom</text>
+  </g>
+  <rect x="704" y="40" width="282" height="388" rx="14" fill="none" stroke="#dce2ee" stroke-width="1.5"/>
+
+  <!-- 連携先 -> AI : 読む -->
+  <line x1="702" y1="275" x2="619" y2="275" stroke="#17864a" stroke-width="3" marker-end="url(#ahg)"/>
+  <text x="660" y="255" text-anchor="middle" font-size="14" font-weight="700" fill="#17864a">① 読む</text>
+  <text x="660" y="300" text-anchor="middle" font-size="11.5" fill="#60697b">コネクタ</text>
+  <text x="660" y="316" text-anchor="middle" font-size="11.5" fill="#60697b">/ MCP</text>
+
+  <!-- こつこつ と 連携先 は直接繋がない -->
+  <path d="M155 404 L155 500 L845 500 L845 430" fill="none" stroke="#b8bfcc" stroke-width="2" stroke-dasharray="4 6"/>
+  <rect x="330" y="482" width="340" height="36" rx="18" fill="#fff" stroke="#b8bfcc"/>
+  <text x="500" y="506" text-anchor="middle" font-size="14" fill="#60697b">こつこつ と各ツールは直接は繋がない</text>
+
+  <text x="500" y="560" text-anchor="middle" font-size="15" fill="#18233d">
+    <tspan font-weight="700">繋ぐのは AI の側だけ。</tspan>AI が各ツールを読んで、こつこつの現状とタスクに書く。
+  </text>
+</svg>
