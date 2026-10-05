@@ -280,6 +280,14 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
             <CopyButton text={planDayPrompt(origin)} />
           </div>
           <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
+            <div className="text-[13px] font-bold">メンバーの分をまとめて組む</div>
+            <p className="mt-1 text-[12.5px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>
+              タスク画面の「AIで今日の予定を組む」→「メンバーの予定を組む」に名前を読点で区切って入れます (例: 田中、松本)。
+              AI がメンバーごとにタスクを取り、各自のカレンダーの空きに並べた案を出します。
+              予定を書き込めるのは、Google カレンダーの共有で「予定の変更権限」をあなたに付けているメンバーだけです。それ以外の人は案だけ出し、招待は送りません。
+            </p>
+          </div>
+          <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
             <div className="text-[13px] font-bold">毎朝自動で組ませる</div>
             <p className="mt-1 text-[12.5px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>
               Claude の「スケジュール済みタスク」→「新規タスク」→「手動で設定」で、手順に下の指示文を貼り、頻度を「平日」と時刻にします。

@@ -1286,15 +1286,40 @@ const tools: Record<string, ToolDef> = {
       "自分が担当している未完了のタスク (未完了の子を持たない一番下のもの) を、優先の順で返す。" +
       "順番: 今日に入れたもの → 期限切れ・今日まで → 進行中 → 期限が3日以内 → その他。各行の why がどれに当たるか。" +
       "今日の予定を組む・今日やることを選ぶときは list_goals ではなくこれを使う。completion_criteria / current_state は先頭300字。" +
-      "ワークスペース全体のキーで繋いでいて本人が分からないときは email を渡す。",
+      "他のメンバーの分は member に名前 (姓だけ・スペース抜きでも可) かメールを渡す。メンバーごとに1回ずつ呼ぶ。" +
+      "見える範囲は今までどおり (担当範囲が決まっている人は、その範囲のタスクだけ)。",
     schema: z.object({
-      email: z.string().optional().describe("誰のタスクか。省略時は接続している本人"),
+      member: z.string().optional().describe("誰のタスクか。名前 (例: 田中 / 田中大二朗) かメール。省略時は接続している本人"),
+      email: z.string().optional().describe("旧引数。member と同じ扱い"),
       limit: z.number().int().min(1).max(100).optional().describe("既定 30"),
       offset: z.number().int().min(0).optional().describe("既定 0"),
     }),
     handler: async (args, env, wsId, auth) => {
-      const email = (args.email || auth.actor?.email || "").trim();
-      if (!email) throw new Error("誰のタスクか分かりません。email を渡してください (ワークスペース全体のキーで繋いでいるとき)");
+      // 誰のタスクか: member (名前かメール) → 接続している本人。名前はコメントの @メンションと同じ照合
+      const who = (args.member || args.email || "").trim();
+      let email = "";
+      let memberName: string | null = null;
+      if (who) {
+        const { results: roster } = await env.DB.prepare(
+          "SELECT id, name, email FROM members WHERE workspace_id = ?"
+        ).bind(wsId).all<{ id: string; name: string | null; email: string | null }>();
+        const list = (roster ?? []).map((m) => ({ id: m.id, name: m.name ?? "", email: m.email }));
+        const byEmail = list.filter((m) => m.email && m.email.toLowerCase() === who.toLowerCase());
+        const hits = byEmail.length ? byEmail : resolveMentionedMembers(`@${who.replace(/^@/, "")}`, list);
+        const withMail = hits.filter((m) => m.email);
+        if (withMail.length !== 1) {
+          const names = list.map((m) => m.name).filter(Boolean).join("、");
+          throw new Error(withMail.length === 0
+            ? `「${who}」に当たるメンバーがいません。メンバー: ${names}`
+            : `「${who}」に当たるメンバーが複数います: ${withMail.map((m) => m.name).join("、")}。フルネームかメールで指定してください`);
+        }
+        email = withMail[0].email!;
+        memberName = withMail[0].name;
+      } else {
+        email = (auth.actor?.email || "").trim();
+        memberName = auth.actor?.name ?? null;
+      }
+      if (!email) throw new Error("誰のタスクか分かりません。member に名前かメールを渡してください (ワークスペース全体のキーで繋いでいるとき)");
       const { date: today } = await workspaceToday(env.DB, wsId);
       const soon = new Date(`${today}T00:00:00Z`);
       soon.setUTCDate(soon.getUTCDate() + 3);
@@ -1334,7 +1359,7 @@ const tools: Record<string, ToolDef> = {
       if (scoped) binds.push(JSON.stringify(auth.scopeRoots));
       const stmt = env.DB.prepare(sql).bind(...binds);
       const rows = (await stmt.all()).results ?? [];
-      return { today, email, items: rows.slice(0, limit), hasMore: rows.length > limit, offset };
+      return { today, member: memberName, email, items: rows.slice(0, limit), hasMore: rows.length > limit, offset };
     },
   },
 

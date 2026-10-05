@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { planDayPrompt } from "../lib/planDay";
+import { planDayPrompt, planTeamPrompt } from "../lib/planDay";
 
 // タスク画面の「AIで今日の予定を組む」。こつこつのタスクと Google カレンダーの空きを AI に読ませて、
 // 今日の予定を組ませる指示文を入れた状態で AI を開く (送信は本人)。指示文は lib/planDay.ts。
@@ -34,6 +34,10 @@ export default function PlanDayLaunch() {
   const [open, setOpen] = useState(false);
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState<"idle" | "ok" | "ng">("idle");
+  // メンバーの分を組むときの名前 (読点・カンマ・スペース区切り)
+  const [names, setNames] = useState("");
+  const nameList = names.split(/[、,，\s　]+/).filter(Boolean);
+  const teamText = planTeamPrompt(nameList, origin);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => setOrigin(window.location.origin), []);
   useEffect(() => {
@@ -87,6 +91,29 @@ export default function PlanDayLaunch() {
               {copied === "ng" ? "コピーできませんでした" : "開かずにコピーだけします"}
             </span>
           </button>
+          <div className="border-t px-4 py-3" style={{ borderColor: "var(--border)" }}>
+            <div className="text-sm">メンバーの予定を組む</div>
+            <span className={sub} style={{ color: "var(--muted)" }}>名前を読点で区切って入れる (姓だけでも可)</span>
+            <input
+              value={names}
+              onChange={(e) => setNames(e.target.value)}
+              placeholder="例: 田中、松本、小西"
+              className="mt-2 w-full rounded-[8px] border px-2.5 py-1.5 text-[13px] outline-none"
+              style={{ borderColor: "var(--border-strong)" }}
+            />
+            <a
+              role="menuitem"
+              href={nameList.length ? `https://claude.ai/new?q=${encodeURIComponent(teamText)}` : undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-disabled={!nameList.length}
+              onClick={(e) => { if (!nameList.length) { e.preventDefault(); return; } void copyText(teamText); setOpen(false); }}
+              className="mt-2 inline-block rounded-full px-3 py-1 text-[12.5px] font-bold text-white"
+              style={{ background: nameList.length ? "var(--accent)" : "var(--muted-soft)", cursor: nameList.length ? "pointer" : "not-allowed" }}
+            >
+              Claude で{nameList.length ? ` ${nameList.length}人分を` : ""}組む
+            </a>
+          </div>
           <a role="menuitem" href="/column/plan-day" target="_blank" rel="noopener noreferrer" className={`${item} border-t`} style={{ borderColor: "var(--border)" }} onClick={() => setOpen(false)}>
             毎朝自動で組ませるには ↗
             <span className={sub} style={{ color: "var(--muted)" }}>Claude のスケジュール済みタスクの設定方法</span>
