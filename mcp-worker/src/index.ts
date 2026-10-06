@@ -328,6 +328,7 @@ function buildInstructions(auth: McpAuth): string {
   let instructions = INSTRUCTIONS;
   if (auth.actor) {
     instructions += `\n\n## このセッションの権限\nあなたは「${auth.actor.name}」のAIとして接続しています (役割: ${auth.actor.role})。`;
+    instructions += `\n本人が複数のワークスペースに所属しているときは、この1本の接続で全部を扱えます。list_workspaces で一覧を見て、既定以外のワークスペースを触るツール呼び出しには workspace (id か名前) を毎回渡してください。省略すると既定のワークスペースになります。どのワークスペースの話か分からないときは推測せず本人に聞いてください。`;
     if (auth.scopeRoots) {
       instructions += `\nアクセスはアサインされたゴール (id: ${auth.scopeRoots.join(", ")}) とその配下の部分木に限定されています。範囲外のゴールは見えず、作成・移動も範囲内のみ可能です。メンバー管理・招待は使えません。この範囲の中で上記の基本ループを全力で回してください。`;
     }
@@ -537,6 +538,75 @@ type McpAuth = {
   actor: { userId: string; name: string; email: string | null; role: string } | null;
 };
 
+type Membership = { workspace_id: string; user_id: string; role: string; scope_goal_id: string | null; name: string | null; email: string | null };
+
+/** One workspace_members row → the auth that member has in that workspace. */
+async function membershipAuth(env: Env, mem: Membership): Promise<McpAuth> {
+  let scopeRoots: string[] | null = null;
+  if (mem.scope_goal_id) {
+    scopeRoots = [mem.scope_goal_id];
+  } else if (mem.role !== "admin" && mem.email) {
+    // the member's actual assignments (roster row matched by email)
+    const { results } = await env.DB.prepare(
+      `SELECT gm.goal_id FROM goal_members gm
+         JOIN members m ON m.id = gm.member_id
+        WHERE m.workspace_id = ? AND lower(m.email) = lower(?)`
+    ).bind(mem.workspace_id, mem.email).all<{ goal_id: string }>();
+    const ids = (results ?? []).map((r) => r.goal_id);
+    if (ids.length) scopeRoots = ids;
+  }
+  return {
+    wsId: mem.workspace_id,
+    scopeRoots,
+    actor: { userId: mem.user_id, name: mem.name || mem.email || "メンバー", email: mem.email, role: mem.role },
+  };
+}
+
+/** Workspaces the connected person belongs to (member tokens only — a
+ *  workspace key is one workspace by definition). */
+async function reachableWorkspaces(env: Env, auth: McpAuth): Promise<{ id: string; name: string; role: string }[]> {
+  if (!auth.actor) {
+    const w = await env.DB.prepare("SELECT id, name FROM workspaces WHERE id = ?").bind(auth.wsId).first<{ id: string; name: string }>();
+    return [{ id: auth.wsId, name: w?.name ?? auth.wsId, role: "admin" }];
+  }
+  const { results } = await env.DB.prepare(
+    `SELECT w.id, w.name, wm.role FROM workspace_members wm JOIN workspaces w ON w.id = wm.workspace_id
+      WHERE wm.user_id = ? ORDER BY wm.joined_at ASC`
+  ).bind(auth.actor.userId).all<{ id: string; name: string; role: string }>();
+  return results ?? [];
+}
+
+/**
+ * One connection, many workspaces: a tool call may name another workspace
+ * (id or name) the same person belongs to. The connection's own workspace is
+ * the default. The person's role/scope in the target workspace applies — the
+ * connection's rights never carry over.
+ */
+async function authForWorkspace(env: Env, base: McpAuth, ref: unknown): Promise<McpAuth> {
+  const want = typeof ref === "string" ? ref.trim() : "";
+  if (!want || want === base.wsId) return base;
+  const reachable = await reachableWorkspaces(env, base);
+  const names = reachable.map((w) => `${w.name} (${w.id})`).join("、");
+  if (!base.actor) {
+    throw new Error(`この接続はワークスペースキーなので「${reachable[0]?.name}」だけを扱えます。複数のワークスペースを使うには、キー無しの接続用URL (本人のログイン) か本人のAPIキーで繋いでください`);
+  }
+  let hits = reachable.filter((w) => w.id === want);
+  if (!hits.length) hits = reachable.filter((w) => w.name === want);
+  if (!hits.length) hits = reachable.filter((w) => w.name.toLowerCase().includes(want.toLowerCase()));
+  if (hits.length !== 1) {
+    throw new Error(hits.length === 0
+      ? `ワークスペース「${want}」に所属していません。使えるワークスペース: ${names}`
+      : `「${want}」に当たるワークスペースが複数あります: ${hits.map((w) => `${w.name} (${w.id})`).join("、")}。id で指定してください`);
+  }
+  const mem = await env.DB.prepare(
+    `SELECT wm.workspace_id, wm.user_id, wm.role, wm.scope_goal_id, u.name, u.email
+       FROM workspace_members wm JOIN users u ON u.id = wm.user_id
+      WHERE wm.workspace_id = ? AND wm.user_id = ?`
+  ).bind(hits[0].id, base.actor.userId).first<Membership>();
+  if (!mem) throw new Error(`ワークスペース「${want}」に所属していません。使えるワークスペース: ${names}`);
+  return membershipAuth(env, mem);
+}
+
 async function resolveAuth(req: Request, env: Env): Promise<McpAuth | null> {
   // Token may come from the Authorization header (Bearer), the URL path
   // (/mcp/<token> — most reliable for claude.ai custom connectors, which can
@@ -570,27 +640,8 @@ async function resolveAuth(req: Request, env: Env): Promise<McpAuth | null> {
       `SELECT wm.workspace_id, wm.user_id, wm.role, wm.scope_goal_id, u.name, u.email
          FROM workspace_members wm JOIN users u ON u.id = wm.user_id
         WHERE wm.mcp_token = ? LIMIT 1`
-    ).bind(presented).first<{ workspace_id: string; user_id: string; role: string; scope_goal_id: string | null; name: string | null; email: string | null }>();
-    if (mem) {
-      let scopeRoots: string[] | null = null;
-      if (mem.scope_goal_id) {
-        scopeRoots = [mem.scope_goal_id];
-      } else if (mem.role !== "admin" && mem.email) {
-        // the member's actual assignments (roster row matched by email)
-        const { results } = await env.DB.prepare(
-          `SELECT gm.goal_id FROM goal_members gm
-             JOIN members m ON m.id = gm.member_id
-            WHERE m.workspace_id = ? AND lower(m.email) = lower(?)`
-        ).bind(mem.workspace_id, mem.email).all<{ goal_id: string }>();
-        const ids = (results ?? []).map((r) => r.goal_id);
-        if (ids.length) scopeRoots = ids;
-      }
-      return {
-        wsId: mem.workspace_id,
-        scopeRoots,
-        actor: { userId: mem.user_id, name: mem.name || mem.email || "メンバー", email: mem.email, role: mem.role },
-      };
-    }
+    ).bind(presented).first<Membership>();
+    if (mem) return membershipAuth(env, mem);
   } catch { /* column may not exist yet */ }
   // 4) Legacy fallback: org_settings singleton key → default workspace.
   try {
@@ -1758,6 +1809,18 @@ const tools: Record<string, ToolDef> = {
     },
   },
 
+  // ---- workspaces ----
+  list_workspaces: {
+    description:
+      "この接続で扱えるワークスペースの一覧 (id・名前・役割・既定かどうか)。接続している本人が所属するワークスペースが全部出る。" +
+      "既定 (default=true) 以外を触るときは、他のツールに workspace (id か名前) を渡す。",
+    schema: z.object({}),
+    handler: async (_args, env, _wsId, auth) => {
+      const list = await reachableWorkspaces(env, auth);
+      return list.map((w) => ({ ...w, default: w.id === auth.wsId }));
+    },
+  },
+
   // ---- members & access control (admin) ----
   list_members: {
     description: "List all members in the roster (id, name, email, role).",
@@ -1880,6 +1943,16 @@ const TOOLS_LIST = Object.entries(tools).map(([name, def]) => {
     $refStrategy: "none",
     target: "jsonSchema7",
   }) as Record<string, unknown>;
+  // Every tool (but list_workspaces) can target another workspace the person belongs to.
+  if (name !== "list_workspaces") {
+    inputSchema.properties = {
+      ...(inputSchema.properties as Record<string, unknown> | undefined),
+      workspace: {
+        type: "string",
+        description: "対象のワークスペース (id か名前)。省略時はこの接続の既定のワークスペース。一覧は list_workspaces",
+      },
+    };
+  }
   return { name, description: def.description, inputSchema };
 });
 
@@ -1926,12 +1999,16 @@ async function handleRpc(message: any, env: Env, auth: McpAuth): Promise<unknown
       const def = tools[name];
       if (!def) return rpcError(id, RPC.METHOD_NOT_FOUND, `unknown tool: ${name}`);
 
+      // `workspace` is shared by every tool, so it's not in the per-tool schemas
+      // (z.object strips it during parse).
       const parsed = def.schema.safeParse(params?.arguments ?? {});
       if (!parsed.success) {
         return rpcError(id, RPC.INVALID_PARAMS, "invalid tool arguments", parsed.error.flatten());
       }
       try {
-        const result = await def.handler(parsed.data, env, wsId, auth);
+        const callAuth = name === "list_workspaces" ? auth : await authForWorkspace(env, auth, params?.arguments?.workspace);
+        const wsId = callAuth.wsId;
+        const result = await def.handler(parsed.data, env, wsId, callAuth);
         if (MUTATING_TOOLS.has(name)) await notifyRealtime(env, wsId);
         if (PUSH_TOOLS.has(name)) {
           // most PUSH_TOOLS take goalId directly; complete_subtask's id IS the
@@ -2204,6 +2281,7 @@ export default {
           ok: true,
           message: "このAPIキーは有効です。このURLをそのまま claude.ai の 設定 > コネクタ > カスタムコネクタを追加 に貼ってください (コネクタ名は半角英数 kotsukotsu 推奨)。チャットで使う時は入力欄のツールメニューからこのコネクタを有効にしてください。",
           workspace: ws?.name ?? auth.wsId,
+          workspaces: (await reachableWorkspaces(env, auth).catch(() => [])).map((w) => w.name),
           actor: auth.actor
             ? { name: auth.actor.name, role: auth.actor.role }
             : "ワークスペースキー (管理者として動作)",
