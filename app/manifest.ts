@@ -5,7 +5,9 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "こつこつ",
     short_name: "こつこつ",
     description: "コツれば終わる",
-    start_url: "/",
+    // ?source=pwa は「アプリとして開いた」印。kotukotu.app の入口 (pages-proxy) が、
+    // ログインしていないときにサービス紹介ページではなくログイン画面へ回すのに使う。
+    start_url: "/?source=pwa",
     display: "standalone",
     background_color: "#ffffff",
     theme_color: "#1d3b9e",

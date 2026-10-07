@@ -360,8 +360,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   // Do NOT render any app content until auth is confirmed (prevents content
   // from flashing for logged-out users while redirecting to /login).
+  // 空の div だと、デスクトップアプリ (PWA) として開いたときに「中身の無い白い窓」が
+  // 先に出て見える (ブラウザ枠が無いため)。確認中はロゴだけ出して「起動中」と分かるようにする。
   if (authed !== true) {
-    return <div className="h-screen w-full" style={{ background: "var(--app-bg)" }} />;
+    return (
+      <div className="flex h-screen w-full items-center justify-center" style={{ background: "var(--app-bg)" }} aria-busy="true" aria-label="こつこつを起動中">
+        <div className="flex flex-col items-center gap-3" style={{ animation: "addy-pulse 1.6s ease-in-out infinite" }}>
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl text-white" style={{ background: "var(--accent)" }}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 4C11 4 4 11 4 20" /><path d="M20 4c0 7-5 13-12 14l-4 0 0-4" /><path d="M14 8l-7 7" />
+            </svg>
+          </div>
+          <span className="text-sm font-medium" style={{ color: "var(--muted)" }}>こつこつ</span>
+        </div>
+      </div>
+    );
   }
 
   return (
