@@ -54,3 +54,50 @@ export function planTeamPrompt(names: string[], origin: string): string {
     "9. 予定に入れたタスクは set_today で今日に入れ、最後にメンバーごとに作った予定と入りきらなかったタスクを報告する",
   ].join("\n");
 }
+
+// メンバー間で打ち合わせの日程を合わせる版。参加者全員の Google カレンダーの空きが重なる枠を探して候補を出し、
+// 選んだ枠で自分のカレンダーに予定を作って参加者を招待する。
+// suggest_time は読めないカレンダー (共有されていない人) を「全部空き」として扱う (2026-10-07 実測。
+// 共有していない参加者を入れても候補が普通に返った)。だから先に list_events で一人ずつ読めるか確かめ、
+// 読めない人は suggest_time に入れずに「空き不明」と出させる。
+export type MeetPerson = { name: string; email?: string | null };
+export type MeetOptions = {
+  people: MeetPerson[];        // 自分以外の参加者
+  minutes: number;             // 打ち合わせの長さ
+  from: string;                // 探す範囲 YYYY-MM-DD (日本時間)
+  to: string;                  // 探す範囲 YYYY-MM-DD (日本時間、この日を含む)
+  purpose?: string;            // 用件
+  online?: boolean;            // Google Meet を付けるか
+  task?: { id: string; name: string } | null;
+};
+
+export function meetPrompt(o: MeetOptions, origin: string): string {
+  const who = o.people
+    .map((p) => (p.email ? `${p.name} (${p.email})` : p.name))
+    .join("、") || "<参加者>";
+  const purpose = o.purpose?.trim() || o.task?.name || "打ち合わせ";
+  const range = o.from === o.to ? o.from : `${o.from}〜${o.to}`;
+  const taskUrl = o.task ? `${origin}/goals/${o.task.id}` : "";
+  return [
+    "こつこつのメンバーと打ち合わせの日程を合わせてください。",
+    "",
+    `用件: ${purpose}`,
+    ...(o.task ? [`関係するタスク: ${taskUrl}`] : []),
+    `参加者: 私、${who}`,
+    `長さ: ${o.minutes}分 / 探す範囲: ${range} の平日 9:00〜19:00 (日本時間) / 場所: ${o.online === false ? "対面 (Meet は付けない)" : "オンライン (Google Meet を付ける)"}`,
+    "",
+    "1. Google カレンダーのツール (list_events・suggest_time・create_event) が使えるか確かめる。無ければ何もせず「Google カレンダーが未接続です。こつこつの 設定 → 連携ガイド を見てください」とだけ返して止まる",
+    "2. メールが書かれていない参加者は、こつこつの list_members で名前からメールを引く。当たらない・複数当たる人は外し、理由を伝える",
+    "3. 参加者一人ずつ、list_events (calendarId = その人のメール、探す範囲) でカレンダーが読めるか確かめる。エラーになった人は「空きが分からない人」にする。suggest_time に入れると全部空きとして扱われるので、その人は入れない",
+    "4. 私と、読めた人全員のメールで suggest_time を呼ぶ (長さ・探す範囲・9:00〜19:00・土日を除く)。もう過ぎた時刻は外す。開始は00分か30分にそろえ、各自の前後の予定と10分以上空く枠を優先して、日をばらして最大5つの候補にする",
+    "5. 予定を作る前に、候補を表 (番号 / 日時 / 全員の空き) で見せて止まる。表の下に「空きが分からない人」と、その人に頼むこと (Google カレンダーの 設定と共有 → 特定のユーザーとの共有 で、私のメールに『予定の表示 (時間枠のみ)』以上を付けてもらう) を書く。候補が無ければ、長さを短くするか範囲を広げる案を出す",
+    ...(o.task
+      ? ["   私が「みんなに聞いて」と言ったら、予定は作らずに、こつこつの send_chat で関係するタスクのコメントに候補を投稿する (参加者を @名前 で指定し、「都合の良い番号を返信してください」と添える)。返信が揃ったら、私が選んだ番号で 6 に進む"]
+      : []),
+    `6. 私が番号を選んだら、私のカレンダーにその枠で予定を1件作る。タイトルは「[こつこつ] ${purpose}」、参加者は上の全員 (空きが分からない人も含む)${o.online === false ? "" : "、Google Meet を付ける"}。説明には用件${o.task ? `と「${taskUrl}」` : ""}を入れる。作ると参加者に招待メールが届くので、私が番号を選ぶまでは作らない`,
+    "7. 既存の予定は動かさない・消さない・変えない。同じ用件の「[こつこつ]」の予定が範囲内に既にあれば、作らずにそれを伝える",
+    o.task
+      ? "8. 予定を作ったら、こつこつの send_chat で関係するタスクに「日程: <日時> / 参加者: <名前> / <予定のURL>」を残し、最後に作った予定を報告する"
+      : "8. 最後に、作った予定の日時・参加者・URL を報告する",
+  ].join("\n");
+}

@@ -319,6 +319,14 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
             </p>
           </div>
           <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
+            <div className="text-[13px] font-bold">メンバーと日程を合わせる</div>
+            <p className="mt-1 text-[12.5px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>
+              タスク画面かタスクの詳細の「日程を合わせる」で、参加するメンバー・長さ・探す範囲を選びます。タスクの詳細から開くと、担当者が最初から選ばれています。
+              AI が全員の Google カレンダーの空きが重なる時間を探して候補を出し、あなたが番号を選ぶと、あなたのカレンダーに予定を作って参加者を招待します。
+              空きを読めるのは、Google カレンダーの「設定と共有 → 特定のユーザーとの共有」で、あなたに「予定の表示 (時間枠のみ)」以上を付けているメンバーだけです。読めない人は「空き不明」として候補の下に出ます。
+            </p>
+          </div>
+          <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
             <div className="text-[13px] font-bold">毎朝自動で組ませる</div>
             <p className="mt-1 text-[12.5px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>
               Claude の「スケジュール済みタスク」→「新規タスク」→「手動で設定」で、手順に下の指示文を貼り、頻度を「平日」と時刻にします。

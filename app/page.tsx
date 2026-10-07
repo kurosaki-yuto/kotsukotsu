@@ -23,6 +23,7 @@ import { useAutoRefresh } from "./lib/useAutoRefresh";
 import { Avatar } from "./components/Assignees";
 import { InProgressBadge, StartButton, TaskCheck } from "./components/InProgress";
 import PlanDayLaunch from "./components/PlanDayLaunch";
+import MeetLaunch from "./components/MeetLaunch";
 import MyTurn from "./components/MyTurn";
 import DoneCounts from "./components/DoneCounts";
 import { Chevron, useCollapsed } from "./lib/useCollapsed";
@@ -1091,6 +1092,7 @@ export default function TasksPage() {
           <h1 className="text-[22px] font-bold">タスク</h1>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <PlanDayLaunch />
+            <MeetLaunch />
             <button
               type="button"
               onClick={toggleShowDone}

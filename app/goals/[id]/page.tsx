@@ -7,6 +7,7 @@ import type { Goal, Resource, Member, ChatMessage } from "../../lib/db";
 import type { Me, GoalMember } from "../../lib/addness";
 import Linkified from "../../components/Linkified";
 import AgentLaunch from "../../components/AgentLaunch";
+import MeetLaunch from "../../components/MeetLaunch";
 import { InProgressBadge, StartButton, TaskCheck, isInProgress } from "../../components/InProgress";
 import { Assignees, Avatar } from "../../components/Assignees";
 import { useAutoRefresh } from "../../lib/useAutoRefresh";
@@ -782,6 +783,8 @@ export default function GoalDetail() {
             <div className="flex items-center gap-2 shrink-0">
             {/* Claude / Codex をこのゴールの指示文入りで開く */}
             <AgentLaunch goalId={id} goalName={goal.name} />
+            {/* 担当者を選んだ状態で、メンバーと打ち合わせの日程を合わせる */}
+            <MeetLaunch task={{ id, name: goal.name }} defaultMemberIds={assignees.map((a) => a.id)} align="left" />
             {selfDone ? (
               <div className="flex items-center gap-2 shrink-0">
                 <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-bold text-white" style={{ background: "var(--done)" }}>
