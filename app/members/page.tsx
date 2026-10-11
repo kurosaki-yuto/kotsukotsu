@@ -21,7 +21,6 @@ import {
   type MemberProgress,
 } from "../lib/addness";
 import type { Member, Goal } from "../lib/db";
-import { supabase } from "../lib/db";
 import { useAutoRefresh } from "../lib/useAutoRefresh";
 
 function firstChar(name: string): string {
@@ -335,22 +334,6 @@ export default function MembersPage() {
     void reload();
   }, [reload]);
 
-  useEffect(() => {
-    let channel: ReturnType<ReturnType<typeof supabase>["channel"]> | null = null;
-    try {
-      channel = supabase()
-        .channel("members-page")
-        .on("postgres_changes", { event: "*", schema: "public", table: "members" }, () => {
-          void reload();
-        })
-        .subscribe();
-    } catch {
-      /* env not set — page already surfaces error via reload */
-    }
-    return () => {
-      if (channel) void supabase().removeChannel(channel);
-    };
-  }, [reload]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

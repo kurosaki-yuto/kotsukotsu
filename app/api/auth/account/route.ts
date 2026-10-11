@@ -1,3 +1,4 @@
+import { limitOr429, MIN } from "../../../lib/server/ratelimit";
 import { json, bad } from "../../../lib/server/db";
 import { requireUser, verifyPassword, clearCookie } from "../../../lib/server/auth";
 import { accountPlan, deleteAccount } from "../../../lib/server/account";
@@ -14,6 +15,8 @@ export async function POST(req: Request) {
   const user = await requireUser(req);
   if (!user) return bad("unauthorized", 401);
 
+  const limited = await limitOr429(`password:user:${user.id}`, 10, 15 * MIN);
+  if (limited) return limited;
   const body = (await req.json().catch(() => ({}))) as { password?: string };
   if (!body.password) return bad("current password required", 400);
   if (!(await verifyPassword(user.id, body.password))) return bad("current password incorrect", 403);

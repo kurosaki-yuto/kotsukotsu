@@ -4,12 +4,20 @@ import { createUser, createSession, sessionCookie, passwordProblem, PASSWORD_MIN
 import { getValidInvite } from "../../../lib/server/queries";
 import { joinViaInvite, inviteEmailMatches, createWorkspace } from "../../../lib/server/workspace";
 
+import { limitOr429, clientIp, HOUR } from "../../../lib/server/ratelimit";
+import { crossOriginWrite } from "../../../lib/server/auth";
+
 export async function POST(req: Request) {
+  if (crossOriginWrite(req)) return json({ error: "forbidden" }, { status: 403 });
+  const limited = await limitOr429(`register:ip:${clientIp(req)}`, 10, HOUR);
+  if (limited) return limited;
   const body = (await req.json().catch(() => ({}))) as { email?: string; password?: string; name?: string; invite?: string };
   const email = (body.email ?? "").trim();
   const password = body.password ?? "";
-  const name = (body.name ?? "").trim();
+  const name = (body.name ?? "").trim().slice(0, 80);
   if (!email || !password || !name) return bad("email, name and password required", 400);
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad("メールアドレスの形式が違います", 400);
+  if (password.length > 200) return bad("パスワードが長すぎます", 400);
   if (passwordProblem(password)) return bad(`パスワードは${PASSWORD_MIN}文字以上にしてください`, 400);
 
   // Optional invite → role from invite + consume it + add to the member roster.

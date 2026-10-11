@@ -1,11 +1,6 @@
 "use client";
 
-// Backend moved from Supabase to Cloudflare D1 (server-only). The browser now
-// talks to /api/* route handlers via fetch (see app/lib/addness.ts &
-// app/lib/queries.ts). This inert stub keeps existing component realtime code a
-// harmless no-op.
-const chan: any = { on() { return chan; }, subscribe() { return chan; }, unsubscribe() { return chan; } };
-export function supabase(): any { return { channel() { return chan; }, removeChannel() {}, removeAllChannels() {} }; }
+// 型は画面とサーバーで共有する。DB の行の形は server 側 (queries.ts) が正。
 
 // projects == goals
 export type Project = {
@@ -26,8 +21,30 @@ export type Project = {
   started_at?: string | null;
   started_by_name?: string | null;
   started_via?: string | null;      // 'app' = 画面のボタン / それ以外 = AI の名前
+  template_id?: string | null;      // 型 (テンプレート) から作られたゴール
 };
 export type Goal = Project;
+
+// 型 (テンプレート): 必要な入力値 + 資料リンク + タスクの木。/templates。中身の型は templateCore.ts が正
+export type { TemplateInput, TemplateTask, TemplateResource } from "./server/templateCore";
+import type { TemplateInput, TemplateTask, TemplateResource } from "./server/templateCore";
+export type Template = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  purpose: string | null;
+  completion_criteria: string | null;
+  inputs: TemplateInput[];
+  tasks: TemplateTask[];
+  resources: TemplateResource[];
+  source_goal_id: string | null;
+  created_by: string | null;
+  author_name: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+export type TemplateSummary = Template & { task_count: number; used_count: number };
 
 export type DbNode = {
   id: string;

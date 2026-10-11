@@ -533,8 +533,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 // 外部サイトへ飛ばされないよう、自分のところの絶対パスだけ通す。
 function goNext(): boolean {
   const next = new URLSearchParams(window.location.search).get("next") ?? "";
-  if (!next.startsWith("/") || next.startsWith("//")) return false;
-  window.location.replace(next);
+  // "/\\evil.com" や "/%09/evil.com" のように、先頭が "/" でも外に出る書き方があるので、
+  // 文字列ではなく URL として解決して同じオリジンかを見る
+  let u: URL;
+  try { u = new URL(next, window.location.origin); } catch { return false; }
+  if (!next.startsWith("/") || u.origin !== window.location.origin) return false;
+  window.location.replace(u.pathname + u.search + u.hash);
   return true;
 }
 

@@ -8,6 +8,7 @@ import {
   passwordProblem,
 } from "../../../lib/server/auth";
 import { sendMail, passwordChangedMail } from "../../../lib/server/email";
+import { limitOr429, MIN } from "../../../lib/server/ratelimit";
 
 // Change your own password while signed in. The current password is required:
 // a session alone must not be enough, or an unattended open laptop becomes a
@@ -16,10 +17,13 @@ export async function POST(req: Request) {
   const user = await requireUser(req);
   if (!user) return bad("unauthorized", 401);
 
+  const limited = await limitOr429(`password:user:${user.id}`, 10, 15 * MIN);
+  if (limited) return limited;
   const body = (await req.json().catch(() => ({}))) as { current?: string; password?: string };
   const current = body.current ?? "";
   const password = body.password ?? "";
   if (!current) return bad("current password required", 400);
+  if (password.length > 200) return bad("パスワードが長すぎます", 400);
 
   const problem = passwordProblem(password);
   if (problem) return bad(problem, 400);

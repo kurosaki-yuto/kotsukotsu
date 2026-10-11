@@ -25,7 +25,11 @@ database** as the main app (binding `DB`, `database_name: "kotsukotsu-db"`).
 | `add_subtask` | 小タスクを作る。`completion_criteria` (何ができたら終わりか) と `current_state` も渡せる。作った本人が担当になる |
 | `start_task` | 一番下の小タスクを「進行中」にする (誰の・どの AI か)。`started: false` で取り消し |
 | `complete_subtask` | 完了 / 未完了に戻す。`current_state` に結果を渡すとその小タスクの現状に残る。親を完了すると配下も完了 |
-| `record_playbook` | 終えたタスクのやり方を「型」として残す (似たタスクの前例として全員の AI に渡る) |
+| `record_playbook` | 終えたタスクのやり方を「前例」として残す (似たタスクの precedents として全員の AI に渡る) |
+| `list_templates` / `get_template` | 型 (テンプレート) = 必要な入力値 + 資料リンク + タスクの木。一覧と中身 (`tasks_outline` はアウトライン文字列) |
+| `create_template` | 型を作る。`from_goal_id` で終えたゴールのタスク木を写せる。`tasks` はアウトライン文字列か配列 |
+| `update_template` / `archive_template` | 型の中身を直す / 一覧から外す (管理者と作った本人) |
+| `apply_template` | 型をメンバーに振る。`parentId` の下に 新ゴール + 子タスク + リソース + 担当 を一度に作り、本人に通知。必須入力が空なら `missing_inputs` を返して止まる |
 | `list_my_tasks` | 自分 (または `member` に名前・メールで指定したメンバー) の未完了の一番下のタスクを、今日 → 期限切れ → 進行中 → 3日以内 → その他 の順で返す |
 | `list_today` / `set_today` | 今日やるものの一覧 / 日付の付け外し |
 | `send_chat` / `edit_chat` / `delete_chat` / `list_comments` | ゴールのコメント。`@表示名` / `@全員` でメンション通知 |

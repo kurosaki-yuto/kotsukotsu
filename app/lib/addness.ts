@@ -8,6 +8,8 @@ import {
   type ChatMessage,
   type Resource,
   type OrgSettings,
+  type Template,
+  type TemplateSummary,
 } from "./db";
 
 // ---------- fetch helper ----------
@@ -163,10 +165,6 @@ export async function archiveGoal(id: string): Promise<void> {
   await api(`/api/goals/${id}`, { method: "DELETE" });
 }
 
-// progress: completed / total leaf subtasks
-export async function goalProgress(goalId: string): Promise<{ done: number; total: number }> {
-  return (await api(`/api/goals/${goalId}/progress`)) as { done: number; total: number };
-}
 
 // ---------- today's todo ----------
 // type: "goal" が生きているモデル (projects — ツリーに出ているタスク。MCP の
@@ -180,27 +178,15 @@ export type TodayItem = DbNode & {
   deadline?: string | null;
 };
 
-export async function listToday(date = todayStr()): Promise<TodayItem[]> {
-  return (await api(`/api/today?date=${encodeURIComponent(date)}`)) as TodayItem[];
-}
 
 /** id はゴール(タスク)でも旧 node でもよい。 */
-export async function setToday(id: string, date: string | null): Promise<void> {
-  await api("/api/today", { method: "POST", body: JSON.stringify({ id, date }) });
-}
 
-export async function clearToday(date = todayStr()): Promise<void> {
-  await api(`/api/today?date=${encodeURIComponent(date)}`, { method: "DELETE" });
-}
 
 // ---------- members ----------
 export async function listMembers(): Promise<Member[]> {
   return (await api("/api/members")) as Member[];
 }
 
-export async function rankedMembers(): Promise<Member[]> {
-  return (await api("/api/members?ranked=1")) as Member[];
-}
 
 // admin-only: who still has undone assigned tasks
 export type MemberProgress = { id: string; name: string; avatar: string | null; is_you: boolean; pending: number; done: number; total: number };
@@ -208,12 +194,6 @@ export async function getMemberTaskProgress(): Promise<MemberProgress[]> {
   return (await api("/api/members/progress")) as MemberProgress[];
 }
 
-export async function inviteMember(name: string, email?: string): Promise<Member> {
-  return (await api("/api/members", {
-    method: "POST",
-    body: JSON.stringify({ name, email }),
-  })) as Member;
-}
 
 export async function updateMember(id: string, patch: Partial<Member>): Promise<void> {
   await api(`/api/members/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
@@ -229,9 +209,6 @@ export async function createResetLink(id: string): Promise<ResetLinkResult> {
   return api(`/api/members/${id}/reset-link`, { method: "POST" });
 }
 
-export async function addPoints(delta: number): Promise<void> {
-  await api("/api/members", { method: "PATCH", body: JSON.stringify({ addPoints: delta }) });
-}
 
 // ---------- notifications ----------
 export type NotificationPage = { items: AppNotification[]; hasMore: boolean; offset: number };
@@ -265,31 +242,8 @@ export async function markNotificationsSeen(): Promise<void> {
   announce(UNREAD_CHANGED_EVENT);
 }
 
-export async function createNotification(n: Partial<AppNotification>): Promise<void> {
-  await api("/api/notifications", {
-    method: "POST",
-    body: JSON.stringify({
-      kind: n.kind ?? "info",
-      title: n.title,
-      body: n.body ?? null,
-      goal_id: n.goal_id ?? null,
-    }),
-  });
-}
 
-// ---------- chat ----------
-export async function listMessages(goalId: string): Promise<ChatMessage[]> {
-  return (await api(`/api/chat?goal=${encodeURIComponent(goalId)}`)) as ChatMessage[];
-}
 
-export async function messageCount(goalId: string): Promise<number> {
-  try {
-    const { count } = (await api(`/api/chat?goal=${encodeURIComponent(goalId)}&count=1`)) as { count: number };
-    return count ?? 0;
-  } catch {
-    return 0;
-  }
-}
 
 // author is resolved server-side from the session — never send one from here.
 export async function sendMessage(goalId: string, body: string, role: "user" | "addy" | "system" = "user"): Promise<ChatMessage> {
@@ -310,10 +264,6 @@ export async function deleteMessage(id: string): Promise<void> {
   await api(`/api/chat/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-// ---------- resources ----------
-export async function listResources(goalId: string): Promise<Resource[]> {
-  return (await api(`/api/resources?goal=${encodeURIComponent(goalId)}`)) as Resource[];
-}
 
 export async function createResource(goalId: string, name: string, kind = "note", opts?: { content?: string | null; url?: string | null }): Promise<Resource> {
   return (await api("/api/resources", {
@@ -339,17 +289,8 @@ export async function updateOrgSettings(patch: Partial<OrgSettings>): Promise<vo
   await api("/api/settings", { method: "PATCH", body: JSON.stringify(patch) });
 }
 
-// ---------- streak (consecutive days with a completion) ----------
-export async function computeStreak(): Promise<number> {
-  const { streak } = (await api("/api/streak")) as { streak: number };
-  return streak ?? 0;
-}
 
 // ---------- usage / api key (settings) ----------
-export type Usage = { aiRequests: number; aiLimit: number; goals: number; tasks: number; doneTasks: number; notifications: number };
-export async function getUsage(): Promise<Usage> {
-  return (await api("/api/usage")) as Usage;
-}
 export async function getApiKey(): Promise<string> {
   const { token } = (await api("/api/apikey")) as { token: string };
   return token;
@@ -394,9 +335,6 @@ export async function acceptInviteAsUser(token: string): Promise<{ ok: boolean; 
 
 // ---------- goal members (assignment + per-goal edit permission) ----------
 export type GoalMember = { id: string; name: string; email: string | null; avatar: string | null; is_you: boolean; can_edit: boolean };
-export async function listGoalMembers(goalId: string): Promise<GoalMember[]> {
-  return (await api(`/api/goals/${goalId}/members`)) as GoalMember[];
-}
 export async function listGoalMembersBatch(goalIds: string[]): Promise<Record<string, GoalMember[]>> {
   if (!goalIds.length) return {};
   return (await api(`/api/goal-members/batch`, { method: "POST", body: JSON.stringify({ ids: goalIds }) })) as Record<string, GoalMember[]>;
@@ -420,19 +358,6 @@ export async function listMemberGoals(memberId: string): Promise<MemberGoal[]> {
 }
 
 // ---------- node (task) members: who holds each task ----------
-export type NodeMemberRow = { node_id: string; id: string; name: string; email: string | null; avatar: string | null; is_you: boolean };
-export async function listNodeMembers(goalId: string): Promise<Record<string, NodeMemberRow[]>> {
-  const rows = (await api(`/api/node-members?goal=${encodeURIComponent(goalId)}`)) as NodeMemberRow[];
-  const map: Record<string, NodeMemberRow[]> = {};
-  for (const r of rows) (map[r.node_id] ??= []).push(r);
-  return map;
-}
-export async function assignNodeMember(nodeId: string, memberId: string): Promise<void> {
-  await api("/api/node-members", { method: "POST", body: JSON.stringify({ nodeId, memberId }) });
-}
-export async function unassignNodeMember(nodeId: string, memberId: string): Promise<void> {
-  await api("/api/node-members", { method: "DELETE", body: JSON.stringify({ nodeId, memberId }) });
-}
 
 // ---------- my tasks (items assigned to the logged-in user) ----------
 export type MyTask = { id: string; name: string; emoji: string | null; status: string; parent_goal_id: string | null; parent_name: string | null; parent_emoji: string | null; started_at?: string | null; started_by_name?: string | null; started_via?: string | null; open_children?: number };
@@ -456,10 +381,6 @@ export async function getDoneCounts(): Promise<DoneCounts> {
   return (await api("/api/done-counts")) as DoneCounts;
 }
 
-// ---------- recursive items (goal == task; subtasks are child goals) ----------
-export async function listTopGoals(): Promise<Goal[]> {
-  return (await api("/api/goals?top=1")) as Goal[];
-}
 export async function listChildren(parentId: string): Promise<Goal[]> {
   return (await api(`/api/goals/${parentId}/children`)) as Goal[];
 }
@@ -470,9 +391,6 @@ export async function createChild(parentId: string, name = ""): Promise<Goal> {
 // before that sibling (null/omitted -> append to the end of the destination).
 export async function moveGoal(id: string, parentId: string | null, beforeId: string | null = null): Promise<void> {
   await api(`/api/goals/${id}/move`, { method: "POST", body: JSON.stringify({ parentId, beforeId }) });
-}
-export async function getAncestors(id: string): Promise<{ id: string; name: string }[]> {
-  return (await api(`/api/goals/${id}/ancestors`)) as { id: string; name: string }[];
 }
 export async function toggleItemDone(id: string, done: boolean): Promise<void> {
   await api(`/api/goals/${id}/done`, { method: "PATCH", body: JSON.stringify({ done }) });
@@ -523,4 +441,31 @@ export function prefetchGoalBundle(id: string): void {
     bundleInflight.set(id, p);
     p.catch(() => {});
   }, 150);
+}
+
+// ---------- 型 (テンプレート) ----------
+export type TemplateGoalRow = { id: string; name: string; status: string; created_at: string; completed_at: string | null; deadline: string | null; assignees: GoalMember[] };
+export type TemplateDetail = Template & { goals: TemplateGoalRow[]; can_manage: boolean };
+export async function listTemplates(): Promise<TemplateSummary[]> {
+  return (await api("/api/templates")) as TemplateSummary[];
+}
+export async function getTemplate(id: string): Promise<TemplateDetail> {
+  return (await api(`/api/templates/${id}`)) as TemplateDetail;
+}
+export async function createTemplate(draft: Partial<Pick<Template, "name" | "purpose" | "completion_criteria" | "inputs" | "tasks" | "resources">>): Promise<Template> {
+  return (await api("/api/templates", { method: "POST", body: JSON.stringify(draft) })) as Template;
+}
+// 終えたゴールのタスク木を写して型にする
+export async function createTemplateFromGoal(goalId: string): Promise<Template> {
+  return (await api("/api/templates", { method: "POST", body: JSON.stringify({ from_goal_id: goalId }) })) as Template;
+}
+export async function updateTemplate(id: string, patch: Partial<Pick<Template, "name" | "purpose" | "completion_criteria" | "inputs" | "tasks" | "resources">>): Promise<Template> {
+  return (await api(`/api/templates/${id}`, { method: "PATCH", body: JSON.stringify(patch) })) as Template;
+}
+export async function archiveTemplate(id: string): Promise<void> {
+  await api(`/api/templates/${id}`, { method: "DELETE" });
+}
+// 型をメンバーに振る。親ゴールの下に新ゴール + タスク木 + リソース + 担当が入る
+export async function applyTemplate(id: string, o: { parentId: string; memberId: string; values: Record<string, string>; deadline?: string | null }): Promise<{ goalId: string; created: number }> {
+  return (await api(`/api/templates/${id}/apply`, { method: "POST", body: JSON.stringify(o) })) as { goalId: string; created: number };
 }

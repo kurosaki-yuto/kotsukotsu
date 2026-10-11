@@ -56,10 +56,11 @@ const NAV: NavItem[] = [
   { key: "todo", href: "/", label: "タスク", icon: ICON.todo },
   { key: "notifications", href: "/notifications", label: "通知", icon: ICON.bell },
   { key: "members", href: "/members", label: "メンバー", icon: ICON.members },
+  { key: "templates", href: "/templates", label: "型", icon: ICON.goals },
   { key: "settings", href: "/settings", label: "設定", icon: ICON.gear },
 ];
-// (ゴール/チャットはナビから除外。アイコンは将来用に残置)
-void ICON.goals; void ICON.chat;
+// (チャットはナビから除外。アイコンは将来用に残置)
+void ICON.chat;
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";

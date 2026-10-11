@@ -15,10 +15,15 @@ import { publicOrigin } from "@/app/lib/server/platform";
 //    where the caller genuinely will never receive anything, and telling them
 //    "check your inbox" would strand them (AGENTS.md #1 — a failure must not
 //    look like a normal empty outcome).
+import { limitOr429, clientIp, HOUR } from "../../../lib/server/ratelimit";
+
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { email?: string };
   const email = (body.email ?? "").trim();
-  if (!email) return bad("email required", 400);
+  if (!email || email.length > 254) return bad("email required", 400);
+  // 接続元ごとにも絞る (アカウント単位の制限だけだと、手当たり次第にメールを送らせられる)
+  const limited = await limitOr429(`forgot:ip:${clientIp(req)}`, 10, HOUR);
+  if (limited) return limited;
 
   if (!mailConfigured()) return bad("mail not configured", 503);
 

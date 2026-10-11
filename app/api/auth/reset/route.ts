@@ -1,3 +1,4 @@
+import { limitOr429, clientIp, HOUR } from "../../../lib/server/ratelimit";
 import { json, bad } from "../../../lib/server/db";
 import {
   checkPasswordReset,
@@ -24,10 +25,13 @@ export async function GET(req: Request) {
 // cannot set the password a second time, then every existing session is dropped
 // and the caller is signed in fresh on this device only.
 export async function POST(req: Request) {
+  const limited = await limitOr429(`reset:ip:${clientIp(req)}`, 20, HOUR);
+  if (limited) return limited;
   const body = (await req.json().catch(() => ({}))) as { token?: string; password?: string };
   const token = (body.token ?? "").trim();
   const password = body.password ?? "";
   if (!token) return bad("token required", 400);
+  if (password.length > 200) return bad("パスワードが長すぎます", 400);
 
   const problem = passwordProblem(password);
   if (problem) return bad(problem, 400);

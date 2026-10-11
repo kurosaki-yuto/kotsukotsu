@@ -1,3 +1,4 @@
+import { limitOr429, MIN } from "../../lib/server/ratelimit";
 import { json, bad } from "../../lib/server/db";
 import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
 import { listMessages, messageCount, sendMessage, getMyProfile } from "../../lib/server/queries";
@@ -26,7 +27,11 @@ export async function POST(req: Request) {
   // author is always resolved from the authenticated session, never trusted
   // from the client — otherwise anyone can post as anyone (this is exactly
   // why every comment used to show up as "黒崎優斗" regardless of who wrote it).
-  const role = body.role === "addy" ? "addy" : body.role === "system" ? "system" : "user";
-  const author = role === "addy" ? "Addy" : (await getMyProfile(ctx.user, ctx.workspaceId)).name || ctx.user.name || ctx.user.email;
-  return json(await sendMessage(body.goalId, body.body, ctx.workspaceId, role, author, ctx.user.email));
+  // 画面からの投稿は常に本人 (user)。role を送って AI やシステムを名乗れないようにする
+  const role = "user";
+  const text = String(body.body).slice(0, 20000);
+  const limited = await limitOr429(`chat:user:${ctx.user.id}`, 120, 15 * MIN);
+  if (limited) return limited;
+  const author = (await getMyProfile(ctx.user, ctx.workspaceId)).name || ctx.user.name || ctx.user.email;
+  return json(await sendMessage(body.goalId, text, ctx.workspaceId, role, author, ctx.user.email));
 }

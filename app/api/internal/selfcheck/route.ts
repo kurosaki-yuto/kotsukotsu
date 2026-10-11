@@ -2,6 +2,7 @@ import "server-only";
 import { platformEnv } from "@/app/lib/server/platform";
 import { json, all } from "../../../lib/server/db";
 import { requireWorkspace } from "../../../lib/server/workspace";
+import { safeEqual } from "../../../lib/server/compare";
 import {
   listGoals,
   listGoalMembersBatch,
@@ -9,13 +10,6 @@ import {
   memberRelevantGoalIds,
 } from "../../../lib/server/queries";
 
-/** Constant-time-ish string compare to avoid trivial timing leaks. */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
 
 // Every serious bug this app has shipped had the same shape: a query quietly
 // stopped returning rows (D1 bound-parameter cap, a hard LIMIT, a visibility

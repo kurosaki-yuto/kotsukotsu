@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ComponentProps, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getGoal, updateGoal, archiveGoal, createResource, updateResource, deleteResource, getMe, listMembers, assignGoalMember, unassignGoalMember, setGoalMemberEdit, listGoalMembersBatch, listChildren, createChild, toggleItemDone, setItemStarted, sendMessage, editMessage, deleteMessage, createGoalInvite, getGoalBundle, cachedGoalBundle, prefetchGoalBundle, type GoalBundle } from "../../lib/addness";
+import { getGoal, updateGoal, archiveGoal, createResource, updateResource, deleteResource, getMe, listMembers, assignGoalMember, unassignGoalMember, setGoalMemberEdit, listGoalMembersBatch, listChildren, createChild, toggleItemDone, setItemStarted, sendMessage, editMessage, deleteMessage, createGoalInvite, getGoalBundle, cachedGoalBundle, prefetchGoalBundle, createTemplateFromGoal, type GoalBundle } from "../../lib/addness";
 import type { Goal, Resource, Member, ChatMessage } from "../../lib/db";
 import type { Me, GoalMember } from "../../lib/addness";
 import Linkified from "../../components/Linkified";
 import AgentLaunch from "../../components/AgentLaunch";
-import MeetLaunch from "../../components/MeetLaunch";
+import AutoGrowTextarea from "../../components/AutoGrowTextarea";
+import { I } from "../../components/goal/Icon";
+import { SubTree } from "../../components/goal/SubTree";
+import { ResourceItem } from "../../components/goal/ResourceItem";
 import { InProgressBadge, StartButton, TaskCheck, isInProgress } from "../../components/InProgress";
 import { Assignees, Avatar } from "../../components/Assignees";
 import { useAutoRefresh } from "../../lib/useAutoRefresh";
@@ -29,197 +32,6 @@ const STATE_PLACEHOLDER = `× 「進めている」「対応中」
 9/12時点。ヒーローと料金表は実装済み、Vercelにデプロイ済み。
 残り: 画像3点の発注、フォームの送信先結線。
 詰まり: 先方のロゴデータ待ち（9/10に依頼、返信なし）。`;
-
-function I({ d }: { d: string }) {
-  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
-}
-
-// Textarea that grows to fit its content so all text is visible (no inner scroll).
-function AutoGrowTextarea({ minRows = 3, style, onInput, ...rest }: ComponentProps<"textarea"> & { minRows?: number }) {
-  const ref = useRef<HTMLTextAreaElement | null>(null);
-  const fit = () => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.max(el.scrollHeight, minRows * 24)}px`;
-  };
-  // 中身が後から読み込まれる (タイトルなど) ・画面の幅が変わる と高さも変わるので、そのたびに測り直す
-  useEffect(() => { fit(); }, [rest.value]);
-  useEffect(() => {
-    window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
-  }, []);
-  return (
-    <textarea
-      ref={ref}
-      {...rest}
-      onInput={(e) => { fit(); onInput?.(e); }}
-      style={{ overflow: "hidden", resize: "none", ...style }}
-    />
-  );
-}
-
-// Lazy, collapsible subtask tree shown inline under a goal-page task row.
-function SubTree({ parentId, depth, router }: { parentId: string; depth: number; router: ReturnType<typeof useRouter> }) {
-  const [kids, setKids] = useState<Goal[] | null>(null);
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const [showDone, setShowDone] = useState(false);
-  const [kidAssignees, setKidAssignees] = useState<Record<string, GoalMember[]>>({});
-  useEffect(() => {
-    let alive = true;
-    listChildren(parentId).then((k) => {
-      if (!alive) return;
-      setKids(k);
-      // 担当者アイコンは一段深いサブタスクにも出す(誰が持っているか見えないと
-      // ツリーを開いた意味がない)。1リクエストでまとめて取る。
-      if (k.length) {
-        listGoalMembersBatch(k.map((x) => x.id))
-          .then((by) => { if (alive) setKidAssignees(by); })
-          .catch(() => { /* tolerate */ });
-      }
-    }).catch(() => { if (alive) setKids([]); });
-    return () => { alive = false; };
-  }, [parentId]);
-  const toggle = (cid: string) => setOpen((p) => { const n = new Set(p); if (n.has(cid)) n.delete(cid); else n.add(cid); return n; });
-  const stopKid = async (cid: string) => {
-    setKids((ks) => (ks ? ks.map((k) => (k.id === cid ? { ...k, started_at: null, started_by_name: null, started_via: null } : k)) : ks));
-    try { await setItemStarted(cid, false); } catch { /* tolerate */ }
-  };
-  const toggleDone = async (cid: string, done: boolean) => {
-    setKids((ks) => (ks ? ks.map((k) => (k.id === cid ? { ...k, status: done ? "done" : "active" } : k)) : ks));
-    try { await toggleItemDone(cid, done); } catch { /* tolerate */ }
-  };
-  const pad = 16 + depth * 18;
-  if (kids === null) return <li className="px-4 py-2 text-[12px] text-[var(--muted-soft)]" style={{ paddingLeft: pad }}>読み込み中…</li>;
-  if (kids.length === 0) return <li className="px-4 py-2 text-[12px] text-[var(--muted-soft)]" style={{ paddingLeft: pad }}>サブタスクなし</li>;
-  const doneKids = kids.filter((k) => k.status === "done");
-  const renderRow = (k: Goal) => {
-    const done = k.status === "done";
-    const isOpen = open.has(k.id);
-    return (
-      <li key={k.id} className="border-b last:border-0" style={{ borderColor: "var(--border)" }}>
-        <div className={`flex items-center gap-2.5 py-2 pr-4 hover:bg-[var(--hover)]${done ? " done-row" : ""}`} style={{ paddingLeft: pad }} onMouseEnter={() => prefetchGoalBundle(k.id)}>
-          <button onClick={() => toggle(k.id)} className="w-4 h-4 -ml-1 shrink-0 flex items-center justify-center text-[var(--muted-soft)] hover:text-[var(--foreground)]" aria-label={isOpen ? "折りたたむ" : "展開"} aria-expanded={isOpen}>
-            <svg viewBox="0 0 16 16" className="w-3 h-3 transition-transform" style={{ transform: isOpen ? "rotate(90deg)" : "none" }} fill="currentColor"><path d="M6 3l5 5-5 5V3z" /></svg>
-          </button>
-          <TaskCheck t={k} onToggle={(d) => toggleDone(k.id, d)} onStop={() => stopKid(k.id)} />
-          <button onClick={() => router.push(`/goals/${k.id}`)} className={`flex-1 min-w-0 text-left text-[14px] break-words hover:underline ${done ? "done-label" : ""}`} title={k.name}>{k.name || "無題のタスク"}</button>
-          <InProgressBadge t={k} wrapClass="hidden sm:inline-flex" />
-          <Assignees members={kidAssignees[k.id] ?? []} size={22} max={3} />
-        </div>
-        {isOpen && <ul><SubTree parentId={k.id} depth={depth + 1} router={router} /></ul>}
-      </li>
-    );
-  };
-  // 完了を出すときは、まとめて下に落とさず元の並びのまま差し込む。
-  // 「どのタスクの隣の何が終わったのか」は順番が崩れると分からなくなる。
-  return (
-    <>
-      {(showDone ? kids : kids.filter((k) => k.status !== "done")).map(renderRow)}
-      {doneKids.length > 0 && (
-        <li className="border-b last:border-0" style={{ borderColor: "var(--border)" }}>
-          <button
-            type="button"
-            onClick={() => setShowDone((v) => !v)}
-            className="flex items-center gap-1.5 w-full text-left text-[12.5px] font-semibold hover:opacity-80 transition-opacity py-2 pr-4"
-            style={{ paddingLeft: pad, color: showDone ? "var(--done-strong)" : "var(--muted)" }}
-            aria-expanded={showDone}
-          >
-            <svg viewBox="0 0 16 16" className="w-3 h-3 flex-shrink-0 transition-transform" style={{ transform: showDone ? "rotate(90deg)" : "none" }} fill="currentColor"><path d="M6 3l5 5-5 5V3z" /></svg>
-            {showDone ? `完了を隠す (${doneKids.length})` : `完了を表示 (${doneKids.length})`}
-          </button>
-        </li>
-      )}
-    </>
-  );
-}
-
-// One resource row: a file (click to toggle an inline preview below it), a
-// link (external URL), or a legacy standalone note (title + multi-line body).
-// File and link resources always carry a memo (content) explaining what they
-// are — the UI no longer offers a bare "メモ" resource, only file+memo /
-// link+memo pairs (existing standalone notes still render, just uncreatable).
-function ResourceItem({ r, onChanged, bulkOpen }: { r: Resource; onChanged: () => void; bulkOpen?: { open: boolean; token: number } }) {
-  // file source: R2-backed (url "r2:<key>") or legacy inline base64 (content data:)
-  const fileHref =
-    r.content && r.content.startsWith("data:") ? r.content
-    : r.url && r.url.startsWith("r2:") ? `/api/files?key=${encodeURIComponent(r.url.slice(3))}`
-    : null;
-  const isFile = r.kind === "file" && !!fileHref;
-  const isLink = r.kind === "link";
-  const isImage = isFile && ((r.content || "").startsWith("data:image") || /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(r.name));
-  const isPdf = isFile && /\.pdf$/i.test(r.name);
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState(r.name);
-  const [content, setContent] = useState(r.content ?? "");
-  const [urlVal, setUrlVal] = useState(r.url ?? "");
-  useEffect(() => { setName(r.name); setContent(r.content ?? ""); setUrlVal(r.url ?? ""); }, [r.id, r.name, r.content, r.url]);
-  // "すべてプレビュー" header toggle drives every row at once, still overridable
-  // per-row by clicking it individually afterward.
-  useEffect(() => { if (bulkOpen) setOpen(bulkOpen.open); }, [bulkOpen?.token]);
-  const saveName = async () => { const v = name.trim(); if (v && v !== r.name) { try { await updateResource(r.id, { name: v }); onChanged(); } catch { /* tolerate */ } } };
-  const saveContent = async () => { if (content !== (r.content ?? "")) { try { await updateResource(r.id, { content }); onChanged(); } catch { /* tolerate */ } } };
-  const saveUrl = async () => { const v = urlVal.trim(); if (v && v !== (r.url ?? "")) { try { await updateResource(r.id, { url: v }); onChanged(); } catch { /* tolerate */ } } };
-  const del = async () => { try { await deleteResource(r.id); onChanged(); } catch { /* tolerate */ } };
-  return (
-    <li className="border-b last:border-0" style={{ borderColor: "var(--border)" }}>
-      <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--hover)] group">
-        <span className="text-[var(--muted-soft)] shrink-0">
-          {isFile ? <I d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6" />
-            : isLink ? <I d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            : <I d="M4 6h16M4 12h16M4 18h10" />}
-        </span>
-        <button onClick={() => setOpen((v) => !v)} className="flex-1 min-w-0 text-sm truncate text-left hover:underline" title={isFile ? `${r.name}(クリックでプレビュー)` : r.name}>{r.name}</button>
-        <span className="text-xs text-[var(--muted-soft)] shrink-0">{isFile ? "ファイル" : isLink ? "リンク" : r.kind}</span>
-        {isFile && (
-          <a href={fileHref!} download={r.name} className="shrink-0 text-[var(--muted-soft)] hover:text-[var(--accent)]" aria-label="ダウンロード" title="ダウンロード"><I d="M12 3v12M7 10l5 5 5-5M5 21h14" /></a>
-        )}
-        {isLink && (
-          <a href={r.url ?? "#"} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[var(--muted-soft)] hover:text-[var(--accent)]" aria-label="新しいタブで開く" title="新しいタブで開く">
-            <I d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6 M15 3h6v6 M10 14L21 3" />
-          </a>
-        )}
-        {(isFile || isLink) && (
-          <button onClick={() => setOpen((v) => !v)} className="shrink-0 opacity-0 group-hover:opacity-100 text-[var(--muted-soft)] hover:text-[var(--accent)]" aria-label="編集" title="編集">
-            <I d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
-          </button>
-        )}
-        <button onClick={del} className="shrink-0 opacity-0 group-hover:opacity-100 text-[var(--danger)]" aria-label="削除"><I d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></button>
-      </div>
-      {!open && (isFile || isLink) && r.content?.trim() && (
-        <div className="px-4 pb-2 -mt-1 text-[12px] text-[var(--muted-soft)] truncate" title={r.content}>{r.content}</div>
-      )}
-      {open && (
-        <div className="px-4 pb-3 pt-1 flex flex-col gap-2">
-          {isLink && (
-            <>
-              <input value={name} onChange={(e) => setName(e.target.value)} onBlur={saveName} placeholder="タイトル"
-                className="w-full bg-[var(--hover)] rounded-lg px-3 py-1.5 text-[13px] focus:outline-none" />
-              <input value={urlVal} onChange={(e) => setUrlVal(e.target.value)} onBlur={saveUrl} placeholder="https://…"
-                className="w-full bg-[var(--hover)] rounded-lg px-3 py-1.5 text-[13px] font-mono focus:outline-none" />
-            </>
-          )}
-          {!isFile && !isLink && (
-            <input value={name} onChange={(e) => setName(e.target.value)} onBlur={saveName} placeholder="タイトル"
-              className="w-full bg-[var(--hover)] rounded-lg px-3 py-1.5 text-[13px] focus:outline-none" />
-          )}
-          <AutoGrowTextarea value={content} onChange={(e) => setContent(e.target.value)} onBlur={saveContent} minRows={isFile || isLink ? 2 : 3}
-            placeholder={isFile ? "このファイルは何のファイルか説明(必須)" : isLink ? "このリンクは何か説明(必須)" : "内容を書く(改行できます)"}
-            className="w-full bg-[var(--hover)] rounded-lg px-3 py-2 text-[13px] focus:outline-none" />
-          {isFile && (
-            isImage ? (
-              <img src={fileHref!} alt={r.name} className="max-h-80 rounded-lg border" style={{ borderColor: "var(--border)" }} />
-            ) : isPdf ? (
-              <iframe src={fileHref!} title={r.name} className="w-full h-[420px] rounded-lg border" style={{ borderColor: "var(--border)" }} />
-            ) : (
-              <div className="text-[12px] text-[var(--muted-soft)]">このファイル形式はブラウザでプレビューできません。ダウンロードして確認してください。</div>
-            )
-          )}
-        </div>
-      )}
-    </li>
-  );
-}
 
 export default function GoalDetail() {
   const params = useParams<{ id: string }>();
@@ -760,7 +572,20 @@ export default function GoalDetail() {
             <div className="relative">
               <button onClick={() => setMenu((v) => !v)} className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--muted)] hover:bg-[var(--hover)]" aria-label="メニュー"><I d="M5 12h.01M12 12h.01M19 12h.01" /></button>
               {menu && (
-                <div className="absolute right-0 top-9 z-20 card py-1 w-40" style={{ boxShadow: "var(--shadow-pop)" }} onMouseLeave={() => setMenu(false)}>
+                <div className="absolute right-0 top-9 z-20 card py-1 w-44" style={{ boxShadow: "var(--shadow-pop)" }} onMouseLeave={() => setMenu(false)}>
+                  {/* このゴールのタスク木を写して「型」にする。型は /templates でメンバーに振れる */}
+                  {canManage && (
+                    <button
+                      onClick={async () => {
+                        setMenu(false);
+                        try {
+                          const t = await createTemplateFromGoal(id);
+                          router.push(`/templates/${t.id}`);
+                        } catch (e) { console.error(e); }
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm hover:bg-[var(--hover)]"
+                    >型にする</button>
+                  )}
                   <button onClick={async () => { await archiveGoal(id); router.push("/"); }} className="block w-full text-left px-4 py-2 text-sm hover:bg-[var(--hover)] text-[var(--danger)]">アーカイブ</button>
                 </div>
               )}
@@ -779,12 +604,13 @@ export default function GoalDetail() {
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-1">
             <div className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide whitespace-nowrap" style={{ color: selfDone ? "var(--done-strong)" : "var(--accent)" }}>
               <I d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 8v4M12 12l3 2" />大ゴール（クリックで編集）
+              {goal.template_id && (
+                <button type="button" onClick={() => router.push(`/templates/${goal.template_id}`)} className="ml-2 chip" style={{ fontSize: 11, padding: "1px 8px" }} title="この型から作られたゴール">型から作成</button>
+              )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
             {/* Claude / Codex をこのゴールの指示文入りで開く */}
             <AgentLaunch goalId={id} goalName={goal.name} />
-            {/* 担当者を選んだ状態で、メンバーと打ち合わせの日程を合わせる */}
-            <MeetLaunch task={{ id, name: goal.name }} defaultMemberIds={assignees.map((a) => a.id)} align="left" />
             {selfDone ? (
               <div className="flex items-center gap-2 shrink-0">
                 <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-bold text-white" style={{ background: "var(--done)" }}>

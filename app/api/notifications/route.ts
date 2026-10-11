@@ -1,6 +1,9 @@
 import { json, bad } from "../../lib/server/db";
-import { requireWorkspace } from "../../lib/server/workspace";
-import { listNotifications, unreadCount, createNotification, markAllRead, markNotificationsSeen } from "../../lib/server/queries";
+import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
+import { limitOr429, MIN } from "../../lib/server/ratelimit";
+
+const NOTIFICATION_KINDS = new Set(["info", "mention", "goal"]);
+import { listNotifications, unreadCount, createNotification, markAllRead, markNotificationsSeen, getGoal } from "../../lib/server/queries";
 
 export async function GET(req: Request) {
   const ctx = await requireWorkspace(req);
@@ -26,8 +29,26 @@ export async function POST(req: Request) {
     body?: string | null;
     goal_id?: string | null;
   };
-  if (!body.title) return bad("title required", 400);
-  await createNotification({ kind: body.kind, title: body.title, body: body.body ?? null, goal_id: body.goal_id ?? null }, ctx.workspaceId);
+  const title = typeof body.title === "string" ? body.title.trim().slice(0, 200) : "";
+  if (!title) return bad("title required", 400);
+  const kind = body.kind && NOTIFICATION_KINDS.has(body.kind) ? body.kind : "info";
+  const text = typeof body.body === "string" ? body.body.slice(0, 2000) : null;
+  const goalId = typeof body.goal_id === "string" && body.goal_id ? body.goal_id : null;
+  if (goalId) {
+    // 自分のワークスペース・スコープの中のゴールにしか出せない (goalInScope はスコープ無しだと存在を見ないので、先に引く)
+    if (!(await getGoal(goalId, ctx.workspaceId))) return json({ error: "not found" }, { status: 404 });
+    if (!(await goalInScope(ctx.workspaceId, goalId, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  } else if (ctx.role !== "admin") {
+    // ゴール無し = 全員のスマホに届く。管理者だけ
+    return json({ error: "forbidden" }, { status: 403 });
+  }
+  const limited = await limitOr429(`notify:user:${ctx.user.id}`, 30, 15 * MIN);
+  if (limited) return limited;
+  try {
+    await createNotification({ kind, title, body: text, goal_id: goalId }, ctx.workspaceId);
+  } catch {
+    return json({ error: "not found" }, { status: 404 });
+  }
   return json({ ok: true });
 }
 

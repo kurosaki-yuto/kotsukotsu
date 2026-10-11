@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { listNotifications, markRead, markAllRead, markNotificationsSeen } from "../lib/addness";
 import { enablePush, isStandalone, pushSupported } from "../lib/push-client";
 import type { AppNotification } from "../lib/db";
-import { supabase } from "../lib/db";
 
 type Tab = "未読" | "すべて";
 
@@ -133,31 +132,6 @@ export default function NotificationsPage() {
     void markNotificationsSeen().catch(() => { /* badge stays; not worth failing over */ });
   }, []);
 
-  // realtime: any change to notifications reloads the list
-  useEffect(() => {
-    try {
-      const channel = supabase()
-        .channel("notif")
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "notifications" },
-          () => {
-            void reload();
-          }
-        )
-        .subscribe();
-      return () => {
-        try {
-          supabase().removeChannel(channel);
-        } catch {
-          /* env may be missing */
-        }
-      };
-    } catch {
-      // env may be missing — skip realtime, page still renders
-      return undefined;
-    }
-  }, [reload]);
 
   // live refresh without supabase: poll every 15s + refetch on window focus
   useEffect(() => {

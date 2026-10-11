@@ -50,8 +50,9 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   const ctx = await requireWorkspace(req);
   if (!ctx) return json({ error: "unauthorized" }, { status: 401 });
+  if (ctx.role !== "admin") return json({ error: "forbidden" }, { status: 403 }); // 全員分をまとめて消すのは管理者だけ
   const date = new URL(req.url).searchParams.get("date");
-  if (!date) return bad("date required", 400);
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return bad("date required", 400);
   await clearToday(date, ctx.workspaceId);
   return json({ ok: true });
 }

@@ -1,16 +1,18 @@
 import { json, bad, run, first } from "../../../lib/server/db";
 import {
   verifyLogin, createSession, sessionCookie,
-  loginThrottleKeys, loginBlocked, recordLoginFailure, clearLoginFailures,
+  loginThrottleKeys, loginBlocked, recordLoginFailure, clearLoginFailures, crossOriginWrite,
 } from "../../../lib/server/auth";
 import { getValidInvite, getInvite } from "../../../lib/server/queries";
 import { joinViaInvite, inviteEmailMatches } from "../../../lib/server/workspace";
 
 export async function POST(req: Request) {
+  if (crossOriginWrite(req)) return json({ error: "forbidden" }, { status: 403 });
   const body = (await req.json().catch(() => ({}))) as { email?: string; password?: string; invite?: string };
   const email = (body.email ?? "").trim();
   const password = body.password ?? "";
   if (!email || !password) return bad("email and password required", 400);
+  if (email.length > 254 || password.length > 200) return bad("invalid credentials", 401);
 
   const keys = loginThrottleKeys(email, req.headers.get("cf-connecting-ip"));
   if (await loginBlocked(keys)) return bad("ログインの失敗が続いたため、15分ほど待ってからやり直してください", 429);

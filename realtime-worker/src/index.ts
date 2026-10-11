@@ -1,3 +1,4 @@
+import { safeEqual } from "../../app/lib/server/compare";
 /**
  * こつこつ realtime — Cloudflare Durable Object + WebSocket fan-out.
  *
@@ -63,6 +64,7 @@ export class Room {
   webSocketError() {}
 }
 
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
@@ -77,7 +79,7 @@ export default {
       return stub.fetch(req);
     }
     if (url.pathname === "/notify") {
-      if (req.headers.get("x-rt-secret") !== env.RT_SECRET) return new Response("forbidden", { status: 403 });
+      if (!safeEqual(req.headers.get("x-rt-secret") ?? "", env.RT_SECRET ?? "")) return new Response("forbidden", { status: 403 });
       return stub.fetch(new Request("https://do/notify", { method: "POST" }));
     }
     return new Response("not found", { status: 404 });

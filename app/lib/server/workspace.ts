@@ -1,7 +1,8 @@
 import "server-only";
 import { all, first, run, uid } from "./db";
-import { SESSION_COOKIE, readCookie, type SessionUser } from "./auth";
-import { acceptInvite, type InviteRow } from "./queries";
+import { SESSION_COOKIE, readCookie, crossOriginWrite, type SessionUser } from "./auth";
+import { acceptInvite, canEditGoal, type InviteRow } from "./queries";
+import { json } from "./db";
 
 // A request's active workspace context: who the caller is, which workspace they
 // are currently viewing, their role *in that workspace* (admin / member), and an
@@ -14,6 +15,7 @@ export type WorkspaceCtx = { user: SessionUser; workspaceId: string; role: strin
 // user's earliest workspace and persist it. Returns null when unauthenticated or
 // the user belongs to no workspace.
 export async function requireWorkspace(req: Request): Promise<WorkspaceCtx | null> {
+  if (crossOriginWrite(req)) return null; // CSRF (auth.ts crossOriginWrite)
   const token = readCookie(req, SESSION_COOKIE);
   if (!token) return null;
   // Single round-trip: session + user + active-workspace membership in one query
@@ -154,4 +156,14 @@ export async function createWorkspace(user: SessionUser, name: string, token?: s
   );
   if (token) await run("UPDATE sessions SET active_workspace_id = ? WHERE token = ?", id, token);
   return { id };
+}
+
+// ---- ルート共通の門番 ----
+// 「スコープ内か (無ければ 404)」「編集できるか (無ければ 403)」をまとめて判定する。
+// 使い方: const denied = await requireGoalEdit(ctx, goalId); if (denied) return denied;
+export const editorOf = (ctx: WorkspaceCtx) => ({ id: ctx.user.id, email: ctx.user.email, role: ctx.role });
+export async function requireGoalEdit(ctx: WorkspaceCtx, goalId: string): Promise<Response | null> {
+  if (!(await goalInScope(ctx.workspaceId, goalId, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await canEditGoal(editorOf(ctx), goalId, ctx.workspaceId))) return json({ error: "forbidden" }, { status: 403 });
+  return null;
 }

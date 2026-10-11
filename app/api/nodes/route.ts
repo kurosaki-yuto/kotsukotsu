@@ -1,5 +1,5 @@
 import { json, bad } from "../../lib/server/db";
-import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
+import { requireWorkspace, goalInScope, requireGoalEdit } from "../../lib/server/workspace";
 import {
   listProjectNodes,
   insertNodeAfter,
@@ -20,6 +20,8 @@ export async function GET(req: Request) {
   if (!ctx) return json({ error: "unauthorized" }, { status: 401 });
   const project = new URL(req.url).searchParams.get("project");
   if (!project) return bad("project required", 400);
+  if (!(await getGoal(project, ctx.workspaceId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await goalInScope(ctx.workspaceId, project, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
   return json(await listProjectNodes(project, ctx.workspaceId));
 }
 
@@ -38,8 +40,7 @@ export async function POST(req: Request) {
   // the target project must exist in THIS workspace (closes cross-workspace
   // node ops that bypass the per-row filter, e.g. indent/outdent/move by id).
   if (!goalId || !(await getGoal(goalId, ctx.workspaceId))) return json({ error: "not found" }, { status: 404 });
-  if (!(await goalInScope(ctx.workspaceId, goalId, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
-  if (!(await canEditGoal({ id: ctx.user.id, email: ctx.user.email, role: ctx.role }, goalId, ctx.workspaceId))) return json({ error: "forbidden" }, { status: 403 });
+  const denied = await requireGoalEdit(ctx, goalId); if (denied) return denied;
 
   switch (op) {
     case "insertAfter": {

@@ -143,14 +143,46 @@ async function readForm(req: Request): Promise<Record<string, string>> {
 
 // ---- handler ---------------------------------------------------------------
 
-type CodePayload = { k: string; c: string; r: string; cid: string; exp: number };
-type RefreshPayload = { k: string; t: "r" };
+type CodePayload = { k: string; c: string; r: string; cid: string; exp: number; jti: string };
+type RefreshPayload = { k: string; t: "r"; exp?: number };
+/** 同意画面のフォームに入れる印。本人のキーと要求に束ねる。10 分で切れる。 */
+type ConsentPayload = { t: "consent"; kh: string; c: string; r: string; exp: number };
+/** 認可コードを 1 回しか使えなくする。初めてなら true、使用済みなら false。 */
+type ClaimCode = (jti: string) => Promise<boolean>;
+
+const CONSENT_TTL_SEC = 600;
+const REFRESH_TTL_SEC = 90 * 24 * 3600;
+
+const esc = (v: string) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+
+/** 接続の同意画面。cookie だけで承認しない (リンクを踏ませるだけで本人のキーを持ち出せてしまう)。
+ *  ボタンを押した POST と、封じた印 (csrf) が揃ったときだけコードを出す。 */
+function consentPage(o: { redirectHost: string; params: Record<string, string>; csrf: string }): Response {
+  const hidden = Object.entries(o.params)
+    .filter(([k]) => ["client_id", "redirect_uri", "response_type", "code_challenge", "code_challenge_method", "state", "resource", "scope"].includes(k))
+    .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`)
+    .join("");
+  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>こつこつ に接続</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif;background:#f3f4f6;margin:0;padding:24px;color:#0b0b0d}.card{max-width:440px;margin:40px auto;background:#fff;border:1px solid #ececec;border-radius:14px;padding:28px}h1{font-size:18px;margin:0 0 10px}p{font-size:14px;line-height:1.7;color:#2a2a30}.host{font-family:ui-monospace,monospace;background:#f5f5f6;border-radius:6px;padding:2px 6px}.row{display:flex;gap:10px;margin-top:20px}button{flex:1;padding:12px;border-radius:10px;border:1px solid #e0e0e0;background:#fff;font-size:14px;font-weight:700;cursor:pointer}button.ok{background:#1d3b9e;color:#fff;border-color:#1d3b9e}</style></head>
+<body><div class="card"><h1>こつこつ に接続しますか</h1>
+<p><span class="host">${esc(o.redirectHost)}</span> のアプリが、あなたの権限で こつこつ のゴール・タスク・コメントを読み書きしようとしています。</p>
+<p>自分で接続を始めた覚えが無いときは「やめる」を押してください。</p>
+<form method="post">${hidden}<input type="hidden" name="csrf" value="${esc(o.csrf)}">
+<div class="row"><button type="submit" name="consent" value="deny">やめる</button><button type="submit" name="consent" value="allow" class="ok">接続する</button></div></form>
+</div></body></html>`;
+  return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" } });
+}
+
+async function keyHash(key: string): Promise<string> {
+  return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("kh:" + key)))).slice(0, 24);
+}
 
 export async function handleOAuth(
   req: Request,
   secret: string | undefined,
   validate: Validate,
-  sessionKey: SessionKey
+  sessionKey: SessionKey,
+  claimCode: ClaimCode = async () => true
 ): Promise<Response> {
   const url = new URL(req.url);
   const origin = url.origin;
@@ -237,7 +269,7 @@ export async function handleOAuth(
     if (!params.code_challenge || params.code_challenge_method !== "S256") {
       return back({ error: "invalid_request", error_description: "PKCE (S256) is required" });
     }
-    if (req.method !== "GET") return oauthError("invalid_request", "method not allowed", 405);
+    if (req.method !== "GET" && req.method !== "POST") return oauthError("invalid_request", "method not allowed", 405);
 
     // 1) 接続URL /mcp/<APIキー> の <APIキー> 部分 (claude.ai が resource に付けてきた時)
     const pm = (() => {
@@ -267,12 +299,24 @@ export async function handleOAuth(
       const to = `${origin}/login?next=${encodeURIComponent(again.pathname + again.search)}`;
       return new Response(null, { status: 302, headers: { location: to, "cache-control": "no-store" } });
     }
+    // GET = 同意画面を出すだけ。コードは POST (ボタン) でしか出さない
+    const kh = await keyHash(key);
+    if (req.method === "GET") {
+      const csrf = await seal(secret, { t: "consent", kh, c: params.code_challenge, r: redirectUri, exp: Math.floor(Date.now() / 1000) + CONSENT_TTL_SEC } satisfies ConsentPayload);
+      return consentPage({ redirectHost: new URL(redirectUri).host || redirectUri, params, csrf });
+    }
+    if (params.consent !== "allow") return back({ error: "access_denied", error_description: "接続を取りやめました" });
+    const consent = await unseal<ConsentPayload>(secret, params.csrf ?? "");
+    if (!consent || consent.t !== "consent" || consent.kh !== kh || consent.c !== params.code_challenge || consent.r !== redirectUri || consent.exp < Math.floor(Date.now() / 1000)) {
+      return oauthError("invalid_request", "同意の確認が取れませんでした。もう一度接続をやり直してください");
+    }
     const code = await seal(secret, {
       k: key,
       c: params.code_challenge,
       r: redirectUri,
       cid: params.client_id ?? "",
       exp: Math.floor(Date.now() / 1000) + CODE_TTL_SEC,
+      jti: crypto.randomUUID(),
     } satisfies CodePayload);
     return back({ code });
   }
@@ -285,12 +329,16 @@ export async function handleOAuth(
       const c = await unseal<CodePayload>(secret, f.code ?? "");
       if (!c || c.exp < Math.floor(Date.now() / 1000)) return oauthError("invalid_grant", "code is invalid or expired");
       if (f.redirect_uri && f.redirect_uri !== c.r) return oauthError("invalid_grant", "redirect_uri mismatch");
-      if (f.client_id && c.cid && f.client_id !== c.cid) return oauthError("invalid_grant", "client_id mismatch");
+      // コードを出した client_id と一致すること (省略で素通りさせない)
+      if (c.cid && f.client_id !== c.cid) return oauthError("invalid_grant", "client_id mismatch");
       if (!f.code_verifier || (await s256(f.code_verifier)) !== c.c) return oauthError("invalid_grant", "PKCE verification failed");
+      // 同じコードは 1 回だけ (jti の無い古いコードは受けない)
+      if (!c.jti || !(await claimCode(c.jti))) return oauthError("invalid_grant", "code already used");
       key = c.k;
     } else if (f.grant_type === "refresh_token") {
       const r = await unseal<RefreshPayload>(secret, f.refresh_token ?? "");
       if (!r || r.t !== "r") return oauthError("invalid_grant", "refresh_token is invalid");
+      if (r.exp && r.exp < Math.floor(Date.now() / 1000)) return oauthError("invalid_grant", "refresh_token expired");
       key = r.k;
     } else {
       return oauthError("unsupported_grant_type", "grant_type must be authorization_code or refresh_token");
@@ -300,7 +348,7 @@ export async function handleOAuth(
     return json({
       access_token: key,
       token_type: "Bearer",
-      refresh_token: await seal(secret, { k: key, t: "r" } satisfies RefreshPayload),
+      refresh_token: await seal(secret, { k: key, t: "r", exp: Math.floor(Date.now() / 1000) + REFRESH_TTL_SEC } satisfies RefreshPayload),
       scope: "mcp",
     });
   }

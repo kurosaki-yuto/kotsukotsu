@@ -3,14 +3,8 @@ import { platformEnv } from "@/app/lib/server/platform";
 import { json } from "../../../lib/server/db";
 import { sendPushToWorkspace, sendPushToMembers, type PushPayload } from "../../../lib/server/push";
 import { goalNotificationRecipientEmails } from "../../../lib/server/queries";
+import { safeEqual } from "../../../lib/server/compare";
 
-/** Constant-time-ish string compare to avoid trivial timing leaks. */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
 
 // Lets the (separately-deployed) MCP worker trigger a real phone push for a
 // workspace after an AI-driven mutation — the MCP worker has no VAPID keys of

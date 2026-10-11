@@ -1,5 +1,6 @@
 import "server-only";
 import { all, first, run, uid, nowIso } from "./db";
+import { safeEqual } from "./compare";
 
 export type SessionUser = { id: string; email: string; name: string | null; role: string };
 
@@ -25,13 +26,6 @@ export async function hashPassword(password: string, salt: string): Promise<stri
   return toHex(bits);
 }
 
-// constant-time-ish compare
-function eq(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let r = 0;
-  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return r === 0;
-}
 
 export async function countUsers(): Promise<number> {
   const r = await first<{ c: number }>("SELECT COUNT(*) AS c FROM users");
@@ -59,7 +53,7 @@ export async function verifyLogin(email: string, password: string): Promise<Sess
   );
   if (!u) return null;
   const hash = await hashPassword(password, u.salt);
-  if (!eq(hash, u.password_hash)) return null;
+  if (!safeEqual(hash, u.password_hash)) return null;
   return { id: u.id, email: u.email, name: u.name, role: u.role };
 }
 
@@ -135,7 +129,7 @@ export async function verifyPassword(userId: string, password: string): Promise<
     userId
   );
   if (!u) return false;
-  return eq(await hashPassword(password, u.salt), u.password_hash);
+  return safeEqual(await hashPassword(password, u.salt), u.password_hash);
 }
 
 // ---------- password reset ----------
@@ -262,7 +256,27 @@ export function readCookie(req: Request, name: string): string | undefined {
   }
   return undefined;
 }
+// CSRF: cookie で認証する書き込み (POST/PATCH/DELETE) は、Origin ヘッダーが付いていて
+// それが自分のホストと違えば受け付けない。SameSite=Lax だけだと、同じサイト扱いの
+// サブドメイン (同じドメインで動く別の製品) の XSS から本体へ書けてしまう。
+// Origin が無い要求 (curl 等) は cookie を自動では持たないのでそのまま通す。
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+export function crossOriginWrite(req: Request): boolean {
+  if (SAFE_METHODS.has(req.method.toUpperCase())) return false;
+  const origin = req.headers.get("origin");
+  if (!origin || origin === "null") return !!origin; // "null" (sandbox / file) は拒否
+  let host: string;
+  try {
+    host = new URL(origin).host.toLowerCase();
+  } catch {
+    return true;
+  }
+  const own = (req.headers.get("x-forwarded-host") || req.headers.get("host") || new URL(req.url).host).split(",")[0].trim().toLowerCase();
+  return host !== own;
+}
+
 export async function requireUser(req: Request): Promise<SessionUser | null> {
+  if (crossOriginWrite(req)) return null;
   return getSessionUser(readCookie(req, SESSION_COOKIE));
 }
 export async function requireAdmin(req: Request): Promise<SessionUser | null> {
@@ -275,6 +289,6 @@ export function checkMcpToken(req: Request, expected?: string): boolean {
   if (!expected) return false;
   const auth = req.headers.get("authorization") || "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
-  return !!m && eq(m[1], expected);
+  return !!m && safeEqual(m[1], expected);
 }
 export { all };

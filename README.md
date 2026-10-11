@@ -16,12 +16,11 @@
   AI が MCP で読んで、作業ステップを登録し、終わるたびに結果を書き戻す。進行中 (誰のどの AI が手を動かしているか) も出る
 - **AIで進める**: タスクを開いて押すと、そのタスクの指示文が入った状態で Claude Code / Codex / claude.ai が開く。
   スマホは指示文が落ちないようブラウザで開く版と、Claude アプリで開く版を選べる
-- **AIで今日の予定を組む**: AI が自分 (または名前で指定したメンバー) の未完了タスクを優先順に取り、かかる時間を見積もって
-  Google カレンダーの空きに入れる。案を表で見せて OK で書き込む版と、Claude のスケジュール済みタスクで毎朝自動で組む版がある
 - **連携ガイド (設定 → 連携ガイド)**: こつこつ本体は外部ツールと直接は繋がらない。Chatwork・Gmail・カレンダー・ドライブ・Notion・GitHub・Zoom は
   AI の側に繋ぎ、AI が読んで現状に書く。繋ぎ方・「AI にまとめて入れてもらう」(Claude Code に頼んで接続とプラグインを入れる)・
   「何を足すとよいか診断」のボタンと、使い方のコラム (/column) がある
-- **型 (playbook)**: 終えたタスクのやり方を残すと、似たタスクに次の AI が取りかかるときに前例として渡る
+- **型 (テンプレート)**: 必要な入力値 + 資料リンク + タスクの木を型にして、メンバーを選んで振ると新しいゴールごと丸ごと入る (/templates)。終えたゴールの「…」→「型にする」で作れる
+- **前例 (playbook)**: 終えたタスクのやり方を残すと、似たタスクに次の AI が取りかかるときに前例として渡る
 - **通知・@メンション・コメント・ファイル添付・メンバーごとの担当範囲**
 
 ## アーキ
@@ -41,19 +40,21 @@
 ```
 .
 ├── app/
-│   ├── api/                 # ルートハンドラ (goals, subtasks, auth, chat, push, mcp-token ...)
-│   ├── components/          # AppShell / Outliner / Sidebar / ChatDock / RealtimeBridge
+│   ├── api/                 # ルートハンドラ (goals, templates, auth, chat, files, push, mcp-token ...)
+│   ├── components/          # AppShell / RealtimeBridge / tasks (タスク画面の行) / goal (ゴール詳細の部品) ほか
 │   ├── lib/
-│   │   ├── db.ts            # D1 アクセス
-│   │   ├── queries.ts       # CRUD (insert/update/delete/indent/outdent/archive)
+│   │   ├── db.ts            # 画面とサーバーで共有する型
+│   │   ├── addness.ts       # 画面から /api を呼ぶ関数 (全部 api() 経由。失敗はバナーに出る)
 │   │   ├── hosts.ts         # Worker が動いている workers.dev のサブドメイン
-│   │   └── server/          # サーバー側ユーティリティ (セッション・認可)
-│   ├── goals/ members/ notifications/ settings/ chat/ history/ login/ reset/
-│   └── page.tsx             # Sidebar + Outliner + Cmd+K パレット
-├── d1-migrations/           # 0001〜0019。D1 のスキーマはここが正
-├── mcp-worker/              # MCP サーバー (別 Worker)
+│   │   └── server/          # サーバー側: queries/ (領域ごとの D1 読み書き)・auth・workspace・ratelimit・filesCore・templateCore・compare
+│   ├── goals/ members/ notifications/ settings/ templates/ login/ reset/
+│   └── page.tsx             # タスク画面 (ツリー)
+├── d1-migrations/           # 0001〜0026。D1 のスキーマはここが正。足すだけ (AGENTS.md)
+├── mcp-worker/              # MCP サーバー (別 Worker)。src/tools/ に領域ごとのツール、lib.ts に共有部品、instructions.ts に運用ルール
 ├── realtime-worker/         # リアルタイム配信 (別 Worker)
-├── docs/kotsukotsu-guide.md # 使い方ガイド
+├── node-server/             # Docker 版 (同じコードを SQLite + ディスクで動かす)
+├── scripts/                 # setup / update / security-smoke (自社環境への診断)
+├── docs/                    # 使い方ガイド・self-hosting・セキュリティ監査
 └── wrangler.jsonc           # D1 / R2 / vars バインディング
 ```
 
