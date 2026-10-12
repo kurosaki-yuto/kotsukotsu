@@ -1,6 +1,6 @@
 import { requireWorkspace, goalInScope, requireGoalEdit } from "../../../../lib/server/workspace";
 import { json } from "../../../../lib/server/db";
-import { moveGoal, canEditGoal } from "../../../../lib/server/queries";
+import { moveGoal } from "../../../../lib/server/queries";
 
 // Re-parent a goal: body { parentId: string | null }. null = move to top level.
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {

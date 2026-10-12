@@ -29,7 +29,7 @@ export function ResourceItem({ r, onChanged, bulkOpen }: { r: Resource; onChange
   useEffect(() => { setName(r.name); setContent(r.content ?? ""); setUrlVal(r.url ?? ""); }, [r.id, r.name, r.content, r.url]);
   // "すべてプレビュー" header toggle drives every row at once, still overridable
   // per-row by clicking it individually afterward.
-  useEffect(() => { if (bulkOpen) setOpen(bulkOpen.open); }, [bulkOpen?.token]);
+  useEffect(() => { if (bulkOpen) setOpen(bulkOpen.open); }, [bulkOpen]);
   const saveName = async () => { const v = name.trim(); if (v && v !== r.name) { try { await updateResource(r.id, { name: v }); onChanged(); } catch { /* tolerate */ } } };
   const saveContent = async () => { if (content !== (r.content ?? "")) { try { await updateResource(r.id, { content }); onChanged(); } catch { /* tolerate */ } } };
   const saveUrl = async () => { const v = urlVal.trim(); if (v && v !== (r.url ?? "")) { try { await updateResource(r.id, { url: v }); onChanged(); } catch { /* tolerate */ } } };

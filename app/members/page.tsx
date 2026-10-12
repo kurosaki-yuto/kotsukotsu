@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { listMembers, createInvite, removeMember, updateMember, getMe, getMemberTaskProgress, getDoneCounts, type Me, type MemberProgress } from "../lib/addness";
-import type { Member, Goal } from "../lib/db";
+import type { Member } from "../lib/db";
 import { useAutoRefresh } from "../lib/useAutoRefresh";
 import { MemberDetail } from "./MemberDetail";
 import { Avatar, YouPill, StatPill, PersonPlusGlyph, TrophyGlyph, ThumbsUpGlyph, CalendarGlyph, CheckGlyph, AlertGlyph, ChevronGlyph } from "./glyphs";
@@ -33,7 +32,6 @@ export default function MembersPage() {
     (m: Member) => !!meEmail && !!m.email && m.email.toLowerCase() === meEmail,
     [meEmail]
   );
-  const router = useRouter();
 
   // admin dashboard: who still has undone assigned tasks
   const loadProgress = useCallback(async () => {

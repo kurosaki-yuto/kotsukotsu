@@ -3,7 +3,6 @@ import { requireWorkspace, goalInScope, requireGoalEdit } from "../../lib/server
 import { createResource } from "../../lib/server/queries";
 import { bucket, safeName } from "../../lib/server/files";
 import { safeContentType, fileResponseHeaders } from "../../lib/server/filesCore";
-import { canEditGoal } from "../../lib/server/queries";
 import { limitOr429, HOUR } from "../../lib/server/ratelimit";
 
 const MAX_BYTES = 25 * 1024 * 1024; // 25MB per file

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { getOrgSettings, updateOrgSettings, getApiKey, regenApiKey, getMyApiKey, regenMyApiKey, getMe, listInvites, getMyProfile, type Me, type Invite, type MyProfile } from "../lib/addness";
 import type { OrgSettings } from "../lib/db";
 import { DeleteAccountCard } from "./AccountCards";
@@ -78,7 +77,6 @@ export function GlyphLink() {
   );
 }
 export default function SettingsPage() {
-  const router = useRouter();
   const [tab, setTab] = useState<Tab>("team");
 
   const [org, setOrg] = useState<OrgSettings>(FALLBACK_ORG);

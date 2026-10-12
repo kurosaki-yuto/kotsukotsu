@@ -1,7 +1,6 @@
 // ツールが共有する部品: 通知・認証・スコープ/権限・RPC の応答・タスク進捗。
 import { type ZodType } from "zod";
 import { resolveMentionedMembers } from "../../app/lib/server/mentions";
-import { workspaceToday } from "./today";
 import { parseTemplateRow, type TemplateRow } from "../../app/lib/server/templateCore";
 import { safeEqual } from "../../app/lib/server/compare";
 import { Env } from "./env";
@@ -526,9 +525,12 @@ export function rpcResult(id: unknown, result: unknown) {
   return { jsonrpc: "2.0", id, result };
 }
 
+// args はツールごとに zod で検査したあとの値。型は各ツールの schema が持つので、ここは any でよい
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ToolHandler = (args: any, env: Env, wsId: string, auth: McpAuth) => Promise<unknown>;
 export interface ToolDef {
   description: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   schema: ZodType<any>;
   handler: ToolHandler;
 }

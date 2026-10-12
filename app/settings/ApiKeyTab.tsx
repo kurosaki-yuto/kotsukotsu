@@ -2,7 +2,6 @@
 
 // 設定 > APIキー / 連携ガイド のタブ。settings/page.tsx から切り出し。
 import { useEffect, useRef, useState } from "react";
-import type { OrgSettings } from "../lib/db";
 import { MCP_HOST, NODE_RUNTIME } from "../lib/hosts";
 import IntegrationGuide from "./IntegrationGuide";
 
@@ -76,17 +75,14 @@ export function GuideTab({ token }: { token: string | null }) {
   return <IntegrationGuide connectUrl={official ? MCP_SHARED : keyUrl} keyUrl={keyUrl} official={official} />;
 }
 
-export function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onRegen: () => Promise<void>; admin: boolean }) {
-  const [urlCopied, setUrlCopied] = useState(false);
+export function ApiKeyTab({ token, onRegen }: { token: string | null; onRegen: () => Promise<void>; admin: boolean }) {
   const [sharedCopied, setSharedCopied] = useState(false);
   const [sharedLogin, setSharedLogin] = useState(true);
   useEffect(() => setSharedLogin(sharedLoginAvailable()), []);
   const sharedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const urlTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
-      if (urlTimer.current) clearTimeout(urlTimer.current);
       if (sharedTimer.current) clearTimeout(sharedTimer.current);
     };
   }, []);
@@ -99,18 +95,6 @@ export function ApiKeyTab({ token, onRegen, admin }: { token: string | null; onR
   const connectUrl = hasToken ? `${mcpEndpoint()}/${token!}` : "";
   // 見出しの「接続用URL」。自分でデプロイした環境ではキー入りURLになる。
   const headlineUrl = sharedLogin ? MCP_SHARED : connectUrl;
-
-  function handleCopyUrl() {
-    if (!hasToken) return;
-    try {
-      navigator.clipboard?.writeText(connectUrl);
-    } catch {
-      /* clipboard unavailable */
-    }
-    setUrlCopied(true);
-    if (urlTimer.current) clearTimeout(urlTimer.current);
-    urlTimer.current = setTimeout(() => setUrlCopied(false), 1500);
-  }
 
   function handleCopyShared() {
     try {

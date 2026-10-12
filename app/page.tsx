@@ -22,9 +22,8 @@ import {
 import type { Goal } from "./lib/db";
 import { useAutoRefresh } from "./lib/useAutoRefresh";
 import MyTurn from "./components/MyTurn";
-import { ItemRow, HolderAvatar } from "./components/tasks/ItemRow";
-import { MemberTasks } from "./components/tasks/MemberTasks";
-import { daysUntil, useIndent, countChildren, buildItemTree, pruneToAssigned, pickHolder, NAVY, LINE, INDENT, type ItemNode, type DropPos, type DropHint, type ChildStats } from "./components/tasks/tree";
+import { ItemRow } from "./components/tasks/ItemRow";
+import { daysUntil, useIndent, countChildren, buildItemTree, pruneToAssigned, type DropPos, type DropHint } from "./components/tasks/tree";
 import DoneCounts from "./components/DoneCounts";
 import { Chevron, useCollapsed } from "./lib/useCollapsed";
 

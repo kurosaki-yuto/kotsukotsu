@@ -17,7 +17,6 @@
  *   /.well-known/oauth-*, /register, /authorize, /token -> OAuth (src/oauth.ts)
  */
 
-import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 // Same matcher the app uses for comment @mentions — one source of truth, so a
 // name that notifies someone in the app notifies them through MCP too.
@@ -41,7 +40,7 @@ const tools: Record<string, ToolDef> = { ...goalsTools, ...todayTools, ...chatTo
 
 const TOOLS_LIST = Object.entries(tools).map(([name, def]) => {
   // Inline schema (no $ref wrapper) — MCP clients expect a self-contained object.
-  const { $schema, ...inputSchema } = zodToJsonSchema(def.schema, {
+  const { $schema: _schema, ...inputSchema } = zodToJsonSchema(def.schema, {
     $refStrategy: "none",
     target: "jsonSchema7",
   }) as Record<string, unknown>;
@@ -62,6 +61,8 @@ const TOOLS_LIST = Object.entries(tools).map(([name, def]) => {
 // JSON-RPC dispatch
 // ---------------------------------------------------------------------------
 
+// JSON-RPC の生の要求。形は中で検査する
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function handleRpc(message: any, env: Env, auth: McpAuth): Promise<unknown | null> {
   // Notifications (no id) -> no response.
   const isNotification = message.id === undefined || message.id === null;
@@ -75,7 +76,7 @@ async function handleRpc(message: any, env: Env, auth: McpAuth): Promise<unknown
       const instructions = buildInstructions(auth);
       // The client is receiving them right here, so this connection is current.
       await markInstructionsDelivered(env, auth, instructionsVersion(instructions)).catch((err) => {
-        console.log(`instruction delivery bookkeeping failed: ${err?.message ?? err}`);
+        console.log(`instruction delivery bookkeeping failed: ${(err as { message?: string })?.message ?? err}`);
       });
       return rpcResult(id, {
         protocolVersion:
@@ -152,14 +153,14 @@ async function handleRpc(message: any, env: Env, auth: McpAuth): Promise<unknown
                 instructions,
             });
           }
-        } catch (err: any) {
-          console.log(`instruction refresh skipped: ${err?.message ?? err}`);
+        } catch (err: unknown) {
+          console.log(`instruction refresh skipped: ${(err as { message?: string })?.message ?? err}`);
         }
         return rpcResult(id, res);
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Tool execution error -> isError result (per MCP spec) so the model sees it.
         // D1 / 内部のエラーはそのまま出さない (テーブル名や SQL が外に漏れる)。
-        const msg = String(err?.message ?? err);
+        const msg = String((err as { message?: string })?.message ?? err);
         const internal = /D1_|SQLITE|no such (table|column)|syntax error|near "/i.test(msg);
         if (internal) console.log(`tool ${name} internal error: ${msg}`);
         return rpcResult(id, {
@@ -326,7 +327,7 @@ export default {
       return jsonResponse(rpcError(null, RPC.INVALID_REQUEST, "too many requests (3000 / 10min)"), 429);
     }
 
-    let payload: any;
+    let payload: unknown;
     try {
       payload = await request.json();
     } catch {

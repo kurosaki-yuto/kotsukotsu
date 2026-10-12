@@ -9,7 +9,7 @@ export function useAutoRefresh(fn: () => void, opts?: { intervalMs?: number; ena
   const intervalMs = opts?.intervalMs ?? 15000;
   const enabled = opts?.enabled ?? true;
   const ref = useRef(fn);
-  ref.current = fn;
+  useEffect(() => { ref.current = fn; }, [fn]);
   useEffect(() => {
     if (!enabled) return;
     const run = () => {

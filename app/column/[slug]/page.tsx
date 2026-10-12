@@ -25,7 +25,6 @@ export default async function ColumnPage({ params }: { params: Promise<{ slug: s
         コラム一覧
       </Link>
       <article className="mt-5">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={c.thumb} alt="" className="mb-6 aspect-[1200/630] w-full rounded-[14px] object-cover" style={{ border: "1px solid #dce2ee" }} />
         <div className="text-[12.5px]" style={{ color: "#60697b" }}>{c.date}</div>
         <h1 className="mt-1.5 text-[24px] font-bold leading-snug md:text-[28px]">{c.title}</h1>

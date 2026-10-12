@@ -4,7 +4,6 @@
 import type * as React from "react";
 import { useState } from "react";
 import { changeMyPassword, getAccountPlan, deleteMyAccount, type AccountPlan } from "../lib/addness";
-import type { OrgSettings } from "../lib/db";
 
 
 /* =========================================================

@@ -5,7 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 import { getGoal, updateGoal, archiveGoal, createResource, getMe, listMembers, createChild, toggleItemDone, setItemStarted, getGoalBundle, cachedGoalBundle, prefetchGoalBundle, createTemplateFromGoal, type GoalBundle } from "../../lib/addness";
 import type { Goal, Resource, Member, ChatMessage } from "../../lib/db";
 import type { Me, GoalMember } from "../../lib/addness";
-import Linkified from "../../components/Linkified";
 import AgentLaunch from "../../components/AgentLaunch";
 import AutoGrowTextarea from "../../components/AutoGrowTextarea";
 import { I } from "../../components/goal/Icon";

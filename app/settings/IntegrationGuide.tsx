@@ -302,7 +302,6 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
               className="block rounded-[12px] border p-4 transition-colors hover:bg-[var(--hover)] md:p-5"
               style={{ borderColor: "var(--border)", background: "#fff" }}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={c.thumb} alt="" className="mb-3 aspect-[1200/630] w-full rounded-[8px] object-cover" style={{ border: "1px solid var(--border)" }} />
               <div className="text-[11.5px]" style={{ color: "var(--muted)" }}>{c.date}</div>
               <div className="mt-0.5 text-[14.5px] font-bold leading-snug" style={{ color: "var(--foreground)" }}>{c.title}</div>

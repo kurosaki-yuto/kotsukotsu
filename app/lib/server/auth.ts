@@ -135,10 +135,6 @@ export async function verifyPassword(userId: string, password: string): Promise<
 // ---------- password reset ----------
 
 const RESET_TTL_MIN = 60;
-// A burst of requests for one address is either a mistake or someone probing;
-// either way there is no reason to keep minting live tokens.
-const RESET_MAX_PER_HOUR = 5;
-
 export type ResetUser = { id: string; email: string; name: string | null };
 
 export async function findUserByEmail(email: string): Promise<ResetUser | null> {

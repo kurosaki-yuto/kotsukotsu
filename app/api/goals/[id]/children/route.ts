@@ -1,6 +1,6 @@
 import { json } from "../../../../lib/server/db";
 import { requireWorkspace, goalInScope, requireGoalEdit } from "../../../../lib/server/workspace";
-import { listChildren, createChild, assignCreatorAsHolder, canEditGoal } from "../../../../lib/server/queries";
+import { listChildren, createChild, assignCreatorAsHolder } from "../../../../lib/server/queries";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const wctx = await requireWorkspace(req);

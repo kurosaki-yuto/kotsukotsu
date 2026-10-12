@@ -23,7 +23,6 @@ export default function ColumnIndex() {
               className="flex flex-col overflow-hidden rounded-[14px] border transition-colors hover:bg-[#f6f8fd] md:flex-row"
               style={{ borderColor: "#dce2ee" }}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={c.thumb} alt="" className="aspect-[1200/630] w-full flex-none object-cover md:w-[300px]" />
               <div className="p-5">
                 <div className="text-[12px]" style={{ color: "#60697b" }}>{c.date}</div>

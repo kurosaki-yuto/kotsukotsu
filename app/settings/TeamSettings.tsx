@@ -74,7 +74,6 @@ export function TeamSettings(props: {
               style={{ background: "#eceef0", color: "var(--muted)" }}
             >
               {profile?.avatar ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={profile.avatar}
                   alt={`${profile.name}のアイコン`}

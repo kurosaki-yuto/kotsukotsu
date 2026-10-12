@@ -37,7 +37,6 @@ export function Figure({ src, alt, mobileSrc }: { src: string; alt: string; mobi
     <figure className="col-figure">
       <picture>
         {mobileSrc && <source media="(max-width: 639px)" srcSet={mobileSrc} />}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
         {/* スクショ (png) は Retina で撮った2倍の大きさなので、2x として半分の大きさで出す */}
         <img src={src} srcSet={src.endsWith(".png") ? `${src} 2x` : undefined} alt={alt} loading="lazy" />
       </picture>

@@ -1,19 +1,6 @@
 import { json, bad } from "../../lib/server/db";
 import { requireWorkspace, goalInScope, requireGoalEdit } from "../../lib/server/workspace";
-import {
-  listProjectNodes,
-  insertNodeAfter,
-  updateNodeText,
-  toggleNodeComplete,
-  deleteNode,
-  indentNode,
-  outdentNode,
-  moveNode,
-  updateNodeDue,
-  canEditGoal,
-  nodeGoalId,
-  getGoal,
-} from "../../lib/server/queries";
+import { listProjectNodes, insertNodeAfter, updateNodeText, toggleNodeComplete, deleteNode, indentNode, outdentNode, moveNode, updateNodeDue, nodeGoalId, getGoal } from "../../lib/server/queries";
 
 export async function GET(req: Request) {
   const ctx = await requireWorkspace(req);

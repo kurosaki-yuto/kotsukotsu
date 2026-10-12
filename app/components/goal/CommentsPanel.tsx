@@ -90,14 +90,14 @@ export function CommentsPanel({ goalId, comments, setComments, loadComments, me,
     if (!v) return;
     setComments((cs) => cs.map((c) => (c.id === cid ? { ...c, body: v, edited_at: new Date().toISOString() } : c)));
     try { await editMessage(cid, v); await loadComments(); } catch (e) { console.error(e); await loadComments(); }
-  }, [editCommentBody, loadComments]);
+  }, [editCommentBody, loadComments, setComments]);
 
   const removeComment = useCallback(async (cid: string) => {
     if (!confirm("このコメントを取り消しますか?")) return;
     setComments((cs) => cs.filter((c) => c.id !== cid));
     try { await deleteMessage(cid); } catch (e) { console.error(e); }
     await loadComments();
-  }, [loadComments]);
+  }, [loadComments, setComments]);
 
   // 15s poll + realtime "changed" pings refetch this bundle constantly (any
   // MCP/AI action anywhere nudges every open goal page) — only auto-scroll
@@ -111,7 +111,7 @@ export function CommentsPanel({ goalId, comments, setComments, loadComments, me,
       lastCommentIdRef.current = lastId;
       if (lastId && !suppress) commentEndRef.current?.scrollIntoView({ block: "nearest" });
     }
-  }, [comments]);
+  }, [comments, suppressNextCommentScrollRef]);
 
   return (
       <div className="mt-8 lg:mt-0 lg:sticky lg:top-6 lg:h-[calc(100vh-9.5rem)] lg:flex lg:flex-col lg:min-h-0">

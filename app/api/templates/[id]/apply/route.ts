@@ -1,6 +1,6 @@
 import { json, bad, db, first, nowIso } from "../../../../lib/server/db";
-import { requireWorkspace, goalInScope, requireGoalEdit } from "../../../../lib/server/workspace";
-import { getTemplate, canEditGoal, createNotification } from "../../../../lib/server/queries";
+import { requireWorkspace, requireGoalEdit } from "../../../../lib/server/workspace";
+import { getTemplate, createNotification } from "../../../../lib/server/queries";
 import { applyTemplate, normalizeValues, missingRequiredInputs, substitute } from "../../../../lib/server/templateCore";
 import { notifyWorkspace } from "../../../../lib/server/realtime";
 import { limitOr429, HOUR } from "../../../../lib/server/ratelimit";

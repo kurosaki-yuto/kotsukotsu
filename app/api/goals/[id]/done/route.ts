@@ -1,6 +1,6 @@
 import { requireWorkspace, goalInScope } from "../../../../lib/server/workspace";
 import { json } from "../../../../lib/server/db";
-import { toggleProjectDone, canEditGoal, assignOnTouch } from "../../../../lib/server/queries";
+import { toggleProjectDone, canEditGoal } from "../../../../lib/server/queries";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const wctx = await requireWorkspace(req);

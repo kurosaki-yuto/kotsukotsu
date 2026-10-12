@@ -49,7 +49,6 @@ export function Avatar({
     boxShadow: "0 0 0 1px var(--border-strong)",
   };
   const inner = member.avatar ? (
-    // eslint-disable-next-line @next/next/no-img-element
     <img src={member.avatar} alt={label} className="w-full h-full rounded-full object-cover" />
   ) : (
     <span

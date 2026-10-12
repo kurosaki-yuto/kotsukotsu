@@ -85,7 +85,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [authed, setAuthed] = useState<boolean | null>(null); // null = checking
   const authedRef = useRef(authed);
-  authedRef.current = authed;
+  useEffect(() => { authedRef.current = authed; }, [authed]);
   const [authRetry, setAuthRetry] = useState(0); // bumps to re-run the check after a transient failure
   const fileInputRef = useRef<HTMLInputElement>(null);
   // workspaces (logo / top-right switcher)
@@ -121,6 +121,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   async function onSwitchWs(id: string) {
     if (id === activeWsId) return;
     try { await switchWorkspace(id); } catch { return; }
+    // 全データが変わるので、router ではなく読み込み直す (意図的)
+    // eslint-disable-next-line react-hooks/immutability, @next/next/no-location-assign-relative-destination
     window.location.href = "/";
   }
   async function onCreateWs() {
@@ -129,6 +131,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     setCreating(true);
     try {
       await createWorkspace(name); // server makes it active
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.href = "/";
     } catch {
       setCreating(false);
@@ -313,7 +316,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // 状態はrefに置きeffectの依存を空にする: pathnameを依存に入れると back() のたびに
   // acc/fired がリセットされ、スワイプの慣性イベントで連続backして全画面戻ってしまう。
   const swipeCtxRef = useRef({ pathname, paletteOpen });
-  swipeCtxRef.current = { pathname, paletteOpen };
+  useEffect(() => { swipeCtxRef.current = { pathname, paletteOpen }; }, [pathname, paletteOpen]);
   useEffect(() => {
     let acc = 0;
     let fired = false;

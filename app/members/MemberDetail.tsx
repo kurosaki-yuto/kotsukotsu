@@ -58,7 +58,7 @@ export function MemberDetail({ member, admin, isYou, done, onError, onRemove, on
       setMemberGoals([]);
       onError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [onError]);
 
   // メンバーを切り替えたら、そのメンバーの配属タスクを読み直し、入力欄と再設定リンクを消す
   useEffect(() => {

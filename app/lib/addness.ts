@@ -24,6 +24,8 @@ function announce(event: string, detail?: unknown) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(event, { detail }));
 }
+// 返り値は呼び手が型を付ける (各関数の as ...)。ここで any を使う
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function api(path: string, init?: RequestInit): Promise<any> {
   let r: Response;
   try {
