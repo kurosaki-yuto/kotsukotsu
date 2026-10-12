@@ -22,7 +22,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 // Same matcher the app uses for comment @mentions — one source of truth, so a
 // name that notifies someone in the app notifies them through MCP too.
 // 型 (誰かが終えたタスクのやり方) を、似たタスクを触る AI の返り値に添える。
-import { rateLimited, claimOnce, shortHash } from "../../app/lib/server/ratelimitCore";
+import { rateLimited, rateLimitExceeded, claimOnce, shortHash } from "../../app/lib/server/ratelimitCore";
 // claude.ai がキー無しURLで繋ぎに来た時の OAuth (動的クライアント登録) 経路。
 import { handleOAuth, isOAuthPath, wwwAuthenticate } from "./oauth";
 
@@ -259,13 +259,17 @@ export default {
     }
 
     // Auth gate for /mcp — resolves the workspace (and member scope) this token may act on.
-    // 当てずっぽうのキーで叩き続けられないよう、接続元ごとに失敗を数える
+    // 当てずっぽうのキーで叩き続けられないよう、接続元ごとに「失敗した認証」だけを数える。
+    // 成功した要求は数えない (claude.ai など共有 IP からは多くの人が正しいキーで来るので、
+    // 全要求を数えると正常利用まで止まる。2026-10-12 に本番でそれが起きた)。
     const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
-    if (await rateLimited(env.DB, `mcp:auth:${await shortHash(ip)}`, 120, 10 * 60_000).catch(() => false)) {
+    const ipKey = `mcp:auth:${await shortHash(ip)}`;
+    if (await rateLimitExceeded(env.DB, ipKey, 120, 10 * 60_000).catch(() => false)) {
       return jsonResponse(rpcError(null, RPC.INVALID_REQUEST, "too many requests"), 429);
     }
     const auth = await resolveAuth(request, env);
     if (!auth) {
+      await rateLimited(env.DB, ipKey, 120, 10 * 60_000).catch(() => false);
       return jsonResponse(
         rpcError(null, RPC.INVALID_REQUEST, "unauthorized"),
         401,
@@ -318,8 +322,8 @@ export default {
 
     // 1 本のキーあたりの回数制限 (600 回 / 10 分)。AI が暴走しても D1 を詰まらせない
     const keyTag = await shortHash(`${auth.wsId}:${auth.actor?.userId ?? "ws"}`);
-    if (await rateLimited(env.DB, `mcp:calls:${keyTag}`, 600, 10 * 60_000).catch(() => false)) {
-      return jsonResponse(rpcError(null, RPC.INVALID_REQUEST, "too many requests (600 / 10min)"), 429);
+    if (await rateLimited(env.DB, `mcp:calls:${keyTag}`, 3000, 10 * 60_000).catch(() => false)) {
+      return jsonResponse(rpcError(null, RPC.INVALID_REQUEST, "too many requests (3000 / 10min)"), 429);
     }
 
     let payload: any;

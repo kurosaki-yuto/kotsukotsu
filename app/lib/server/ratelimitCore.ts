@@ -22,6 +22,13 @@ export async function rateLimited(db: D1Database, key: string, limit: number, wi
   return (r?.count ?? 0) > limit;
 }
 
+// 数えずに「もう超えているか」だけ見る (失敗だけ数えたいときは、先にこれで見て、失敗したときだけ rateLimited で数える)
+export async function rateLimitExceeded(db: D1Database, key: string, limit: number, windowMs: number): Promise<boolean> {
+  const since = new Date(Date.now() - windowMs).toISOString();
+  const r = await db.prepare("SELECT count FROM login_failures WHERE key = ? AND window_start > ?").bind(key, since).first<{ count: number }>();
+  return (r?.count ?? 0) > limit;
+}
+
 // 一度しか使えない印 (OAuth の認可コードなど)。同じ key を 2 回目に呼ぶと false。
 export async function claimOnce(db: D1Database, key: string): Promise<boolean> {
   const r = await db
