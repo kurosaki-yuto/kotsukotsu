@@ -20,7 +20,8 @@ const CSP = [
   "img-src 'self' data: blob:",
   // 開発中は手元の MCP (localhost:8788 など) も叩けるようにする
   "connect-src 'self' https: wss:" + (DEV ? " ws: http://localhost:* http://127.0.0.1:*" : ""),
-  "frame-src 'self'",
+  // 使い方動画 (設定 > APIキー) は Loom の埋め込み
+  "frame-src 'self' https://www.loom.com",
   "frame-ancestors 'self'",
   "object-src 'none'",
   "base-uri 'self'",

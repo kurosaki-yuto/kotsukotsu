@@ -6,15 +6,7 @@ import { Figure } from "../components/ColumnBody";
 import { COLUMNS } from "../lib/columns";
 import { diagnosePrompt, setupAllPrompt } from "../lib/aiSetup";
 import { claudeChatUrl } from "../lib/claudeLinks";
-import {
-  CONNECTOR_GROUPS,
-  STATE_SOURCES,
-  checkPrompt,
-  claudeCodeSetupPrompt,
-  codexSetupPrompt,
-  connectorPrompt,
-  type Connector,
-} from "../lib/integrations";
+import { CONNECTOR_GROUPS, STATE_SOURCES, checkPrompt, claudeCodeSetupPrompt, codexSetupPrompt, connectorPrompt, type Connector } from "../lib/integrations";
 
 // 設定の3つ目のタブ「連携ガイド」。
 // こつこつ本体は他のツールと繋ぐ機能を持たない。連携は AI の側に入れ、AI が Chatwork やメールを読んで

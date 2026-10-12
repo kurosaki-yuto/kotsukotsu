@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getGoal, updateGoal, archiveGoal, createResource, updateResource, deleteResource, getMe, listMembers, assignGoalMember, unassignGoalMember, setGoalMemberEdit, listGoalMembersBatch, listChildren, createChild, toggleItemDone, setItemStarted, sendMessage, editMessage, deleteMessage, createGoalInvite, getGoalBundle, cachedGoalBundle, prefetchGoalBundle, createTemplateFromGoal, type GoalBundle } from "../../lib/addness";
+import { getGoal, updateGoal, archiveGoal, createResource, getMe, listMembers, createChild, toggleItemDone, setItemStarted, getGoalBundle, cachedGoalBundle, prefetchGoalBundle, createTemplateFromGoal, type GoalBundle } from "../../lib/addness";
 import type { Goal, Resource, Member, ChatMessage } from "../../lib/db";
 import type { Me, GoalMember } from "../../lib/addness";
 import Linkified from "../../components/Linkified";
@@ -11,27 +11,14 @@ import AutoGrowTextarea from "../../components/AutoGrowTextarea";
 import { I } from "../../components/goal/Icon";
 import { SubTree } from "../../components/goal/SubTree";
 import { ResourceItem } from "../../components/goal/ResourceItem";
+import { CommentsPanel } from "../../components/goal/CommentsPanel";
+import { AssignPanel } from "../../components/goal/AssignPanel";
+import { MetaSection } from "../../components/goal/MetaSection";
 import { InProgressBadge, StartButton, TaskCheck, isInProgress } from "../../components/InProgress";
-import { Assignees, Avatar } from "../../components/Assignees";
+import { Assignees } from "../../components/Assignees";
 import { useAutoRefresh } from "../../lib/useAutoRefresh";
 
 const PLACEHOLDER = "ここをタップして、達成したいゴールを入力しましょう！";
-
-// 完了の基準・現状は AI と人が同じ文章を読んで動くところ。抽象的に書かれると
-// 共有した意味が無くなるので、入力欄に良い例と悪い例をそのまま出す。
-const CRITERIA_PLACEHOLDER = `× 「LPが良い感じになる」「営業を強化する」
-○ 下のように、判定できる形で書く
-
-・サービスLPを公開し、問い合わせフォームの送信をスマホ実機で確認
-・9/30までに問い合わせ3件
-・成果物: lp/index.html、計測用のGA4イベント設定`;
-
-const STATE_PLACEHOLDER = `× 「進めている」「対応中」
-○ 下のように、日付と残りを書く
-
-9/12時点。ヒーローと料金表は実装済み、Vercelにデプロイ済み。
-残り: 画像3点の発注、フォームの送信先結線。
-詰まり: 先方のロゴデータ待ち（9/10に依頼、返信なし）。`;
 
 export default function GoalDetail() {
   const params = useParams<{ id: string }>();
@@ -47,9 +34,6 @@ export default function GoalDetail() {
   const [me, setMe] = useState<Me | null>(null);
   const [assignees, setAssignees] = useState<GoalMember[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
-  const [assignPanel, setAssignPanel] = useState(false);
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
-  const [inviteBusy, setInviteBusy] = useState(false);
 
   // recursive child items (subtasks == child goals)
   const [ancestors, setAncestors] = useState<{ id: string; name: string }[]>([]);
@@ -66,16 +50,9 @@ export default function GoalDetail() {
 
   // comments
   const [comments, setComments] = useState<ChatMessage[]>([]);
-  const [commentBody, setCommentBody] = useState("");
-  const [sending, setSending] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const commentEndRef = useRef<HTMLDivElement | null>(null);
-  const lastCommentIdRef = useRef<string | null>(null);
   // true = the next applyBundle is "just opened/switched goal" data, not a
   // live update — record the baseline but don't yank the view to the bottom.
   const suppressNextCommentScrollRef = useRef(true);
-  const [editingComment, setEditingComment] = useState<string | null>(null);
-  const [editCommentBody, setEditCommentBody] = useState("");
 
   // one bundle request refreshes everything on this page (title is left alone
   // so an in-progress rename isn't clobbered)
@@ -148,6 +125,9 @@ export default function GoalDetail() {
   };
 
   const loadAssignees = refreshBundle;
+  const ensureMembers = useCallback(async () => {
+    try { setMembers((await listMembers()).filter((m) => !m.is_ai)); } catch {}
+  }, []);
   const loadComments = refreshBundle;
   const loadChildren = refreshBundle;
 
@@ -232,37 +212,6 @@ export default function GoalDetail() {
     return () => { alive = false; };
   }, []);
 
-  const openAssignPanel = useCallback(async () => {
-    setAssignPanel((v) => !v);
-    if (members.length === 0) {
-      try { setMembers((await listMembers()).filter((m) => !m.is_ai)); } catch {}
-    }
-  }, [members.length]);
-
-  const toggleAssign = useCallback(async (memberId: string, assigned: boolean) => {
-    try {
-      if (assigned) await unassignGoalMember(id, memberId);
-      else await assignGoalMember(id, memberId, false);
-      await loadAssignees();
-    } catch (e) { console.error(e); }
-  }, [id, loadAssignees]);
-
-  const toggleEdit = useCallback(async (memberId: string, canEdit: boolean) => {
-    try { await setGoalMemberEdit(id, memberId, canEdit); await loadAssignees(); } catch (e) { console.error(e); }
-  }, [id, loadAssignees]);
-
-  // Create an invite link that only grants access to THIS task and its subtree.
-  const makeInvite = useCallback(async () => {
-    setInviteBusy(true);
-    try {
-      const { url } = await createGoalInvite(id);
-      if (url) {
-        setInviteUrl(url);
-        try { await navigator.clipboard.writeText(url); } catch { /* clipboard blocked */ }
-      }
-    } catch (e) { console.error(e); }
-    finally { setInviteBusy(false); }
-  }, [id]);
 
   // ----- child item actions -----
   const toggleChildDone = useCallback(async (childId: string, done: boolean) => {
@@ -298,89 +247,6 @@ export default function GoalDetail() {
     try { await updateGoal(childId, { name: v }); } catch (e) { console.error(e); }
   }, [editName]);
 
-  // ----- comments -----
-  const submitComment = useCallback(async () => {
-    const v = commentBody.trim();
-    if (!v || sending) return;
-    setSending(true);
-    setCommentBody("");
-    setMentionQuery(null);
-    try {
-      await sendMessage(id, v);
-      await loadComments();
-    } catch (e) { console.error(e); }
-    finally { setSending(false); }
-  }, [commentBody, sending, id, loadComments]);
-
-  // @mention autocomplete: trigger on an unclosed "@query" at the caret-less
-  // end of the input (plain <input>, so we key off trailing text, not caret
-  // position — comments are short one-liners so this is close enough).
-  const onCommentChange = useCallback((v: string) => {
-    setCommentBody(v);
-    const m = v.match(/@([^\s@]*)$/);
-    setMentionQuery(m ? m[1] : null);
-  }, []);
-  // このゴールのアサイン者を候補の先頭に出す。ワークスペース全員を登録順で
-  // 並べていたので、実際にそのゴールを動かしている人が下に埋もれて選べず、
-  // 「アサインされてる人をメンションできない」状態になっていた。
-  const assignedMemberIds = new Set(assignees.map((a) => a.id));
-  const memberIds = new Set(members.map((m) => m.id));
-  // アサイン者はメンバー一覧の取得が失敗しても候補に出す (取得失敗は握り潰す
-  // 作りなので、以前はその場合「全員」しか出せなかった)。
-  const assignedOnly = assignees
-    .filter((a) => !memberIds.has(a.id))
-    .map((a) => ({ id: a.id, name: a.name }));
-  const mentionCandidates = mentionQuery !== null
-    ? [
-        ...members.filter((m) => assignedMemberIds.has(m.id)),
-        ...assignedOnly,
-        { id: "__all__", name: "全員" },
-        ...members.filter((m) => !assignedMemberIds.has(m.id)),
-      ].filter((a) => a.name && a.name.toLowerCase().includes(mentionQuery.toLowerCase()))
-    : [];
-  const pickMention = useCallback((name: string) => {
-    setCommentBody((v) => v.replace(/@([^\s@]*)$/, `@${name} `));
-    setMentionQuery(null);
-  }, []);
-
-  // A comment is "mine" if its author_email matches my login. Rows from before
-  // author_email existed fall back to a display-name match.
-  const myEmail = me?.email?.toLowerCase().trim() ?? null;
-  const myMemberName = members.find((a) => a.email?.toLowerCase().trim() === myEmail)?.name ?? me?.name ?? null;
-  const isMyComment = useCallback((m: ChatMessage) => {
-    if (!me) return false;
-    if (m.author_email) return !!myEmail && m.author_email === myEmail;
-    return !!myMemberName && m.author === myMemberName;
-  }, [me, myEmail, myMemberName]);
-
-  const saveCommentEdit = useCallback(async (cid: string) => {
-    const v = editCommentBody.trim();
-    setEditingComment(null);
-    if (!v) return;
-    setComments((cs) => cs.map((c) => (c.id === cid ? { ...c, body: v, edited_at: new Date().toISOString() } : c)));
-    try { await editMessage(cid, v); await loadComments(); } catch (e) { console.error(e); await loadComments(); }
-  }, [editCommentBody, loadComments]);
-
-  const removeComment = useCallback(async (cid: string) => {
-    if (!confirm("このコメントを取り消しますか?")) return;
-    setComments((cs) => cs.filter((c) => c.id !== cid));
-    try { await deleteMessage(cid); } catch (e) { console.error(e); }
-    await loadComments();
-  }, [loadComments]);
-
-  // 15s poll + realtime "changed" pings refetch this bundle constantly (any
-  // MCP/AI action anywhere nudges every open goal page) — only auto-scroll
-  // when a genuinely new comment shows up on an already-open goal, never on
-  // the opening view (that would fight the "open a goal, land at the top" scroll).
-  useEffect(() => {
-    const lastId = comments.length ? comments[comments.length - 1].id : null;
-    const suppress = suppressNextCommentScrollRef.current;
-    suppressNextCommentScrollRef.current = false;
-    if (lastId !== lastCommentIdRef.current) {
-      lastCommentIdRef.current = lastId;
-      if (lastId && !suppress) commentEndRef.current?.scrollIntoView({ block: "nearest" });
-    }
-  }, [comments]);
 
   if (notFound) {
     return (
@@ -501,74 +367,7 @@ export default function GoalDetail() {
                 className="bg-transparent text-[12.5px] focus:outline-none" style={{ width: goal.deadline ? 110 : 64 }} />
               {!goal.deadline && <span>期日</span>}
             </label>
-            {/* assignee zone: assigned goal-members + manage.
-                オーナー欄 (projects.owner) は全ゴール一律「黒崎優斗」の固定文字列で、
-                実体は goal_members のアサインなので、ヘッダーからは外した。 */}
-            <div className="relative flex items-center gap-1.5">
-              {assignees.length > 0 ? (
-                canManage ? (
-                  <button onClick={openAssignPanel} className="flex items-center rounded-full px-1 py-0.5 hover:bg-[var(--hover)]" aria-label="担当を変更" title="担当を変更">
-                    <Assignees members={assignees} size={26} max={4} withName showLock />
-                  </button>
-                ) : (
-                  <Assignees members={assignees} size={26} max={4} withName showLock />
-                )
-              ) : (
-                canManage && <span className="text-[12px] text-[var(--muted-soft)]">未アサイン</span>
-              )}
-              {canManage && (
-                <button onClick={openAssignPanel} className="w-7 h-7 shrink-0 rounded-full border border-dashed flex items-center justify-center text-[var(--muted)] hover:bg-[var(--hover)]"
-                  style={{ borderColor: "var(--border-strong)" }} aria-label="メンバーをアサイン"><I d="M12 5v14M5 12h14" /></button>
-              )}
-              {assignPanel && canManage && (() => {
-                // 自分も候補に出す。以前は自分を除いていたが、そうすると自分が持つタスクに
-                // 自分をアサインできない (下の行に「(自分)」の表示があるとおり、元々は
-                // 出す作りだった)。アサインは担当を明示するためのもので、自分だけ例外に
-                // する理由が無い。2026-09-09 黒崎指示。
-                const assignable = members;
-                return (
-                <div className="absolute right-0 top-9 z-30 card w-[min(18rem,calc(100vw-2rem))] max-w-[18rem] max-h-80 overflow-y-auto" style={{ boxShadow: "var(--shadow-pop)" }} onMouseLeave={() => setAssignPanel(false)}>
-                  <div className="px-4 py-2.5 border-b text-[12px] font-bold text-[var(--muted)]" style={{ borderColor: "var(--border)" }}>メンバーをアサイン</div>
-                  {assignable.length === 0 ? (
-                    <div className="px-4 py-6 text-center text-[13px] text-[var(--muted-soft)]">メンバーがいません</div>
-                  ) : (
-                    <ul className="py-1">
-                      {assignable.map((m) => {
-                        const g = assignees.find((a) => a.id === m.id);
-                        const assigned = !!g;
-                        return (
-                          <li key={m.id} className="px-3 py-2 hover:bg-[var(--hover)]">
-                            <div className="flex items-center gap-2.5">
-                              <Avatar member={{ id: m.id, name: m.name, email: m.email, avatar: m.avatar, can_edit: assigned ? !!g?.can_edit : undefined }} size={24} />
-                              <span className="flex-1 text-[13.5px] truncate" title={m.name}>{m.name}{m.is_you && <span className="ml-1 text-[var(--muted-soft)]">(自分)</span>}</span>
-                              <button onClick={() => toggleAssign(m.id, assigned)}
-                                className={assigned ? "chip text-[var(--danger)]" : "chip"}>
-                                {assigned ? "解除" : "アサイン"}
-                              </button>
-                            </div>
-                            {assigned && (
-                              <label className="flex items-center gap-1.5 mt-1.5 ml-[34px] text-[12px] text-[var(--muted)] cursor-pointer select-none">
-                                <input type="checkbox" checked={!!g?.can_edit} onChange={(e) => toggleEdit(m.id, e.target.checked)} className="accent-[var(--accent)]" />
-                                {g?.can_edit ? "編集を許可" : "閲覧のみ"}
-                              </label>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                  <div className="border-t px-3 py-2.5" style={{ borderColor: "var(--border)" }}>
-                    <button onClick={makeInvite} disabled={inviteBusy} className="chip w-full justify-center">{inviteBusy ? "作成中…" : "このタスクに招待リンク"}</button>
-                    {inviteUrl && (
-                      <div className="mt-2 text-[11px] break-all" style={{ color: "var(--muted)" }}>
-                        コピー済み。招待された人はこのタスク以下だけ操作できます。<br />{inviteUrl}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                );
-              })()}
-            </div>
+            <AssignPanel goalId={id} assignees={assignees} members={members} canManage={canManage} loadAssignees={loadAssignees} ensureMembers={ensureMembers} />
             <div className="relative">
               <button onClick={() => setMenu((v) => !v)} className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--muted)] hover:bg-[var(--hover)]" aria-label="メニュー"><I d="M5 12h.01M12 12h.01M19 12h.01" /></button>
               {menu && (
@@ -661,52 +460,7 @@ export default function GoalDetail() {
           );
         })()}
 
-        {/* ===== 完了の基準・現状 (collapsed by default; MCP reads these, people see tasks+comments) ===== */}
-        <div className="mb-4 rounded-2xl border overflow-hidden" style={{ borderColor: "var(--border)" }}>
-          <button
-            type="button"
-            onClick={() => setShowMeta((v) => !v)}
-            aria-expanded={showMeta}
-            className="w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-[var(--hover)]"
-          >
-            <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-[var(--muted)] min-w-0">
-              <I d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /><span className="whitespace-nowrap">完了の基準・現状</span>
-              {!showMeta && (
-                <span className="font-normal text-[var(--muted-soft)] truncate hidden sm:inline">
-                  {goal.completion_criteria?.trim() || goal.current_state?.trim() ? "（AIが読む欄。開いて確認・編集）" : "（未記入）"}
-                </span>
-              )}
-            </span>
-            <span className="shrink-0 text-[var(--muted-soft)]" style={{ transform: showMeta ? "rotate(180deg)" : undefined, transition: "transform .15s" }}>
-              <I d="M6 9l6 6 6-6" />
-            </span>
-          </button>
-          {showMeta && (
-            <div className="px-4 pb-4 pt-1 border-t" style={{ borderColor: "var(--border)" }}>
-              <div className="text-xs font-semibold mb-1 mt-2" style={{ color: "var(--accent)" }}>完了の基準 — これが満たされたら完了</div>
-              <p className="text-[11.5px] text-[var(--muted)] mb-1.5 cjk">
-                他人が見て○×を付けられる形で書く。数字・日付・成果物の名前を必ず入れる。
-                「検討する」「改善する」「いい感じにする」は基準にならない。
-              </p>
-              <AutoGrowTextarea
-                defaultValue={goal.completion_criteria ?? ""}
-                onBlur={(e) => patch({ completion_criteria: e.target.value })}
-                placeholder={CRITERIA_PLACEHOLDER}
-                minRows={5}
-                className="w-full bg-white rounded-lg px-3 py-2 text-[14px] focus:outline-none border"
-                style={{ borderColor: "#cdd9ff" }}
-              />
-              <div className="text-xs font-semibold text-[var(--muted)] mb-1 mt-3">現状 — 今どこまで進んでいるか</div>
-              <p className="text-[11.5px] text-[var(--muted)] mb-1.5 cjk">
-                日付から書き始めて「済んだこと / 残っていること / 詰まっていること」の3つを出す。
-                「進めている」「対応中」だけだと、読んだ人が次の一手を判断できない。
-              </p>
-              <AutoGrowTextarea defaultValue={goal.current_state ?? ""} onBlur={(e) => patch({ current_state: e.target.value })}
-                placeholder={STATE_PLACEHOLDER} minRows={5}
-                className="w-full bg-[var(--hover)] rounded-lg px-3 py-2 text-sm focus:outline-none" />
-            </div>
-          )}
-        </div>
+        <MetaSection goal={goal} showMeta={showMeta} setShowMeta={setShowMeta} patch={patch} />
 
         {/* ===== タスク (recursive child items) ===== */}
         <div className="mt-6">
@@ -788,121 +542,7 @@ export default function GoalDetail() {
 
         </div>
 
-        {/* ===== コメント ===== */}
-        <div className="mt-8 lg:mt-0 lg:sticky lg:top-6 lg:h-[calc(100vh-9.5rem)] lg:flex lg:flex-col lg:min-h-0">
-          <h3 className="text-[16px] font-bold mb-3 flex items-center gap-2 shrink-0">
-            <I d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />コメント
-            <span className="text-[13px] font-normal text-[var(--muted-soft)]">{comments.length}</span>
-          </h3>
-          <div className="card overflow-hidden lg:flex-1 lg:min-h-0 lg:flex lg:flex-col">
-            <div className="max-h-80 lg:max-h-none lg:flex-1 lg:min-h-0 overflow-y-auto">
-              {comments.length === 0 ? (
-                <div className="px-4 py-10 text-center text-[13px] text-[var(--muted-soft)]">まだコメントはありません</div>
-              ) : (
-                <ul className="py-1">
-                  {comments.map((m) => {
-                    const name = m.author || "名無し";
-                    const t = new Date(m.created_at);
-                    const time = isNaN(t.getTime())
-                      ? ""
-                      : `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
-                    const mine = isMyComment(m);
-                    const editing = editingComment === m.id;
-                    return (
-                      <li key={m.id} className="group flex items-start gap-2.5 px-4 py-2.5">
-                        <span className="w-7 h-7 shrink-0 rounded-full bg-[#7bc47f] text-white text-xs font-bold flex items-center justify-center" title={name}>{name[0]}</span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-[13px] font-bold truncate">{name}</span>
-                            <span className="text-[11px] text-[var(--muted-soft)] shrink-0">{time}</span>
-                            {m.edited_at && <span className="text-[11px] text-[var(--muted-soft)] shrink-0">(編集済み)</span>}
-                            {mine && !editing && (
-                              <span className="ml-auto shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                  onClick={() => { setEditingComment(m.id); setEditCommentBody(m.body); }}
-                                  className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--muted)] hover:bg-[var(--hover)]"
-                                  aria-label="コメントを編集"
-                                ><I d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" /></button>
-                                <button
-                                  onClick={() => removeComment(m.id)}
-                                  className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--muted)] hover:bg-[var(--hover)]"
-                                  aria-label="コメントを取り消し"
-                                ><I d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14" /></button>
-                              </span>
-                            )}
-                          </div>
-                          {editing ? (
-                            <div className="mt-1">
-                              <AutoGrowTextarea
-                                value={editCommentBody}
-                                onChange={(e) => setEditCommentBody(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); saveCommentEdit(m.id); }
-                                  if (e.key === "Escape") setEditingComment(null);
-                                }}
-                                minRows={1}
-                                autoFocus
-                                className="w-full bg-[var(--hover)] rounded-lg px-3 py-2 text-[14px] focus:outline-none"
-                              />
-                              <div className="flex gap-2 mt-1">
-                                <button onClick={() => saveCommentEdit(m.id)} className="text-[12px] px-2.5 py-1 rounded-md text-white" style={{ background: "var(--accent)" }}>保存</button>
-                                <button onClick={() => setEditingComment(null)} className="text-[12px] px-2.5 py-1 rounded-md text-[var(--muted)] hover:bg-[var(--hover)]">キャンセル</button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-[14px] text-[var(--foreground)] whitespace-pre-wrap break-words"><Linkified text={m.body} mentionNames={["全員", ...members.map((a) => a.name)]} /></div>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                  <div ref={commentEndRef} />
-                </ul>
-              )}
-            </div>
-            <div className="relative flex items-end gap-2 px-3 py-2.5 border-t shrink-0" style={{ borderColor: "var(--border)" }}>
-              {mentionCandidates.length > 0 && (
-                <div className="absolute bottom-full left-3 mb-1 w-56 card max-h-60 overflow-y-auto z-10" style={{ boxShadow: "var(--shadow-pop)" }}>
-                  {mentionCandidates.map((a) => (
-                    <button
-                      key={a.id}
-                      onMouseDown={(e) => { e.preventDefault(); pickMention(a.name); }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-[var(--hover)]"
-                    >
-                      <span className="w-5 h-5 shrink-0 rounded-full bg-[#7bc47f] text-white text-[10px] font-bold flex items-center justify-center">{a.name[0]}</span>
-                      {a.name}
-                      {assignedMemberIds.has(a.id) && (
-                        <span className="ml-auto text-[10px] opacity-60">担当</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <AutoGrowTextarea
-                value={commentBody}
-                onChange={(e) => onCommentChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    submitComment();
-                  }
-                }}
-                minRows={1}
-                placeholder="コメントを入力…(@で相手を指定、Shift+Enterで改行)"
-                className="flex-1 min-w-0 bg-[var(--hover)] rounded-lg px-3 py-2 text-[14px] focus:outline-none"
-              />
-              <button
-                onClick={submitComment}
-                disabled={!commentBody.trim() || sending}
-                className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-white transition-opacity disabled:opacity-40"
-                style={{ background: "var(--accent)" }}
-                aria-label="送信"
-              >
-                <I d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-              </button>
-            </div>
-          </div>
-        </div>
+        <CommentsPanel goalId={id} comments={comments} setComments={setComments} loadComments={loadComments} me={me} members={members} assignees={assignees} suppressNextCommentScrollRef={suppressNextCommentScrollRef} />
         </div>
       </div>
     </div>
