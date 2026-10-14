@@ -10,12 +10,16 @@ import {
   applyTemplate,
   listMembers,
   listGoals,
+  revertTemplateRevision,
+  getTemplatePlaybooks,
+  linkTemplatePlaybook,
   type TemplateDetail,
+  type TemplatePrecedent,
 } from "../../lib/addness";
-import type { Goal, Member, TemplateInput, TemplateResource, TemplateTask } from "../../lib/db";
+import type { Goal, Member, TemplateCaution, TemplateInput, TemplateResource, TemplateTask } from "../../lib/db";
 import { Avatar, Assignees } from "../../components/Assignees";
 import AutoGrowTextarea from "../../components/AutoGrowTextarea";
-import { tasksToOutline, outlineToTasks, countTasks } from "../../lib/server/templateCore";
+import { tasksToOutline, outlineToTasks, countTasks, RESOURCE_KINDS } from "../../lib/server/templateCore";
 import { useAutoRefresh } from "../../lib/useAutoRefresh";
 
 const inputCls = "w-full rounded-lg px-3 py-2 text-[14px] focus:outline-none border";
@@ -38,6 +42,79 @@ function TaskTreePreview({ tasks, depth = 0 }: { tasks: TemplateTask[]; depth?: 
   );
 }
 
+// 型に結んだ前例 (以前この種類の仕事をしたときのやり方)。結ぶ・外すは型を直せる人だけ
+function PrecedentsSection({ templateId, canManage }: { templateId: string; canManage: boolean }) {
+  const [linked, setLinked] = useState<TemplatePrecedent[]>([]);
+  const [candidates, setCandidates] = useState<TemplatePrecedent[]>([]);
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const reload = useCallback(async (query: string) => {
+    try {
+      const r = await getTemplatePlaybooks(templateId, query);
+      setLinked(r.linked);
+      setCandidates(r.candidates);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "前例を読めませんでした");
+    }
+  }, [templateId]);
+  useEffect(() => { void reload(""); }, [reload]);
+  const toggle = async (id: string, unlink: boolean) => {
+    try {
+      await linkTemplatePlaybook(templateId, id, unlink);
+      await reload(q);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "結べませんでした");
+    }
+  };
+  const row = (p: TemplatePrecedent, action: "unlink" | "link" | null) => (
+    <li key={p.id} className="py-2">
+      <div className="flex items-start justify-between gap-2">
+        <button type="button" className="text-left text-[13px] leading-snug break-words hover:underline" onClick={() => setOpen((o) => (o === p.id ? null : p.id))}>
+          {p.title}
+          <span className="ml-2 text-[11px]" style={{ color: "var(--muted)" }}>{p.author_name ?? "記録なし"} · {p.updated_at.slice(0, 10)}</span>
+        </button>
+        {action && (
+          <button type="button" className="text-[12px] underline underline-offset-2 whitespace-nowrap" style={action === "unlink" ? { color: "var(--danger)" } : undefined} onClick={() => void toggle(p.id, action === "unlink")}>
+            {action === "unlink" ? "外す" : "結ぶ"}
+          </button>
+        )}
+      </div>
+      {open === p.id && (
+        <div className="mt-1 rounded-lg px-3 py-2 text-[12.5px] whitespace-pre-wrap break-words" style={{ background: "var(--hover)" }}>
+          {p.steps}
+          {p.pitfalls && <div className="mt-2" style={{ color: "var(--muted)" }}>気をつけたこと: {p.pitfalls}</div>}
+        </div>
+      )}
+    </li>
+  );
+  return (
+    <section className="card px-5 py-4 mb-4">
+      <h2 className="text-[14px] font-bold">前例 ({linked.length})</h2>
+      <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
+        以前この種類の仕事をしたときのやり方。この型から作ったタスクで残した前例は自動で結ばれます。
+      </p>
+      {error && <div className="mt-2 text-[12px]" style={{ color: "var(--danger)" }}>{error}</div>}
+      {linked.length > 0 && <ul className="mt-2 flex flex-col divide-y" style={{ borderColor: "var(--border)" }}>{linked.map((p) => row(p, canManage ? "unlink" : null))}</ul>}
+      {canManage && (
+        <div className="mt-3">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void reload(q); }}
+            placeholder="前例を探して結ぶ (例: サムネ)  Enter で検索"
+            className={inputCls}
+            style={inputStyle}
+          />
+          {candidates.length > 0 && <ul className="mt-2 flex flex-col divide-y" style={{ borderColor: "var(--border)" }}>{candidates.map((p) => row(p, "link"))}</ul>}
+          {q.trim() && candidates.length === 0 && <div className="mt-2 text-[12px]" style={{ color: "var(--muted)" }}>Enter で検索します。結ばれていない前例だけが出ます。</div>}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function TemplateDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id as string;
@@ -53,6 +130,7 @@ export default function TemplateDetailPage() {
   const [criteria, setCriteria] = useState("");
   const [inputs, setInputs] = useState<TemplateInput[]>([]);
   const [resources, setResources] = useState<TemplateResource[]>([]);
+  const [cautions, setCautions] = useState<TemplateCaution[]>([]);
   const [outline, setOutline] = useState("");
   const [dirtyTasks, setDirtyTasks] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -77,6 +155,7 @@ export default function TemplateDetailPage() {
         setCriteria(t.completion_criteria ?? "");
         setInputs(t.inputs);
         setResources(t.resources);
+        setCautions(t.cautions);
         setOutline(tasksToOutline(t.tasks));
         setDirtyTasks(false);
       }
@@ -101,6 +180,7 @@ export default function TemplateDetailPage() {
     criteria !== (tpl.completion_criteria ?? "") ||
     JSON.stringify(inputs) !== JSON.stringify(tpl.inputs) ||
     JSON.stringify(resources) !== JSON.stringify(tpl.resources) ||
+    JSON.stringify(cautions) !== JSON.stringify(tpl.cautions) ||
     dirtyTasks
   );
 
@@ -114,6 +194,12 @@ export default function TemplateDetailPage() {
 
   const saveAll = async () => {
     if (!tpl || !canManage || !dirty || !name.trim()) return;
+    const keptResources = resources.filter((x) => x.url.trim());
+    const noWhy = keptResources.filter((x) => !x.why?.trim());
+    if (noWhy.length) {
+      setSaveError(`資料に「何のために見るか」を書いてください: ${noWhy.map((x) => x.name || x.url).join("、")}`);
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
@@ -122,7 +208,8 @@ export default function TemplateDetailPage() {
         purpose,
         completion_criteria: criteria,
         inputs: inputs.filter((x) => x.label.trim()),
-        resources: resources.filter((x) => x.url.trim()),
+        resources: keptResources,
+        cautions: cautions.filter((x) => x.text.trim()),
         tasks: outlineToTasks(outline),
       });
       setTpl((p) => (p ? { ...p, ...t } : p));
@@ -131,9 +218,13 @@ export default function TemplateDetailPage() {
       setCriteria(t.completion_criteria ?? "");
       setInputs(t.inputs);
       setResources(t.resources);
+      setCautions(t.cautions);
       setOutline(tasksToOutline(t.tasks));
       setDirtyTasks(false);
       setSavedAt(Date.now());
+      const exportError = (t as { export_error?: string }).export_error;
+      if (exportError) setSaveError(`保存しました。外 (GitHub) への書き出しに失敗: ${exportError}`);
+      void load(); // 履歴を取り直す
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "保存できませんでした");
     } finally {
@@ -315,31 +406,74 @@ export default function TemplateDetailPage() {
               )}
             </section>
 
-            {/* 資料リンク */}
+            {/* 資料 */}
             <section className="card px-5 py-4 mb-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-[14px] font-bold">資料リンク ({resources.length})</h2>
+                <h2 className="text-[14px] font-bold">資料 ({resources.length})</h2>
                 {!ro && (
-                  <button type="button" className="chip" onClick={() => setResources((p) => [...p, { name: "", url: "" }])}>+ リンクを足す</button>
+                  <button type="button" className="chip" onClick={() => setResources((p) => [...p, { kind: "やり方", name: "", url: "", why: "" }])}>+ 資料を足す</button>
                 )}
               </div>
               <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
-                毎回同じ参照先 (手順書・ひな形・チェックリスト)。振ると新しいゴールのリソースに付きます。
+                本文はこつこつに入れず外 (手順書・実物・参考) に置き、ここには「どこを見ればいいか」だけを書きます。
+                種類は やり方 (前回どうやったか) / 実物 (実際に出した成果物) / 置き場所 (型の本文の正本) / 情報源 (参考)。「何のために見るか」は必須です。振ると新しいゴールのリソースに付きます。
               </p>
               {resources.length > 0 && (
-                <ul className="mt-3 flex flex-col gap-2">
+                <ul className="mt-3 flex flex-col gap-3">
                   {resources.map((r, i) => (
-                    <li key={i} className="grid grid-cols-1 md:grid-cols-[200px_1fr_auto] gap-2 items-start">
+                    <li key={i} className="grid grid-cols-[96px_1fr_auto] md:grid-cols-[96px_180px_1fr_auto] gap-2 items-start rounded-xl border p-2" style={{ borderColor: "var(--border)" }}>
+                      <select value={r.kind} disabled={ro} aria-label="資料の種類" onChange={(e) => setResources((p) => p.map((x, j) => (j === i ? { ...x, kind: e.target.value as TemplateResource["kind"] } : x)))} className={inputCls} style={inputStyle}>
+                        {RESOURCE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+                      </select>
                       <input value={r.name} readOnly={ro} placeholder="名前" onChange={(e) => setResources((p) => p.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} className={inputCls} style={inputStyle} />
-                      <input value={r.url} readOnly={ro} placeholder="https://…" onChange={(e) => setResources((p) => p.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))} className={inputCls} style={inputStyle} />
-                      {!ro && (
-                        <button type="button" className="text-[12px] underline underline-offset-2 whitespace-nowrap" style={{ color: "var(--danger)" }} onClick={() => setResources((p) => p.filter((_, j) => j !== i))}>削除</button>
+                      <input value={r.url} readOnly={ro} placeholder="https://…" onChange={(e) => setResources((p) => p.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))} className={`${inputCls} col-span-2 md:col-span-1 order-last md:order-none`} style={inputStyle} />
+                      {!ro ? (
+                        <button type="button" className="text-[12px] underline underline-offset-2 whitespace-nowrap self-center" style={{ color: "var(--danger)" }} onClick={() => setResources((p) => p.filter((_, j) => j !== i))}>削除</button>
+                      ) : <span />}
+                      <input value={r.why ?? ""} readOnly={ro} placeholder="何のために見るか (例: 顔の大きさと文字量の基準を見る)" onChange={(e) => setResources((p) => p.map((x, j) => (j === i ? { ...x, why: e.target.value } : x)))} className={`${inputCls} col-span-3 md:col-span-4 order-last`} style={{ ...inputStyle, ...(!r.why?.trim() && r.url.trim() ? { borderColor: "var(--danger)" } : {}) }} />
+                      {ro && r.url && (
+                        <a href={r.url} target="_blank" rel="noopener noreferrer" className="col-span-3 md:col-span-4 text-[12px] underline underline-offset-2 order-last" style={{ color: "var(--accent)" }}>開く</a>
                       )}
                     </li>
                   ))}
                 </ul>
               )}
             </section>
+
+            {/* 注意点 */}
+            <section className="card px-5 py-4 mb-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-[14px] font-bold">注意点 ({cautions.length})</h2>
+                {!ro && (
+                  <button type="button" className="chip" onClick={() => setCautions((p) => [...p, { text: "" }])}>+ 注意点を足す</button>
+                )}
+              </div>
+              <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
+                守らないと差し戻される所を 1 件 1 行で。差し戻しや照合の×が出ると、AI がここに自動で足します (履歴から戻せます)。
+              </p>
+              {cautions.length > 0 && (
+                <ul className="mt-3 flex flex-col gap-2">
+                  {cautions.map((c, i) => (
+                    <li key={i} className="grid grid-cols-[1fr_auto] gap-2 items-start">
+                      <div className="min-w-0">
+                        <input value={c.text} readOnly={ro} placeholder="例: 実在の他人の顔を許諾なしで使わない" onChange={(e) => setCautions((p) => p.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} className={inputCls} style={inputStyle} />
+                        {(c.added_by || c.source_goal_id) && (
+                          <div className="mt-0.5 text-[11px]" style={{ color: "var(--muted)" }}>
+                            {c.added_at ? `${c.added_at.slice(0, 10)} ` : ""}{c.added_by ?? ""}
+                            {c.source_goal_id && <> · <Link href={`/goals/${c.source_goal_id}`} className="underline underline-offset-2">きっかけのタスク</Link></>}
+                          </div>
+                        )}
+                      </div>
+                      {!ro && (
+                        <button type="button" className="text-[12px] underline underline-offset-2 whitespace-nowrap mt-2" style={{ color: "var(--danger)" }} onClick={() => setCautions((p) => p.filter((_, j) => j !== i))}>削除</button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <PrecedentsSection templateId={tpl.id} canManage={canManage} />
 
             {/* タスクの木 */}
             <section className="card px-5 py-4 mb-4">
@@ -378,7 +512,7 @@ export default function TemplateDetailPage() {
             <section className="card px-5 py-4">
               <h2 className="text-[14px] font-bold">この型で振る</h2>
               <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
-                担当者と置き場所を選び、入力を埋めて振ると、新しいゴール + タスク {countTasks(tpl.tasks)} 件 + 資料 {tpl.resources.length} 件が一度に入ります。
+                担当者と置き場所を選び、入力を埋めて振ると、新しいゴール + タスク {countTasks(tpl.tasks)} 件 + 資料 {tpl.resources.length} 件が一度に入ります。注意点 {tpl.cautions.length} 件は、担当者の AI がタスクに入るときに読みます。
               </p>
 
               <div className={`${labelCls} mt-4`} style={{ color: "var(--muted)" }}>担当者</div>
@@ -465,6 +599,61 @@ export default function TemplateDetailPage() {
                         </span>
                         {g.assignees.length > 0 && <Assignees members={g.assignees} size={20} />}
                       </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {tpl.export_url && (
+              <section className="card px-5 py-4">
+                <h2 className="text-[14px] font-bold">型の置き場所 (外)</h2>
+                <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
+                  型を直すたびに書き出しています。こつこつが止まっても、ここから資料と注意点に辿れます。
+                </p>
+                <a href={tpl.export_url} target="_blank" rel="noopener noreferrer" className="mt-2 block text-[12.5px] underline underline-offset-2 break-all" style={{ color: "var(--accent)" }}>{tpl.export_url}</a>
+                {tpl.exported_at && <div className="mt-1 text-[11px]" style={{ color: "var(--muted)" }}>最後に書き出した日時: {tpl.exported_at.slice(0, 16).replace("T", " ")}</div>}
+              </section>
+            )}
+
+            <section className="card px-5 py-4">
+              <h2 className="text-[14px] font-bold">直した履歴 ({tpl.revisions.length})</h2>
+              {tpl.revisions.length === 0 ? (
+                <div className="mt-2 text-[12.5px]" style={{ color: "var(--muted)" }}>まだありません</div>
+              ) : (
+                <ul className="mt-2 flex flex-col divide-y" style={{ borderColor: "var(--border)" }}>
+                  {tpl.revisions.map((r) => (
+                    <li key={r.id} className="py-2 text-[12.5px]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span style={{ color: "var(--muted)" }}>
+                          {r.created_at.slice(0, 16).replace("T", " ")} · {r.actor_name ?? "記録なし"}{r.actor_kind === "ai" ? " (AI)" : ""}
+                        </span>
+                        {canManage && !r.reverted_at && (
+                          <button
+                            type="button"
+                            className="text-[12px] underline underline-offset-2 whitespace-nowrap"
+                            onClick={async () => {
+                              if (dirty && !window.confirm("保存していない変更は消えます。この版の変更を取り消しますか?")) return;
+                              try {
+                                await revertTemplateRevision(tpl.id, r.id);
+                                await load({ withForm: true });
+                              } catch (e) {
+                                setSaveError(e instanceof Error ? e.message : "戻せませんでした");
+                              }
+                            }}
+                          >
+                            この変更を戻す
+                          </button>
+                        )}
+                        {r.reverted_at && <span className="text-[11px]" style={{ color: "var(--muted)" }}>戻し済み</span>}
+                      </div>
+                      {r.reason && <div className="mt-0.5 break-words">{r.reason}</div>}
+                      {r.changes.length > 0 && (
+                        <ul className="mt-0.5 text-[11.5px] list-disc pl-4" style={{ color: "var(--muted)" }}>
+                          {r.changes.slice(0, 6).map((c, k) => <li key={k} className="break-words">{c}</li>)}
+                        </ul>
+                      )}
+                      {r.source_goal_id && <Link href={`/goals/${r.source_goal_id}`} className="text-[11.5px] underline underline-offset-2">きっかけのタスク</Link>}
                     </li>
                   ))}
                 </ul>

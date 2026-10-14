@@ -1,7 +1,40 @@
 // MCP ツール (templates)。index.ts の tools から切り出し。
 import { z } from "zod";
-import { applyTemplate, snapshotGoalTree, parseTemplateRow, normalizeInputs, normalizeTasks, normalizeResources, normalizeValues, missingRequiredInputs, substitute, outlineToTasks, tasksToOutline, countTasks, LIMITS as TEMPLATE_LIMITS, type TemplateRow } from "../../../app/lib/server/templateCore";
-import { ToolDef, assertAdmin, assertCanEdit, assertGoalInScope, assertTemplateManager, findTemplate, nowIso, recordRecipients, resolveWho, uid } from "../lib";
+import { applyTemplate, snapshotGoalTree, parseTemplateRow, normalizeInputs, normalizeTasks, normalizeResources, normalizeCautions, normalizeValues, missingRequiredInputs, substitute, outlineToTasks, tasksToOutline, countTasks, saveTemplate, listTemplateRevisions, revertTemplateRevision, exportTemplate, kataExportConfig, RESOURCE_KINDS, LIMITS as TEMPLATE_LIMITS, type Template, type TemplateCaution, type TemplatePatch, type TemplateRow } from "../../../app/lib/server/templateCore";
+import { ToolDef, assertAdmin, assertCanEdit, assertGoalInScope, assertTemplateManager, findTemplate, nowIso, recordRecipients, resolveWho, uid, type McpAuth } from "../lib";
+import type { Env } from "../env";
+import { playbooksForTemplate, templateIdForGoal } from "../kata";
+
+// 資料 1 件。why (何のために見るか) は必須: URL だけ貼ってある状態を無くすため
+const resourceSchema = z.object({
+  kind: z.enum(RESOURCE_KINDS).describe("やり方 = 前回どうやったかの手順書 / 実物 = 実際に出した成果物 / 置き場所 = 型の本文の正本 / 情報源 = 参考にするもの"),
+  name: z.string().max(TEMPLATE_LIMITS.resourceName).optional(),
+  url: z.string().url().max(TEMPLATE_LIMITS.resourceUrl),
+  why: z.string().min(1).max(TEMPLATE_LIMITS.resourceWhy).describe("何のために見るか (1 行)。例: 顔の大きさと文字量の基準を見る"),
+});
+const RESOURCES_DOC = "資料 (外部 URL)。本文はこつこつに入れず外に置き、ここには 種類・URL・何のために見るか だけを書く。振ると新しいゴールのリソースに付く";
+const CAUTIONS_DOC = "注意点。1 件 1 行で、守らないと差し戻される所を書く (例: 実在の他人の顔を許諾なしで使わない)";
+
+// 型を見せるときの共通の形 (履歴と結んだ前例を添える)
+async function templateView(env: Env, wsId: string, t: Template) {
+  const [revisions, precedents] = await Promise.all([
+    listTemplateRevisions(env.DB, wsId, t.id, 10),
+    playbooksForTemplate(env.DB, wsId, t.id),
+  ]);
+  return { ...t, tasks_outline: tasksToOutline(t.tasks), task_count: countTasks(t.tasks), precedents, revisions };
+}
+
+// 型を外 (GitHub) に書き出す。設定が無ければ skipped。失敗は返り値に載せて AI に見せる (保存は済んでいる)
+async function exportKata(env: Env, wsId: string, templateId: string) {
+  const r = await exportTemplate(env.DB, wsId, templateId, kataExportConfig(env as unknown as Record<string, unknown>), nowIso());
+  return r.skipped ? {} : r.error ? { export_error: r.error } : { exported_to: r.url };
+}
+
+function actorKind(auth: McpAuth): "human" | "ai" {
+  // MCP から来る書き込みは AI が動かしている (人が画面で押した操作ではない)
+  void auth;
+  return "ai";
+}
 
 export const templatesTools: Record<string, ToolDef> = {
   // ---- members & access control (admin) ----
@@ -22,7 +55,7 @@ export const templatesTools: Record<string, ToolDef> = {
         const t = parseTemplateRow(r);
         return {
           id: t.id, name: t.name, purpose: t.purpose, inputs: t.inputs,
-          task_count: countTasks(t.tasks), resource_count: t.resources.length,
+          task_count: countTasks(t.tasks), resource_count: t.resources.length, caution_count: t.cautions.length,
           used_count: r.used_count, author: t.author_name, updated_at: t.updated_at,
         };
       });
@@ -30,7 +63,7 @@ export const templatesTools: Record<string, ToolDef> = {
   },
 
   get_template: {
-    description: "型 (テンプレート) の中身を読む。id か名前 (完全一致 → 部分一致) で指定。tasks は木、tasks_outline は 1 行 1 タスクの文字列 (2 スペースで 1 段深く、「 :: 」の後ろが完了の基準)。goals はこの型から作ったゴール。",
+    description: "型 (テンプレート) の中身を読む。id か名前 (完全一致 → 部分一致) で指定。tasks は木、tasks_outline は 1 行 1 タスクの文字列 (2 スペースで 1 段深く、「 :: 」の後ろが完了の基準)。resources は資料 (種類・URL・何のために見るか)、cautions は注意点、precedents はこの型に結んだ前例 (以前のやり方)、revisions は直した履歴、goals はこの型から作ったゴール。",
     schema: z.object({
       template: z.string().min(1).describe("型の id か名前"),
     }),
@@ -42,7 +75,7 @@ export const templatesTools: Record<string, ToolDef> = {
             AND (p.parent_goal_id IS NULL OR p.parent_goal_id NOT IN (SELECT id FROM projects WHERE template_id = ? AND workspace_id = ?))
           ORDER BY p.created_at DESC LIMIT 50`
       ).bind(t.id, wsId, t.id, wsId).all();
-      return { ...t, tasks_outline: tasksToOutline(t.tasks), task_count: countTasks(t.tasks), goals: results ?? [] };
+      return { ...(await templateView(env, wsId, t)), goals: results ?? [] };
     },
   },
 
@@ -57,7 +90,8 @@ export const templatesTools: Record<string, ToolDef> = {
       completion_criteria: z.string().max(TEMPLATE_LIMITS.criteria).optional().describe("新しいゴールの完了の基準。{{ラベル}} 可"),
       inputs: z.array(z.object({ label: z.string().min(1).max(TEMPLATE_LIMITS.inputLabel), hint: z.string().max(TEMPLATE_LIMITS.inputHint).optional(), required: z.boolean().optional() })).max(TEMPLATE_LIMITS.inputs).optional(),
       tasks: z.union([z.string(), z.array(z.any())]).optional().describe("タスクの木。アウトライン文字列 (1 行 1 タスク、2 スペースで 1 段深く、「 :: 」の後ろが完了の基準) か、[{text, completion_criteria, children}] の配列"),
-      resources: z.array(z.object({ name: z.string().max(TEMPLATE_LIMITS.resourceName).optional(), url: z.string().url().max(TEMPLATE_LIMITS.resourceUrl) })).max(TEMPLATE_LIMITS.resources).optional().describe("毎回同じ参照先 (手順書・ひな形)。振ると新しいゴールのリソースに付く"),
+      resources: z.array(resourceSchema).max(TEMPLATE_LIMITS.resources).optional().describe(RESOURCES_DOC),
+      cautions: z.array(z.string().min(1).max(TEMPLATE_LIMITS.cautionText)).max(TEMPLATE_LIMITS.cautions).optional().describe(CAUTIONS_DOC),
     }),
     handler: async (args, env, wsId, auth) => {
       let name = args.name?.trim() ?? "";
@@ -79,20 +113,24 @@ export const templatesTools: Record<string, ToolDef> = {
       const id = uid();
       const now = nowIso();
       await env.DB.prepare(
-        `INSERT INTO templates (id, workspace_id, name, purpose, completion_criteria, inputs, tasks, resources, source_goal_id, created_by, author_name, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO templates (id, workspace_id, name, purpose, completion_criteria, inputs, tasks, resources, cautions, source_goal_id, created_by, author_name, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         id, wsId, name.slice(0, TEMPLATE_LIMITS.name), args.purpose?.trim() || null, criteria || null,
         JSON.stringify(normalizeInputs(args.inputs ?? [])), JSON.stringify(tasks), JSON.stringify(normalizeResources(args.resources ?? [])),
+        JSON.stringify(normalizeCautions((args.cautions ?? []).map((text: string) => ({ text, added_at: now, added_by: auth.actor?.name ?? "AI" })))),
         args.from_goal_id ?? null, auth.actor?.userId ?? null, auth.actor?.name ?? null, now, now
       ).run();
+      const ex = await exportKata(env, wsId, id);
       const t = await findTemplate(env, wsId, id);
-      return { ...t, tasks_outline: tasksToOutline(t.tasks), task_count: countTasks(t.tasks) };
+      return { ...(await templateView(env, wsId, t)), ...ex };
     },
   },
 
   update_template: {
-    description: "型 (テンプレート) の中身を直す。渡した項目だけ書き換える。tasks はアウトライン文字列か配列。直せるのは管理者と作った本人。",
+    description:
+      "型 (テンプレート) の中身を直す。渡した項目だけ書き換える (resources・cautions は丸ごと置き換え)。tasks はアウトライン文字列か配列。直せるのは管理者と作った本人。" +
+      "直すたびに履歴が残り、revert_template_change で戻せる。差し戻しから注意点を 1 行足すだけなら propose_template_change を使う。",
     schema: z.object({
       template: z.string().min(1).describe("型の id か名前"),
       name: z.string().min(1).max(TEMPLATE_LIMITS.name).optional(),
@@ -100,24 +138,110 @@ export const templatesTools: Record<string, ToolDef> = {
       completion_criteria: z.string().max(TEMPLATE_LIMITS.criteria).nullable().optional(),
       inputs: z.array(z.object({ label: z.string().min(1).max(TEMPLATE_LIMITS.inputLabel), hint: z.string().max(TEMPLATE_LIMITS.inputHint).optional(), required: z.boolean().optional() })).max(TEMPLATE_LIMITS.inputs).optional(),
       tasks: z.union([z.string(), z.array(z.any())]).optional(),
-      resources: z.array(z.object({ name: z.string().max(TEMPLATE_LIMITS.resourceName).optional(), url: z.string().url().max(TEMPLATE_LIMITS.resourceUrl) })).max(TEMPLATE_LIMITS.resources).optional(),
+      resources: z.array(resourceSchema).max(TEMPLATE_LIMITS.resources).optional().describe(RESOURCES_DOC),
+      cautions: z.array(z.string().min(1).max(TEMPLATE_LIMITS.cautionText)).max(TEMPLATE_LIMITS.cautions).optional().describe(`${CAUTIONS_DOC}。丸ごと置き換える (今ある注意点の出どころは、同じ文面なら引き継ぐ)`),
+      reason: z.string().max(1000).optional().describe("なぜ直すか。履歴に残る"),
     }),
     handler: async (args, env, wsId, auth) => {
       const t = await findTemplate(env, wsId, args.template);
       assertTemplateManager(auth, t);
-      const sets: string[] = [];
-      const vals: unknown[] = [];
-      if (args.name !== undefined) { sets.push("name = ?"); vals.push(args.name.trim().slice(0, TEMPLATE_LIMITS.name)); }
-      if (args.purpose !== undefined) { sets.push("purpose = ?"); vals.push(args.purpose?.trim() || null); }
-      if (args.completion_criteria !== undefined) { sets.push("completion_criteria = ?"); vals.push(args.completion_criteria?.trim() || null); }
-      if (args.inputs !== undefined) { sets.push("inputs = ?"); vals.push(JSON.stringify(normalizeInputs(args.inputs))); }
-      if (args.tasks !== undefined) { sets.push("tasks = ?"); vals.push(JSON.stringify(typeof args.tasks === "string" ? outlineToTasks(args.tasks) : normalizeTasks(args.tasks))); }
-      if (args.resources !== undefined) { sets.push("resources = ?"); vals.push(JSON.stringify(normalizeResources(args.resources))); }
-      if (!sets.length) throw new Error("直す項目がありません");
-      sets.push("updated_at = ?"); vals.push(nowIso(), t.id, wsId);
-      await env.DB.prepare(`UPDATE templates SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`).bind(...vals).run();
+      const patch: TemplatePatch = {};
+      for (const k of ["name", "purpose", "completion_criteria", "inputs", "tasks", "resources"] as const) {
+        if (args[k] !== undefined) patch[k] = args[k];
+      }
+      if (args.cautions !== undefined) {
+        const prev = new Map(t.cautions.map((c) => [c.text, c]));
+        patch.cautions = args.cautions.map((text: string) => prev.get(text.trim()) ?? { text, added_at: nowIso(), added_by: auth.actor?.name ?? "AI" });
+      }
+      if (!Object.keys(patch).length) throw new Error("直す項目がありません");
+      const r = await saveTemplate(env.DB, wsId, t, patch, { actorName: auth.actor?.name ?? "AI", actorKind: actorKind(auth), reason: args.reason ?? null, now: nowIso() });
+      const ex = r.changed ? await exportKata(env, wsId, t.id) : {};
       const u = await findTemplate(env, wsId, t.id);
-      return { ...u, tasks_outline: tasksToOutline(u.tasks), task_count: countTasks(u.tasks) };
+      return { ...(await templateView(env, wsId, u)), changed: r.changed, revision_id: r.revisionId, ...ex };
+    },
+  },
+
+  propose_template_change: {
+    description:
+      "差し戻し・訂正・照合の×から分かったことを型に足す。型は直されるたびに育つ (黒崎判断: 承認を待たずにそのまま反映し、履歴から戻せる)。" +
+      "人がコメントで「ここ直して」と書いた、完了前の照合で注意点に×が付いた、型の手順と違うやり方の方が良かった、のどれかが起きたら呼ぶ。" +
+      "source_goal_id にきっかけのタスクを渡すと、そのタスクの型 (祖先が型から作られていればその型) に足す。型を使ったことがある人と作った人に通知が飛ぶ。" +
+      "注意点は「何をしない/何を守る」の 1 行に一般化する (顧客名・金額は書かない)。",
+    schema: z.object({
+      source_goal_id: z.string().min(1).describe("きっかけになったタスクの id (型から作ったタスク)"),
+      template: z.string().min(1).optional().describe("型の id か名前。省略時は source_goal_id から辿る"),
+      source_comment_id: z.string().optional().describe("きっかけになったコメントの id (list_comments の id)"),
+      reason: z.string().min(4).max(1000).describe("何が起きて直すのか。例: 黒崎から「ストック写真風は差し戻し」とコメント"),
+      add_cautions: z.array(z.string().min(4).max(TEMPLATE_LIMITS.cautionText)).max(10).optional().describe("足す注意点 (1 件 1 行)"),
+      add_resources: z.array(resourceSchema).max(10).optional().describe("足す資料 (同じ URL は差し替え)"),
+      tasks: z.union([z.string(), z.array(z.any())]).optional().describe("タスクの並びも直すときだけ。丸ごと置き換え (アウトライン文字列か配列)"),
+    }),
+    handler: async (args, env, wsId, auth) => {
+      await assertGoalInScope(env, auth, args.source_goal_id);
+      await assertCanEdit(env, wsId, auth, args.source_goal_id);
+      const fromGoal = await templateIdForGoal(env.DB, wsId, args.source_goal_id);
+      const t = await findTemplate(env, wsId, args.template ?? fromGoal ?? "");
+      // 型から作っていないタスクを口実に、関係ない型を直させない。管理者と型を作った本人だけは別
+      if (fromGoal !== t.id) assertTemplateManager(auth, t);
+      if (!args.add_cautions?.length && !args.add_resources?.length && args.tasks === undefined) throw new Error("足すもの (add_cautions / add_resources / tasks) がありません");
+      const now = nowIso();
+      const by = auth.actor?.name ?? "AI";
+      const patch: TemplatePatch = {};
+      if (args.add_cautions?.length) {
+        const added: TemplateCaution[] = args.add_cautions.map((text: string) => ({
+          text, source_goal_id: args.source_goal_id, ...(args.source_comment_id ? { source_comment_id: args.source_comment_id } : {}), added_at: now, added_by: by,
+        }));
+        patch.cautions = [...t.cautions, ...added];
+      }
+      if (args.add_resources?.length) {
+        const urls = new Set(args.add_resources.map((r: { url: string }) => r.url));
+        patch.resources = [...t.resources.filter((r) => !urls.has(r.url)), ...args.add_resources];
+      }
+      if (args.tasks !== undefined) patch.tasks = args.tasks;
+      const r = await saveTemplate(env.DB, wsId, t, patch, {
+        actorName: by, actorKind: actorKind(auth), reason: args.reason, sourceGoalId: args.source_goal_id, sourceCommentId: args.source_comment_id ?? null, now,
+      });
+      if (r.changed) await notifyTemplateChanged(env, wsId, t, args.source_goal_id, by, args.reason, auth);
+      const ex = r.changed ? await exportKata(env, wsId, t.id) : {};
+      const u = await findTemplate(env, wsId, t.id);
+      return { ...(await templateView(env, wsId, u)), changed: r.changed, revision_id: r.revisionId, ...ex };
+    },
+  },
+
+  revert_template_change: {
+    description: "型の履歴 (get_template の revisions) の 1 版を取り消し、その版の直す前に戻す。戻した操作も履歴に残る。管理者と型を作った本人だけ。",
+    schema: z.object({
+      template: z.string().min(1).describe("型の id か名前"),
+      revision_id: z.string().min(1).describe("取り消す版の id"),
+    }),
+    handler: async (args, env, wsId, auth) => {
+      const t = await findTemplate(env, wsId, args.template);
+      assertTemplateManager(auth, t);
+      const r = await revertTemplateRevision(env.DB, wsId, t, args.revision_id, { actorName: auth.actor?.name ?? "AI", actorKind: actorKind(auth), now: nowIso() });
+      const ex = r.changed ? await exportKata(env, wsId, t.id) : {};
+      const u = await findTemplate(env, wsId, t.id);
+      return { ...(await templateView(env, wsId, u)), changed: r.changed, revision_id: r.revisionId, ...ex };
+    },
+  },
+
+  link_playbook_to_template: {
+    description:
+      "前例 (record_playbook で残した以前のやり方) を型に結ぶ。結んだ前例は型の「やり方」として、get_template とこの型で進めるタスクの kata に出る。" +
+      "型から作ったタスクで record_playbook した前例は自動で結ばれる。それ以外の前例を結ぶときに使う。unlink=true で外す。",
+    schema: z.object({
+      template: z.string().min(1).describe("型の id か名前"),
+      playbook_id: z.string().min(1).describe("前例の id (precedents の playbook_id)"),
+      unlink: z.boolean().optional(),
+    }),
+    handler: async (args, env, wsId, auth) => {
+      const t = await findTemplate(env, wsId, args.template);
+      assertTemplateManager(auth, t);
+      const res = args.unlink
+        ? await env.DB.prepare("UPDATE playbooks SET template_id = NULL WHERE id = ? AND workspace_id = ? AND template_id = ?").bind(args.playbook_id, wsId, t.id).run()
+        : await env.DB.prepare("UPDATE playbooks SET template_id = ? WHERE id = ? AND workspace_id = ?").bind(t.id, args.playbook_id, wsId).run();
+      if (!res.meta.changes) throw new Error(args.unlink ? "この型に結ばれていない前例です" : `前例が見つかりません: ${args.playbook_id}`);
+      const ex = await exportKata(env, wsId, t.id);
+      return { ok: true, template_id: t.id, precedents: await playbooksForTemplate(env.DB, wsId, t.id), ...ex };
     },
   },
 
@@ -184,3 +308,25 @@ export const templatesTools: Record<string, ToolDef> = {
     },
   },
 };
+
+// 型が育ったことを、型を作った人と、この型から作ったゴールの担当者に知らせる (直した本人は除く)
+async function notifyTemplateChanged(env: Env, wsId: string, t: Template, goalId: string, by: string, reason: string, auth: McpAuth): Promise<void> {
+  const { results } = await env.DB.prepare(
+    `SELECT DISTINCT lower(m.email) AS email FROM goal_members gm
+       JOIN members m ON m.id = gm.member_id AND m.workspace_id = ?
+       JOIN projects p ON p.id = gm.goal_id AND p.workspace_id = ?
+      WHERE p.template_id = ? AND m.email IS NOT NULL
+     UNION
+     SELECT lower(u.email) FROM users u WHERE u.id = ?`
+  ).bind(wsId, wsId, t.id, t.created_by ?? "").all<{ email: string | null }>();
+  const self = auth.actor?.email?.toLowerCase();
+  const emails = [...new Set((results ?? []).map((r) => r.email).filter((e): e is string => !!e && e !== self))];
+  const now = nowIso();
+  for (const email of emails) {
+    const id = uid();
+    await env.DB.prepare(
+      "INSERT INTO notifications (id, kind, title, body, goal_id, created_at, workspace_id, target_email) VALUES (?, 'info', ?, ?, ?, ?, ?, ?)"
+    ).bind(id, `型「${t.name}」が直されました`, `${by}: ${reason.slice(0, 200)}`, goalId, now, wsId, email).run();
+    await recordRecipients(env, id, wsId, goalId, email);
+  }
+}

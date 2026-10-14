@@ -1,6 +1,6 @@
 import { json, bad } from "../../lib/server/db";
 import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
-import { listTemplates, createTemplate, getGoal, canEditGoal } from "../../lib/server/queries";
+import { listTemplates, createTemplate, getGoal, canEditGoal, exportKata } from "../../lib/server/queries";
 import { snapshotGoalTree } from "../../lib/server/templateCore";
 import { db } from "../../lib/server/db";
 
@@ -31,6 +31,7 @@ export async function POST(req: Request) {
       tasks,
       source_goal_id: fromGoalId,
     }, user);
+    await exportKata(t.id, ctx.workspaceId);
     return json(t);
   }
 
@@ -42,6 +43,8 @@ export async function POST(req: Request) {
     inputs: body.inputs,
     tasks: body.tasks,
     resources: body.resources,
+    cautions: body.cautions,
   }, user);
+  await exportKata(t.id, ctx.workspaceId);
   return json(t);
 }

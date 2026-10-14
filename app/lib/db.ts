@@ -25,9 +25,9 @@ export type Project = {
 };
 export type Goal = Project;
 
-// 型 (テンプレート): 必要な入力値 + 資料リンク + タスクの木。/templates。中身の型は templateCore.ts が正
-export type { TemplateInput, TemplateTask, TemplateResource } from "./server/templateCore";
-import type { TemplateInput, TemplateTask, TemplateResource } from "./server/templateCore";
+// 型 (テンプレート): 必要な入力値 + 資料 + 注意点 + タスクの木。/templates。中身の型は templateCore.ts が正
+export type { TemplateInput, TemplateTask, TemplateResource, TemplateCaution, ResourceKind, TemplateRevision } from "./server/templateCore";
+import type { TemplateInput, TemplateTask, TemplateResource, TemplateCaution } from "./server/templateCore";
 export type Template = {
   id: string;
   workspace_id: string;
@@ -37,6 +37,9 @@ export type Template = {
   inputs: TemplateInput[];
   tasks: TemplateTask[];
   resources: TemplateResource[];
+  cautions: TemplateCaution[];
+  export_url?: string | null;
+  exported_at?: string | null;
   source_goal_id: string | null;
   created_by: string | null;
   author_name: string | null;

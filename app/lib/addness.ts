@@ -10,6 +10,7 @@ import {
   type OrgSettings,
   type Template,
   type TemplateSummary,
+  type TemplateRevision,
 } from "./db";
 
 // ---------- fetch helper ----------
@@ -447,7 +448,8 @@ export function prefetchGoalBundle(id: string): void {
 
 // ---------- 型 (テンプレート) ----------
 export type TemplateGoalRow = { id: string; name: string; status: string; created_at: string; completed_at: string | null; deadline: string | null; assignees: GoalMember[] };
-export type TemplateDetail = Template & { goals: TemplateGoalRow[]; can_manage: boolean };
+export type TemplatePrecedent = { id: string; title: string; author_name: string | null; steps: string; pitfalls: string | null; updated_at: string };
+export type TemplateDetail = Template & { goals: TemplateGoalRow[]; revisions: TemplateRevision[]; can_manage: boolean };
 export async function listTemplates(): Promise<TemplateSummary[]> {
   return (await api("/api/templates")) as TemplateSummary[];
 }
@@ -461,8 +463,23 @@ export async function createTemplate(draft: Partial<Pick<Template, "name" | "pur
 export async function createTemplateFromGoal(goalId: string): Promise<Template> {
   return (await api("/api/templates", { method: "POST", body: JSON.stringify({ from_goal_id: goalId }) })) as Template;
 }
-export async function updateTemplate(id: string, patch: Partial<Pick<Template, "name" | "purpose" | "completion_criteria" | "inputs" | "tasks" | "resources">>): Promise<Template> {
+export async function updateTemplate(id: string, patch: Partial<Pick<Template, "name" | "purpose" | "completion_criteria" | "inputs" | "tasks" | "resources" | "cautions">>): Promise<Template> {
   return (await api(`/api/templates/${id}`, { method: "PATCH", body: JSON.stringify(patch) })) as Template;
+}
+// このゴールの型 (ゴールか祖先が型から作られていれば)。無ければ null
+export async function getGoalKata(goalId: string): Promise<Template | null> {
+  return ((await api(`/api/goals/${goalId}/kata`)) as { template: Template | null }).template;
+}
+// 型の履歴の 1 版を取り消す (その版の直す前に戻す)
+export async function revertTemplateRevision(id: string, revisionId: string): Promise<Template> {
+  return (await api(`/api/templates/${id}/revert`, { method: "POST", body: JSON.stringify({ revision_id: revisionId }) })) as Template;
+}
+// 型に結んだ前例と、結ぶ候補 (q で題名・語を探す)
+export async function getTemplatePlaybooks(id: string, q = ""): Promise<{ linked: TemplatePrecedent[]; candidates: TemplatePrecedent[] }> {
+  return (await api(`/api/templates/${id}/playbooks?q=${encodeURIComponent(q)}`)) as { linked: TemplatePrecedent[]; candidates: TemplatePrecedent[] };
+}
+export async function linkTemplatePlaybook(id: string, playbookId: string, unlink = false): Promise<void> {
+  await api(`/api/templates/${id}/playbooks`, { method: "POST", body: JSON.stringify({ playbook_id: playbookId, unlink }) });
 }
 export async function archiveTemplate(id: string): Promise<void> {
   await api(`/api/templates/${id}`, { method: "DELETE" });

@@ -24,6 +24,10 @@ export interface Env {
   CRM?: Fetcher;
   /** 顧客台帳への取り次ぎを照合する値。顧客台帳の SERIES_SECRET と同じ値。 */
   SERIES_SECRET?: string;
+  /** 型を外 (GitHub) に書き出す先 "owner/repo" とトークン (secret)。無ければ書き出さない。app/lib/server/templateCore.ts */
+  KATA_GITHUB_REPO?: string;
+  KATA_GITHUB_TOKEN?: string;
+  KATA_GITHUB_BRANCH?: string;
 }
 
 // Tools that change data — after these run, nudge the realtime worker so every
@@ -33,6 +37,7 @@ export const MUTATING_TOOLS = new Set([
   "send_chat", "edit_chat", "delete_chat", "create_notification", "assign_member_to_goal",
   "unassign_member_from_goal", "set_member_role", "create_invite", "upload_file",
   "create_template", "update_template", "archive_template", "apply_template",
+  "propose_template_change", "revert_template_change", "link_playbook_to_template",
 ]);
 // Subset of MUTATING_TOOLS worth waking a phone for (mirrors the app's own
 // push-eligible notification kinds: goal/streak/mention/info — see

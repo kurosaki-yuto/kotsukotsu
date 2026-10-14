@@ -38,7 +38,7 @@ export type Precedent = {
 
 // 似ているかの判定は文字の2-gram の重なり。日本語は分かち書きが無いので単語で割らない。
 // ひらがなだけの2-gram (「する」「ている」) はどの文にも出るので捨てる。
-function grams(text: string): Set<string> {
+export function grams(text: string): Set<string> {
   const s = text
     .toLowerCase()
     .replace(/この状態になったら完了。?/g, "")
@@ -61,7 +61,7 @@ function grams(text: string): Set<string> {
 
 // 重なった2-gram を、型の中での珍しさ (idf) で重み付けして足す。「導入」「確認」のようにどの型にも
 // 出る語は軽く、「LINE」「CSV」「採用」のような語は重くなる。長い文を投げても薄まらない。
-function overlapScore(q: Set<string>, d: Set<string>, idf: (g: string) => number): number {
+export function overlapScore(q: Set<string>, d: Set<string>, idf: (g: string) => number): number {
   let w = 0;
   for (const g of q) if (d.has(g)) w += idf(g);
   return w;
@@ -72,15 +72,15 @@ const SCAN_LIMIT = 400;
 // idf は log(1+N/df) を log(1+N) で割ったもの (0〜1)。型の数が増えても尺度が変わらないようにしている。
 // 実データ (型59件) で、同じ種類の仕事は 2.8 以上、関係の薄いものは 2.6 以下に出た (2026-09-28)。
 // AI バインディングが無い環境 (自社専用版で Workers AI を使わない場合) だけで使う。
-const MIN_SCORE = 2.7;
+export const MIN_SCORE = 2.7;
 
 // ---- 意味での検索 (Workers AI) ----
 // 言葉の重なりだけでは「確認」「洗い出し」のような語で関係ない型が付いたため、埋め込みで選ぶ (2026-09-28)。
 export const EMBED_MODEL = "@cf/baai/bge-m3";
 // 型59件と14の問い合わせで測った値 (2026-09-28)。正解は 0.56〜0.70、関係ない型はほぼ 0.55 以下。
 // ただ正解の隣に 0.58〜0.61 の外れが並ぶことがあるため、1位から 0.04 以内のものだけ残す。
-const MIN_SIMILARITY = 0.56;
-const NEAR_BEST = 0.04;
+export const MIN_SIMILARITY = 0.56;
+export const NEAR_BEST = 0.04;
 const EMBED_BATCH = 50;
 
 /** 型を埋め込むときの文。題名と語を主に、手順は頭だけ (長すぎると題名の意味が薄まる)。 */
@@ -88,7 +88,7 @@ function playbookText(r: { title: string; keywords: string | null; steps: string
   return `${r.title}\n${(r.keywords ?? "").replace(/\n/g, " ")}\n${r.steps.slice(0, 300)}`;
 }
 
-async function embed(ai: Ai, texts: string[]): Promise<number[][]> {
+export async function embed(ai: Ai, texts: string[]): Promise<number[][]> {
   const out = (await ai.run(EMBED_MODEL as never, { text: texts } as never)) as { data?: number[][] };
   if (!out?.data || out.data.length !== texts.length) throw new Error("埋め込みの取得に失敗しました");
   return out.data;
@@ -96,7 +96,7 @@ async function embed(ai: Ai, texts: string[]): Promise<number[][]> {
 
 // 1024 次元の float を JSON で持つと、型が増えたとき毎回の読み込みが重い。
 // コサイン類似度は長さに依らないので、ベクトルごとに最大値で割って int8 にし base64 で持つ (1行約1.4KB)。
-function packVec(v: number[]): string {
+export function packVec(v: number[]): string {
   let max = 0;
   for (const x of v) max = Math.max(max, Math.abs(x));
   const k = max ? 127 / max : 0;
@@ -106,13 +106,13 @@ function packVec(v: number[]): string {
   for (const b of bytes) s += String.fromCharCode(b);
   return btoa(s);
 }
-function unpackVec(s: string): Int8Array {
+export function unpackVec(s: string): Int8Array {
   const raw = atob(s);
   const out = new Int8Array(raw.length);
   for (let i = 0; i < raw.length; i++) out[i] = (raw.charCodeAt(i) << 24) >> 24;
   return out;
 }
-function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number {
+export function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number {
   let dot = 0, na = 0, nb = 0;
   for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
   return na && nb ? dot / Math.sqrt(na * nb) : 0;

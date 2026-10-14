@@ -13,6 +13,7 @@ import { ResourceItem } from "../../components/goal/ResourceItem";
 import { CommentsPanel } from "../../components/goal/CommentsPanel";
 import { AssignPanel } from "../../components/goal/AssignPanel";
 import { MetaSection } from "../../components/goal/MetaSection";
+import { KataPanel } from "../../components/goal/KataPanel";
 import { InProgressBadge, StartButton, TaskCheck, isInProgress } from "../../components/InProgress";
 import { Assignees } from "../../components/Assignees";
 import { useAutoRefresh } from "../../lib/useAutoRefresh";
@@ -460,6 +461,8 @@ export default function GoalDetail() {
         })()}
 
         <MetaSection goal={goal} showMeta={showMeta} setShowMeta={setShowMeta} patch={patch} />
+
+        <KataPanel goalId={goal.id} />
 
         {/* ===== タスク (recursive child items) ===== */}
         <div className="mt-6">
