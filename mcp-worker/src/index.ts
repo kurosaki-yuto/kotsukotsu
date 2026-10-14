@@ -35,8 +35,12 @@ import { runDueReminders, runSelfCheck, isDailySelfCheckTick } from "./cron";
 import { Env, MUTATING_TOOLS, PUSH_TOOLS } from "./env";
 import { McpAuth, PushPayload, RPC, SUBTREE_CTE, ToolDef, authForWorkspace, corsHeaders, jsonResponse, notifyPush, notifyRealtime, reachableWorkspaces, resolveAuth, rpcError, rpcResult, toolText } from "./lib";
 import { PROTOCOL_VERSION, SERVER_INFO, buildInstructions, instructionsAreStale, instructionsVersion, markInstructionsDelivered } from "./instructions";
+// 顧客台帳 (kotsukotsu-crm) のツールを同じ接続に並べて取り次ぐ。MCP の接続先を1本にするため。
+import { callCrmTool, crmInstructions, crmToolsList, isCrmTool } from "./crm";
 
 const tools: Record<string, ToolDef> = { ...goalsTools, ...todayTools, ...chatTools, ...miscTools, ...templatesTools, ...membersTools };
+
+const OWN_TOOLS = new Set(Object.keys(tools));
 
 const TOOLS_LIST = Object.entries(tools).map(([name, def]) => {
   // Inline schema (no $ref wrapper) — MCP clients expect a self-contained object.
@@ -74,6 +78,9 @@ async function handleRpc(message: any, env: Env, auth: McpAuth): Promise<unknown
   switch (method) {
     case "initialize": {
       const instructions = buildInstructions(auth);
+      // 顧客台帳の使い方は版の管理 (instructionsVersion) に入れない。顧客台帳側で直すたびに
+      // 全接続に「運用ルールが更新されました」が出るのを避けるため。
+      const withCrm = instructions + (await crmInstructions(env));
       // The client is receiving them right here, so this connection is current.
       await markInstructionsDelivered(env, auth, instructionsVersion(instructions)).catch((err) => {
         console.log(`instruction delivery bookkeeping failed: ${(err as { message?: string })?.message ?? err}`);
@@ -83,7 +90,7 @@ async function handleRpc(message: any, env: Env, auth: McpAuth): Promise<unknown
           typeof params?.protocolVersion === "string" ? params.protocolVersion : PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
-        instructions,
+        instructions: withCrm,
       });
     }
 
@@ -95,12 +102,24 @@ async function handleRpc(message: any, env: Env, auth: McpAuth): Promise<unknown
       return rpcResult(id, {});
 
     case "tools/list":
-      return rpcResult(id, { tools: TOOLS_LIST });
+      return rpcResult(id, { tools: [...TOOLS_LIST, ...(await crmToolsList(env, OWN_TOOLS))] });
 
     case "tools/call": {
       const name = params?.name as string;
       const def = tools[name];
-      if (!def) return rpcError(id, RPC.METHOD_NOT_FOUND, `unknown tool: ${name}`);
+      if (!def) {
+        if (!(await isCrmTool(env, name))) return rpcError(id, RPC.METHOD_NOT_FOUND, `unknown tool: ${name}`);
+        // 顧客台帳のツール。どのワークスペースの本人として動くかはこちらで決めて渡す。
+        try {
+          const callAuth = await authForWorkspace(env, auth, params?.arguments?.workspace);
+          return rpcResult(id, await callCrmTool(env, callAuth, name, params?.arguments ?? {}));
+        } catch (err: unknown) {
+          return rpcResult(id, {
+            content: [{ type: "text", text: `Error: ${String((err as { message?: string })?.message ?? err)}` }],
+            isError: true,
+          });
+        }
+      }
 
       // `workspace` is shared by every tool, so it's not in the per-tool schemas
       // (z.object strips it during parse).

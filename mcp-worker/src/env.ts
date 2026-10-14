@@ -20,6 +20,10 @@ export interface Env {
    * callbacks above must go through these instead of the public URLs. */
   APP?: Fetcher;
   RT?: Fetcher;
+  /** 顧客台帳 (kotsukotsu-crm)。無い環境 (公開版など) では顧客台帳のツールを並べない。src/crm.ts */
+  CRM?: Fetcher;
+  /** 顧客台帳への取り次ぎを照合する値。顧客台帳の SERIES_SECRET と同じ値。 */
+  SERIES_SECRET?: string;
 }
 
 // Tools that change data — after these run, nudge the realtime worker so every

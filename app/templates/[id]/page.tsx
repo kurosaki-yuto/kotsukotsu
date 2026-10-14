@@ -47,7 +47,7 @@ export default function TemplateDetailPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [allGoals, setAllGoals] = useState<Goal[]>([]);
 
-  // 編集中の値 (保存は blur か保存ボタン)
+  // 編集中の値。保存は上の「保存」ボタンを押したときだけ (書き換えただけでは保存しない)
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");
   const [criteria, setCriteria] = useState("");
@@ -57,6 +57,7 @@ export default function TemplateDetailPage() {
   const [dirtyTasks, setDirtyTasks] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // 振る
   const [memberId, setMemberId] = useState("");
@@ -94,25 +95,50 @@ export default function TemplateDetailPage() {
 
   const canManage = !!tpl?.can_manage;
 
-  const save = useCallback(async (patch: Record<string, unknown>) => {
-    if (!tpl || !canManage) return;
+  const dirty = !!tpl && (
+    name !== tpl.name ||
+    purpose !== (tpl.purpose ?? "") ||
+    criteria !== (tpl.completion_criteria ?? "") ||
+    JSON.stringify(inputs) !== JSON.stringify(tpl.inputs) ||
+    JSON.stringify(resources) !== JSON.stringify(tpl.resources) ||
+    dirtyTasks
+  );
+
+  // 保存していない書き換えがあるままページを離れようとしたら止める
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
+  const saveAll = async () => {
+    if (!tpl || !canManage || !dirty || !name.trim()) return;
     setSaving(true);
+    setSaveError(null);
     try {
-      const t = await updateTemplate(tpl.id, patch);
+      const t = await updateTemplate(tpl.id, {
+        name: name.trim(),
+        purpose,
+        completion_criteria: criteria,
+        inputs: inputs.filter((x) => x.label.trim()),
+        resources: resources.filter((x) => x.url.trim()),
+        tasks: outlineToTasks(outline),
+      });
       setTpl((p) => (p ? { ...p, ...t } : p));
+      setName(t.name);
+      setPurpose(t.purpose ?? "");
+      setCriteria(t.completion_criteria ?? "");
+      setInputs(t.inputs);
+      setResources(t.resources);
+      setOutline(tasksToOutline(t.tasks));
+      setDirtyTasks(false);
       setSavedAt(Date.now());
-    } catch {
-      /* バナーで知らせる */
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "保存できませんでした");
     } finally {
       setSaving(false);
     }
-  }, [tpl, canManage]);
-
-  const saveTasks = async () => {
-    const tasks = outlineToTasks(outline);
-    await save({ tasks });
-    setOutline(tasksToOutline(tasks));
-    setDirtyTasks(false);
   };
 
   // 親ゴールの候補: 深さでインデント (members ページと同じ)
@@ -154,10 +180,15 @@ export default function TemplateDetailPage() {
     }
   };
 
-  const handleArchive = async () => {
+  const handleDelete = async () => {
     if (!tpl) return;
-    if (!window.confirm(`型「${tpl.name}」をアーカイブしますか? (一覧から消えます。作ったゴールは残ります)`)) return;
-    await archiveTemplate(tpl.id);
+    if (!window.confirm(`型「${tpl.name}」を削除しますか? (型の一覧から消えます。この型から作ったゴールは残ります)`)) return;
+    try {
+      await archiveTemplate(tpl.id);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "削除できませんでした");
+      return;
+    }
     router.push("/templates");
   };
 
@@ -190,10 +221,22 @@ export default function TemplateDetailPage() {
             <span className="text-[var(--muted-soft)]">›</span>
             <span className="font-bold text-[var(--foreground)] truncate max-w-[16rem]">{tpl.name}</span>
           </nav>
-          <div className="flex items-center gap-2 text-[12px]" style={{ color: "var(--muted)" }}>
-            {saving ? "保存中…" : savedAt ? "保存しました" : null}
+          <div className="flex items-center gap-2 text-[12px] flex-wrap" style={{ color: "var(--muted)" }}>
+            {saveError ? (
+              <span style={{ color: "var(--danger)" }}>{saveError}</span>
+            ) : saving ? "保存中…" : dirty ? "保存していない変更があります" : savedAt ? "保存しました" : null}
             {tpl.source_goal_id && (
               <Link href={`/goals/${tpl.source_goal_id}`} className="chip">元のゴール</Link>
+            )}
+            {canManage && (
+              <>
+                <button type="button" onClick={() => void handleDelete()} className="chip" style={{ color: "var(--danger)" }}>
+                  削除
+                </button>
+                <button type="button" className="btn-dark" disabled={!dirty || saving || !name.trim()} onClick={() => void saveAll()}>
+                  {saving ? "保存中…" : "保存"}
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -207,7 +250,6 @@ export default function TemplateDetailPage() {
                 value={name}
                 readOnly={ro}
                 onChange={(e) => setName(e.target.value)}
-                onBlur={() => { if (name.trim() && name !== tpl.name) void save({ name }); }}
                 className="mt-1 w-full bg-transparent text-[20px] font-bold focus:outline-none break-words"
                 placeholder="例: 新規顧客のヒアリングから提案書を出すまで"
               />
@@ -216,7 +258,6 @@ export default function TemplateDetailPage() {
                 value={purpose}
                 readOnly={ro}
                 onChange={(e) => setPurpose(e.target.value)}
-                onBlur={() => { if (purpose !== (tpl.purpose ?? "")) void save({ purpose }); }}
                 className="mt-1 w-full bg-transparent text-[14px] leading-relaxed focus:outline-none"
                 placeholder={"例: 初見の業界でも同じ順番で課題を構造化し、初回面談から 2 週間以内に提案書を出せる。\n過去 3 件はこの手順で受注率 2/3。"}
               />
@@ -225,7 +266,6 @@ export default function TemplateDetailPage() {
                 value={criteria}
                 readOnly={ro}
                 onChange={(e) => setCriteria(e.target.value)}
-                onBlur={() => { if (criteria !== (tpl.completion_criteria ?? "")) void save({ completion_criteria: criteria }); }}
                 className="mt-1 w-full bg-transparent text-[13.5px] leading-relaxed focus:outline-none"
                 placeholder={"この状態になったら完了。\n\n□ {{顧客名}} の課題を構造化シートに書き、先方と合意\n□ 提案書 PDF を {{期日}} までに送付"}
               />
@@ -273,11 +313,6 @@ export default function TemplateDetailPage() {
                   ))}
                 </ul>
               )}
-              {!ro && (
-                <div className="mt-3">
-                  <button type="button" className="btn-dark" onClick={() => void save({ inputs: inputs.filter((x) => x.label.trim()) })}>入力を保存</button>
-                </div>
-              )}
             </section>
 
             {/* 資料リンク */}
@@ -304,23 +339,11 @@ export default function TemplateDetailPage() {
                   ))}
                 </ul>
               )}
-              {!ro && (
-                <div className="mt-3">
-                  <button type="button" className="btn-dark" onClick={() => void save({ resources: resources.filter((x) => x.url.trim()) })}>リンクを保存</button>
-                </div>
-              )}
             </section>
 
             {/* タスクの木 */}
             <section className="card px-5 py-4 mb-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <h2 className="text-[14px] font-bold">タスク ({countTasks(previewTasks)})</h2>
-                {!ro && (
-                  <button type="button" className="btn-dark" disabled={!dirtyTasks || saving} onClick={() => void saveTasks()}>
-                    タスクを保存
-                  </button>
-                )}
-              </div>
+              <h2 className="text-[14px] font-bold">タスク ({countTasks(previewTasks)})</h2>
               <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
                 1 行 1 タスク。行頭の空白 2 つで 1 段深くなります。「 :: 」の後ろは完了の基準。{"{{ラベル}}"} で入力値を差し込めます。
               </p>
@@ -343,8 +366,8 @@ export default function TemplateDetailPage() {
 
             {canManage && (
               <div className="flex justify-end">
-                <button type="button" onClick={() => void handleArchive()} className="text-[12.5px] underline underline-offset-2" style={{ color: "var(--danger)" }}>
-                  この型をアーカイブ
+                <button type="button" className="btn-dark" disabled={!dirty || saving || !name.trim()} onClick={() => void saveAll()}>
+                  {saving ? "保存中…" : "保存"}
                 </button>
               </div>
             )}
