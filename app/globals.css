@@ -166,6 +166,7 @@ input, textarea, select {
   background: #18181b; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
 }
 .btn-dark:hover { background: #000; }
+.btn-dark:disabled { opacity: 0.35; cursor: not-allowed; background: #18181b; }
 .tab-seg { display: inline-flex; background: #ececee; border-radius: 999px; padding: 3px; }
 .tab-seg button { padding: 6px 16px; border-radius: 999px; font-size: 13px; color: var(--muted); cursor: pointer; font-weight: 600; }
 .tab-seg button.active { background: #fff; color: var(--foreground); box-shadow: var(--shadow-card); }
