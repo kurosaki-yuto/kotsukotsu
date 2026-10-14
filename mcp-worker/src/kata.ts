@@ -16,6 +16,7 @@ export type Kata = {
   name: string;
   /** from_template = このタスクか祖先が型から作られた / similar = 名前が近い型を選んだ */
   how: "from_template" | "similar";
+  /** 意味の近さ (0〜1)。Workers AI で選んだときだけ付く */
   similarity?: number;
   purpose: string | null;
   resources: Template["resources"];
@@ -51,7 +52,7 @@ function templateText(t: Pick<Template, "name" | "purpose">): string {
 /** text に一番近い型を 1 本。前例と同じしきい値 (意味の近さ 0.56 / 言葉の重なり 2.7)。 */
 export async function similarTemplate(
   db: D1Database, wsId: string, text: string, ai?: Ai
-): Promise<{ row: TemplateRow; score: number } | null> {
+): Promise<{ row: TemplateRow; score: number; semantic: boolean } | null> {
   if (text.trim().length < 4) return null;
   const res = await db
     .prepare("SELECT * FROM templates WHERE workspace_id = ? AND archived_at IS NULL ORDER BY updated_at DESC, id LIMIT ?")
@@ -80,7 +81,7 @@ export async function similarTemplate(
     scored = rows.map((row, i) => ({ row, score: overlapScore(q, docs[i], idf) })).filter((x) => x.score >= MIN_SCORE);
   }
   scored.sort((a, b) => b.score - a.score);
-  return scored[0] ?? null;
+  return scored[0] ? { ...scored[0], semantic: !!ai } : null;
 }
 
 /** 型に結んだ前例 (新しい順)。 */
@@ -113,7 +114,8 @@ export async function kataForGoal(
     if (!hit) return null;
     row = hit.row;
     how = "similar";
-    similarity = Math.round(hit.score * 100) / 100;
+    // 意味の近さ (0〜1) のときだけ出す。言葉の重なりの点数は尺度が違うので出さない
+    if (hit.semantic) similarity = Math.round(hit.score * 100) / 100;
   }
   const t = parseTemplateRow(row);
   return {
