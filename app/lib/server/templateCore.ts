@@ -226,7 +226,11 @@ export async function saveTemplate(
   const before = templateContent(t);
   const after = mergeTemplatePatch(before, patch);
   const prefix = templateFilePrefix(wsId, t.id);
-  after.resources = after.resources.filter((r) => !isFileUrl(r.url) || r.url.startsWith(prefix));
+  // 送り直しで大きさが抜けたファイルは、前の大きさを引き継ぐ
+  const sizeOf = new Map(before.resources.filter((r) => r.size).map((r) => [r.url, r.size!]));
+  after.resources = after.resources
+    .filter((r) => !isFileUrl(r.url) || r.url.startsWith(prefix))
+    .map((r) => (isFileUrl(r.url) && !r.size && sizeOf.has(r.url) ? { ...r, size: sizeOf.get(r.url) } : r));
   if (JSON.stringify(before) === JSON.stringify(after)) return { changed: false, revisionId: null };
   const revisionId = crypto.randomUUID();
   await db.batch([
