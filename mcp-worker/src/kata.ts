@@ -6,7 +6,7 @@
  * 選び方: そのタスクか祖先が型から作られていればその型。無ければ、名前と完了の基準が近い型を 1 本。
  * 型の本文は持たない。返すのは 資料 (種類・URL・何のために見るか)・注意点・結んだ前例 だけ。
  */
-import { parseTemplateRow, type Template, type TemplateRow } from "../../app/lib/server/templateCore";
+import { parseTemplateRow, kataExportPath, kataExportStale, kataExportUrl, type KataExportTarget, type Template, type TemplateRow } from "../../app/lib/server/templateCore";
 import { EMBED_MODEL, MIN_SCORE, MIN_SIMILARITY, cosine, embed, grams, overlapScore, packVec, unpackVec } from "./playbooks";
 
 export type KataPrecedent = { playbook_id: string; title: string; by: string; steps: string; pitfalls?: string; updated_at: string };
@@ -23,6 +23,8 @@ export type Kata = {
   cautions: string[];
   precedents: KataPrecedent[];
   export_url: string | null;
+  /** 外の置き場所 (GitHub) の Markdown が型より古いとき、書き直す先 */
+  export_stale?: { url: string; path: string; repo: string };
 };
 
 // 型の数は前例より少ない前提。新しい順に一定数だけ見る (見ている範囲は ORDER BY で決定的)。
@@ -100,7 +102,8 @@ export async function playbooksForTemplate(db: D1Database, wsId: string, templat
 }
 
 export async function kataForGoal(
-  db: D1Database, wsId: string, goal: { id: string; name?: string | null; completion_criteria?: string | null }, ai?: Ai
+  db: D1Database, wsId: string, goal: { id: string; name?: string | null; completion_criteria?: string | null }, ai?: Ai,
+  exportTarget?: KataExportTarget | null
 ): Promise<Kata | null> {
   let row: TemplateRow | null = null;
   let how: Kata["how"] = "from_template";
@@ -128,6 +131,9 @@ export async function kataForGoal(
     cautions: t.cautions.map((c) => c.text),
     precedents: await playbooksForTemplate(db, wsId, t.id),
     export_url: t.export_url ?? null,
+    ...(exportTarget && kataExportStale(t)
+      ? (() => { const path = kataExportPath(exportTarget, t); return { export_stale: { url: kataExportUrl(exportTarget, path), path, repo: exportTarget.repo } }; })()
+      : {}),
   };
 }
 
@@ -136,15 +142,18 @@ export function kataNote(k: Kata, at: "get" | "start" | "complete"): string {
   const head = k.how === "from_template"
     ? `この仕事は型「${k.name}」から作られている。この型で進める。`
     : `この仕事に近い型「${k.name}」がある。合っていればこの型で進め、合わなければ無視してよい (無視した理由を現状に一言書く)。`;
+  const ex = k.export_stale
+    ? `型の外の置き場所 (${k.export_stale.url}) が型より古い。手が空いたら get_template_markdown (template: ${k.template_id}) で中身を取り、本人の GitHub ログインで ${k.export_stale.repo} の ${k.export_stale.path} に書いて、record_template_export で記録する (書けない環境なら飛ばす)。`
+    : "";
   if (at === "complete") {
     return (
       `${head}完了にする前に、型の注意点 (kata.cautions) に1つずつ○×を付ける。× があれば直してから完了にし、` +
-      "直した中身は send_chat でこのタスクに残す。差し戻しや × から分かった新しい注意点は propose_template_change で型に足す (型が育つ)。"
+      "直した中身は send_chat でこのタスクに残す。差し戻しや × から分かった新しい注意点は propose_template_change で型に足す (型が育つ)。" + ex
     );
   }
   return (
     `${head}手を動かす前に kata.resources を開いて読む (why が何のために見るか)。kata.cautions は必ず守る。` +
     "kata.precedents は以前この型でやったときの手順。" +
-    "途中で人から差し戻し・訂正が入ったら、その内容を propose_template_change で型の注意点に足す。"
+    "途中で人から差し戻し・訂正が入ったら、その内容を propose_template_change で型の注意点に足す。" + ex
   );
 }

@@ -495,15 +495,43 @@ export async function applyTemplate(db: D1Database, wsId: string, tpl: Template,
 
 // ---------- 外 (GitHub) への書き出し ----------
 // 型 1 本 = Markdown 1 枚。型を直すたびに書き出し、こつこつが止まってもここから資料と注意点に辿れるようにする
-// (黒崎判断 2026-10-15: 置き場所は GitHub)。KATA_GITHUB_REPO / KATA_GITHUB_TOKEN が無い環境 (公開版・Docker 版の既定) では何もしない。
-export type KataExportConfig = { repo: string; token: string; branch: string; dir: string };
+// (黒崎判断 2026-10-15: 置き場所は GitHub)。
+// 書くのは基本 AI の側 (本人の GitHub ログインで書く)。サーバーにはトークンを置かない (黒崎 10/15「トークンではなくリンクで」)。
+// KATA_GITHUB_REPO だけ設定すると、置き場所のリンクが決まり、AI に「ここへ書け」が渡る。
+// KATA_GITHUB_TOKEN も入れた環境だけ、サーバーが自分で書く。どちらも無い環境 (公開版・Docker 版の既定) では何もしない。
+export type KataExportTarget = { repo: string; branch: string; dir: string };
+export type KataExportConfig = KataExportTarget & { token: string };
+
+export function kataExportTarget(env: Record<string, unknown>): KataExportTarget | null {
+  const repo = typeof env.KATA_GITHUB_REPO === "string" ? env.KATA_GITHUB_REPO.trim() : "";
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return null;
+  const branch = typeof env.KATA_GITHUB_BRANCH === "string" && env.KATA_GITHUB_BRANCH.trim() ? env.KATA_GITHUB_BRANCH.trim() : "main";
+  return { repo, branch, dir: "型" };
+}
 
 export function kataExportConfig(env: Record<string, unknown>): KataExportConfig | null {
-  const repo = typeof env.KATA_GITHUB_REPO === "string" ? env.KATA_GITHUB_REPO.trim() : "";
+  const target = kataExportTarget(env);
   const token = typeof env.KATA_GITHUB_TOKEN === "string" ? env.KATA_GITHUB_TOKEN.trim() : "";
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !token) return null;
-  const branch = typeof env.KATA_GITHUB_BRANCH === "string" && env.KATA_GITHUB_BRANCH.trim() ? env.KATA_GITHUB_BRANCH.trim() : "main";
-  return { repo, token, branch, dir: "型" };
+  return target && token ? { ...target, token } : null;
+}
+
+/** 置き場所のリンク (GitHub で開ける URL)。 */
+export function kataExportUrl(target: KataExportTarget, path: string): string {
+  return `https://github.com/${target.repo}/blob/${target.branch}/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+/** 外の Markdown がこつこつの型より古いか (一度も書いていない・書いた後に型を直した)。 */
+export function kataExportStale(t: Pick<Template, "updated_at" | "exported_at">): boolean {
+  return !t.exported_at || t.exported_at < t.updated_at;
+}
+
+/** 型と結んだ前例・履歴から、書き出す Markdown を作る (AI に渡す用とサーバーで書く用で共通)。 */
+export async function buildKataMarkdown(db: D1Database, wsId: string, t: Template, now: string): Promise<string> {
+  const { results } = await db.prepare(
+    "SELECT title, author_name AS by, steps, pitfalls FROM playbooks WHERE workspace_id = ? AND template_id = ? ORDER BY updated_at DESC, id LIMIT 10"
+  ).bind(wsId, t.id).all<ExportPrecedent>();
+  const revisions = await listTemplateRevisions(db, wsId, t.id, 20);
+  return templateMarkdown(t, { precedents: results ?? [], revisions, now });
 }
 
 type ExportPrecedent = { title: string; by?: string | null; steps: string; pitfalls?: string | null };
@@ -562,7 +590,7 @@ function utf8ToBase64(s: string): string {
 }
 
 // 書き出す先のパス。1 回書き出した型は同じパスに書く (名前を変えてもファイルが増えないように)
-export function kataExportPath(cfg: KataExportConfig, t: Pick<Template, "id" | "name" | "export_url">): string {
+export function kataExportPath(cfg: KataExportTarget, t: Pick<Template, "id" | "name" | "export_url">): string {
   const prefix = `https://github.com/${cfg.repo}/blob/${cfg.branch}/`;
   if (t.export_url?.startsWith(prefix)) return decodeURIComponent(t.export_url.slice(prefix.length));
   const safe = t.name.replace(/[\\/:*?"<>|#%{}\s]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60) || "型";
@@ -588,7 +616,7 @@ export async function pushKataMarkdown(cfg: KataExportConfig, path: string, cont
     body: JSON.stringify({ message, content: utf8ToBase64(content), branch: cfg.branch, ...(sha ? { sha } : {}) }),
   });
   if (!put.ok) throw new Error(`GitHub に書き出せませんでした (${put.status}): ${(await put.text()).slice(0, 200)}`);
-  return `https://github.com/${cfg.repo}/blob/${cfg.branch}/${path.split("/").map(encodeURIComponent).join("/")}`;
+  return kataExportUrl(cfg, path);
 }
 
 /**
@@ -603,11 +631,7 @@ export async function exportTemplate(
     const row = await db.prepare("SELECT * FROM templates WHERE id = ? AND workspace_id = ?").bind(templateId, wsId).first<TemplateRow>();
     if (!row) return { error: "型が見つかりません" };
     const t = parseTemplateRow(row);
-    const { results } = await db.prepare(
-      "SELECT title, author_name AS by, steps, pitfalls FROM playbooks WHERE workspace_id = ? AND template_id = ? ORDER BY updated_at DESC, id LIMIT 10"
-    ).bind(wsId, templateId).all<ExportPrecedent>();
-    const revisions = await listTemplateRevisions(db, wsId, templateId, 20);
-    const md = templateMarkdown(t, { precedents: results ?? [], revisions, now });
+    const md = await buildKataMarkdown(db, wsId, t, now);
     const url = await pushKataMarkdown(cfg, kataExportPath(cfg, t), md, `型「${t.name}」を書き出す`);
     await db.prepare("UPDATE templates SET export_url = ?, exported_at = ? WHERE id = ? AND workspace_id = ?").bind(url, now, templateId, wsId).run();
     return { url };

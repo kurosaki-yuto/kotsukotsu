@@ -2,7 +2,7 @@
 import { z } from "zod";
 import { findPrecedents, PRECEDENTS_NOTE, privacyProblem, upsertPlaybook, shouldRecordPlaybook, recordPlaybookAction } from "../playbooks";
 import { kataForGoal, kataNote, templateIdForGoal } from "../kata";
-import { exportTemplate, kataExportConfig } from "../../../app/lib/server/templateCore";
+import { exportTemplate, kataExportConfig, kataExportTarget } from "../../../app/lib/server/templateCore";
 import { COMPLETION_CRITERIA_DOC, CURRENT_STATE_DOC } from "../instructions";
 import { GOAL_LIST_COLUMNS, SUBTREE_CTE, ToolDef, assertCanEdit, assertGoalInScope, assignCreatorAsHolder, clearStartedOnParent, formatFieldText, goalInScope, inheritAssigneeFromAncestors, nowIso, parentStateNote, recordRecipients, resolveCreator, taskProgress, uid } from "../lib";
 
@@ -49,7 +49,7 @@ export const goalsTools: Record<string, ToolDef> = {
         excludeSourceIds: [args.id],
         canSee: (id) => goalInScope(env, auth, id),
       });
-      const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...g }, env.AI);
+      const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...g }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>));
       return {
         ...(row as object),
         task_progress: p.text,
@@ -368,7 +368,7 @@ export const goalsTools: Record<string, ToolDef> = {
         : hasKids ? "子を持つタスクなので進行中にしていない。進行中は一番下の小タスクにだけ付ける。今から手を付ける小タスク (list_subtasks で見る) に start_task する。"
         : "進行中。終わったら complete_subtask で完了にする。";
       // 始めるときに型を読ませる (取り消し・完了済みでは出さない)
-      const kata = args.started !== false && row.status === "active" ? await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI) : null;
+      const kata = args.started !== false && row.status === "active" ? await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>)) : null;
       return { ...(row as object), note, ...(kata ? { kata, kata_note: kataNote(kata, "start") } : {}) };
     },
   },
@@ -449,7 +449,7 @@ export const goalsTools: Record<string, ToolDef> = {
       }
       // 終えるときは型の注意点で照合させる (サーバー側で渡すので、どのメンバーの AI にも効く)
       if (args.completed && row) {
-        const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI);
+        const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>));
         if (kata && (kata.how === "from_template" || kata.cautions.length)) { note.kata = kata; note.kata_note = kataNote(kata, "complete"); }
       }
       return { ...(row as object), ...note };

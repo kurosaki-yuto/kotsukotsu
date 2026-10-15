@@ -613,6 +613,9 @@ export default function TemplateDetailPage() {
                 </p>
                 <a href={tpl.export_url} target="_blank" rel="noopener noreferrer" className="mt-2 block text-[12.5px] underline underline-offset-2 break-all" style={{ color: "var(--accent)" }}>{tpl.export_url}</a>
                 {tpl.exported_at && <div className="mt-1 text-[11px]" style={{ color: "var(--muted)" }}>最後に書き出した日時: {tpl.exported_at.slice(0, 16).replace("T", " ")}</div>}
+                {tpl.exported_at && tpl.exported_at < tpl.updated_at && (
+                  <div className="mt-1 text-[11px]" style={{ color: "var(--muted)" }}>型を直したあと、まだ書き出していません。次に AI がこの型に触れたときに書き直します。</div>
+                )}
               </section>
             )}
 

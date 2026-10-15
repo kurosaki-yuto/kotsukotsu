@@ -137,6 +137,7 @@ get_goal と add_subtask の返り値に precedents が付くことがありま�
 - 人からの差し戻し・訂正コメント、照合の×、型と違うやり方の方が良かったこと、が起きたら propose_template_change でその型に注意点 (や資料・タスク) を足します。承認は待たずにそのまま反映され、型を使った人に通知されます。間違えたら revert_template_change で戻せます
 - 注意点は「何をしない / 何を守る」の 1 行に一般化します。顧客名・金額は書きません
 - 型から作ったタスクで record_playbook した前例は、その型に自動で結ばれます。ほかの前例を結ぶときは link_playbook_to_template
+- 型は外 (GitHub) にも Markdown で置きます。こつこつが止まっても型が残るようにするためです。型を直したツールの返り値に export_action が付いたとき、または kata.export_stale が付いたときは、get_template_markdown で中身を取り、本人の GitHub ログインでその置き場所に書いて record_template_export を呼びます。GitHub に書けない環境なら飛ばして、その旨を現状に一言書きます
 
 ## 上位目標との整合を先に見る
 

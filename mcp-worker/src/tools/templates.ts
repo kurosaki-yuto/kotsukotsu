@@ -1,6 +1,6 @@
 // MCP ツール (templates)。index.ts の tools から切り出し。
 import { z } from "zod";
-import { applyTemplate, snapshotGoalTree, parseTemplateRow, normalizeInputs, normalizeTasks, normalizeResources, normalizeCautions, normalizeValues, missingRequiredInputs, substitute, outlineToTasks, tasksToOutline, countTasks, saveTemplate, listTemplateRevisions, revertTemplateRevision, exportTemplate, kataExportConfig, RESOURCE_KINDS, LIMITS as TEMPLATE_LIMITS, type Template, type TemplateCaution, type TemplatePatch, type TemplateRow } from "../../../app/lib/server/templateCore";
+import { applyTemplate, snapshotGoalTree, parseTemplateRow, normalizeInputs, normalizeTasks, normalizeResources, normalizeCautions, normalizeValues, missingRequiredInputs, substitute, outlineToTasks, tasksToOutline, countTasks, saveTemplate, listTemplateRevisions, revertTemplateRevision, exportTemplate, kataExportConfig, kataExportTarget, kataExportPath, kataExportUrl, buildKataMarkdown, RESOURCE_KINDS, LIMITS as TEMPLATE_LIMITS, type Template, type TemplateCaution, type TemplatePatch, type TemplateRow } from "../../../app/lib/server/templateCore";
 import { ToolDef, assertAdmin, assertCanEdit, assertGoalInScope, assertTemplateManager, findTemplate, nowIso, recordRecipients, resolveWho, uid, type McpAuth } from "../lib";
 import type { Env } from "../env";
 import { playbooksForTemplate, templateIdForGoal } from "../kata";
@@ -24,10 +24,28 @@ async function templateView(env: Env, wsId: string, t: Template) {
   return { ...t, tasks_outline: tasksToOutline(t.tasks), task_count: countTasks(t.tasks), precedents, revisions };
 }
 
-// 型を外 (GitHub) に書き出す。設定が無ければ skipped。失敗は返り値に載せて AI に見せる (保存は済んでいる)
+// 型を外 (GitHub) に書き出す。
+// サーバーにトークンがあればサーバーが書く。無ければ (既定) 置き場所のリンクと手順を返し、AI が本人の GitHub ログインで書く。
 async function exportKata(env: Env, wsId: string, templateId: string) {
-  const r = await exportTemplate(env.DB, wsId, templateId, kataExportConfig(env as unknown as Record<string, unknown>), nowIso());
-  return r.skipped ? {} : r.error ? { export_error: r.error } : { exported_to: r.url };
+  const e = env as unknown as Record<string, unknown>;
+  const cfg = kataExportConfig(e);
+  if (cfg) {
+    const r = await exportTemplate(env.DB, wsId, templateId, cfg, nowIso());
+    return r.error ? { export_error: r.error } : { exported_to: r.url };
+  }
+  const target = kataExportTarget(e);
+  if (!target) return {};
+  const t = await findTemplate(env, wsId, templateId);
+  const path = kataExportPath(target, t);
+  return { export_to: kataExportUrl(target, path), export_action: kataExportAction(target.repo, path, t.id) };
+}
+
+export function kataExportAction(repo: string, path: string, templateId: string): string {
+  return (
+    `型を直したので、外の置き場所 (GitHub ${repo} の ${path}) も書き直す。get_template_markdown (template: ${templateId}) で中身を取り、` +
+    `本人の GitHub ログインで ${repo} の ${path} に書いて main に push する (gh があれば gh api -X PUT repos/${repo}/contents/<path> に base64 の content と今の sha を渡す)。` +
+    "書けたら record_template_export を呼んで記録する。GitHub に書けない環境なら書かずに、その旨を現状に一言書く。"
+  );
 }
 
 function actorKind(auth: McpAuth): "human" | "ai" {
@@ -158,6 +176,39 @@ export const templatesTools: Record<string, ToolDef> = {
       const ex = r.changed ? await exportKata(env, wsId, t.id) : {};
       const u = await findTemplate(env, wsId, t.id);
       return { ...(await templateView(env, wsId, u)), changed: r.changed, revision_id: r.revisionId, ...ex };
+    },
+  },
+
+  get_template_markdown: {
+    description:
+      "型を外 (GitHub) に置く Markdown を作って返す。repo・path・url (置き場所のリンク) と markdown を返すので、本人の GitHub ログインで repo の path に書く。" +
+      "書けたら record_template_export。こつこつが止まっても、この Markdown から資料と注意点に辿れるようにするためのもの。",
+    schema: z.object({ template: z.string().min(1).describe("型の id か名前") }),
+    handler: async (args, env, wsId) => {
+      const t = await findTemplate(env, wsId, args.template);
+      const target = kataExportTarget(env as unknown as Record<string, unknown>);
+      if (!target) throw new Error("書き出し先 (KATA_GITHUB_REPO) が設定されていません。管理者に設定してもらってください");
+      const path = kataExportPath(target, t);
+      return { repo: target.repo, branch: target.branch, path, url: kataExportUrl(target, path), markdown: await buildKataMarkdown(env.DB, wsId, t, nowIso()), message: `型「${t.name}」を書き出す` };
+    },
+  },
+
+  record_template_export: {
+    description: "get_template_markdown の中身を GitHub に書いたあとに呼び、型の置き場所リンクと書いた日時を残す (型の画面に出る)。",
+    schema: z.object({
+      template: z.string().min(1).describe("型の id か名前"),
+      url: z.string().url().optional().describe("書いたファイルの URL。省略時は get_template_markdown の url"),
+    }),
+    handler: async (args, env, wsId) => {
+      const t = await findTemplate(env, wsId, args.template);
+      const target = kataExportTarget(env as unknown as Record<string, unknown>);
+      if (!target) throw new Error("書き出し先 (KATA_GITHUB_REPO) が設定されていません");
+      const expected = kataExportUrl(target, kataExportPath(target, t));
+      const url = args.url ?? expected;
+      if (!url.startsWith(`https://github.com/${target.repo}/`)) throw new Error(`書き出し先は ${target.repo} の中だけです: ${url}`);
+      const now = nowIso();
+      await env.DB.prepare("UPDATE templates SET export_url = ?, exported_at = ? WHERE id = ? AND workspace_id = ?").bind(url, now, t.id, wsId).run();
+      return { ok: true, template_id: t.id, export_url: url, exported_at: now };
     },
   },
 
