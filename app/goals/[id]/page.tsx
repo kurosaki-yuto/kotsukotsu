@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getGoal, updateGoal, archiveGoal, createResource, getMe, listMembers, createChild, toggleItemDone, setItemStarted, getGoalBundle, cachedGoalBundle, prefetchGoalBundle, createTemplateFromGoal, type GoalBundle } from "../../lib/addness";
+import { getGoal, updateGoal, archiveGoal, createResource, getMe, listMembers, createChild, toggleItemDone, setItemStarted, getGoalBundle, cachedGoalBundle, prefetchGoalBundle, createTemplateFromGoal, uploadFile, UPLOAD_LIMIT_BYTES, type GoalBundle } from "../../lib/addness";
 import type { Goal, Resource, Member, ChatMessage } from "../../lib/db";
 import type { Me, GoalMember } from "../../lib/addness";
 import AgentLaunch from "../../components/AgentLaunch";
@@ -30,6 +30,7 @@ export default function GoalDetail() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [showMeta, setShowMeta] = useState(false);
   const [showResources, setShowResources] = useState(false);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [menu, setMenu] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
   const [assignees, setAssignees] = useState<GoalMember[]>([]);
@@ -79,7 +80,7 @@ export default function GoalDetail() {
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
-    if (f.size > 25 * 1024 * 1024) { window.alert("ファイルは25MBまで。"); return; }
+    if (f.size > UPLOAD_LIMIT_BYTES) { window.alert("ファイルは2GBまで。"); return; }
     // file + memo は必ずペア — 空のまま/キャンセルではアップロードしない。
     let caption = "";
     while (true) {
@@ -90,21 +91,11 @@ export default function GoalDetail() {
       window.alert("説明を入力してください。");
     }
     try {
-      const r = await fetch("/api/files", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": f.type || "application/octet-stream",
-          "x-goal-id": id,
-          "x-filename": encodeURIComponent(f.name),
-          ...(caption ? { "x-caption": encodeURIComponent(caption) } : {}),
-        },
-        body: f,
-      });
-      if (!r.ok) throw new Error(await r.text().catch(() => "upload failed"));
-      window.dispatchEvent(new Event("kotsukotsu:mutated"));
+      setUploadPct(0);
+      await uploadFile(f, { goalId: id }, { caption, onProgress: (d, t) => setUploadPct(Math.floor((d / t) * 100)) });
       loadResources();
-    } catch (err) { console.error(err); window.alert("アップロードに失敗しました"); }
+    } catch (err) { console.error(err); window.alert(`アップロードに失敗しました${err instanceof Error ? `: ${err.message}` : ""}`); }
+    finally { setUploadPct(null); }
   };
   const onAddLink = async () => {
     const rawUrl = window.prompt("URLを入力してください");
@@ -513,13 +504,16 @@ export default function GoalDetail() {
           {showResources && (
           <div className="card overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
-              <div className="text-[13px] text-[var(--muted)]">{resources.length} 件の成果物</div>
+              <div className="text-[13px] text-[var(--muted)]">
+                {resources.length} 件の成果物
+                {uploadPct !== null && <span className="ml-2" style={{ color: "var(--accent)" }}>アップロード中 {uploadPct}%</span>}
+              </div>
               <div className="flex items-center gap-2">
                 {resources.length > 0 && (
                   <button onClick={toggleBulkOpen} className="chip">{bulkOpen.open ? "すべて閉じる" : "すべてプレビュー"}</button>
                 )}
                 <input ref={fileRef} type="file" className="hidden" onChange={onFile} />
-                <button onClick={() => fileRef.current?.click()} className="chip"><I d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3 3 0 0 1 4.24 4.24l-9.2 9.19a1 1 0 0 1-1.41-1.41l8.49-8.49" />ファイル+メモ</button>
+                <button onClick={() => fileRef.current?.click()} className="chip" disabled={uploadPct !== null}><I d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3 3 0 0 1 4.24 4.24l-9.2 9.19a1 1 0 0 1-1.41-1.41l8.49-8.49" />ファイル+メモ</button>
                 <button onClick={onAddLink} className="chip"><I d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />リンク+メモ</button>
               </div>
             </div>

@@ -152,7 +152,7 @@ export function kataNote(k: Kata, at: "get" | "start" | "complete"): string {
     );
   }
   return (
-    `${head}手を動かす前に kata.resources を開いて読む (why が何のために見るか)。kata.cautions は必ず守る。` +
+    `${head}手を動かす前に kata.resources を開いて読む (why が何のために見るか。url が r2: で始まるものはこつこつに上げたファイルで、get_file で読む)。kata.cautions は必ず守る。` +
     "kata.precedents は以前この型でやったときの手順。" +
     "途中で人から差し戻し・訂正が入ったら、その内容を propose_template_change で型の注意点に足す。" + ex
   );

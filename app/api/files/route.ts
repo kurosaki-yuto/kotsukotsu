@@ -1,8 +1,9 @@
 import { json, bad, uid } from "../../lib/server/db";
-import { requireWorkspace, goalInScope, requireGoalEdit } from "../../lib/server/workspace";
+import { requireWorkspace, requireGoalEdit } from "../../lib/server/workspace";
 import { createResource } from "../../lib/server/queries";
 import { bucket, safeName } from "../../lib/server/files";
-import { safeContentType, fileResponseHeaders } from "../../lib/server/filesCore";
+import { safeContentType, fileResponseHeaders, parseRange } from "../../lib/server/filesCore";
+import { targetOfKey, canReadTarget } from "../../lib/server/fileAccess";
 import { limitOr429, HOUR } from "../../lib/server/ratelimit";
 
 const MAX_BYTES = 25 * 1024 * 1024; // 25MB per file
@@ -41,23 +42,43 @@ export async function POST(req: Request) {
 }
 
 // Stream a stored file back (authorized: the key must live in the caller's
-// workspace and within their goal scope).
+// workspace and within their goal scope, or be a 型 file of this workspace).
+// Range に対応する (動画を途中から再生・シークできるように)。
 export async function GET(req: Request) {
   const ctx = await requireWorkspace(req);
   if (!ctx) return json({ error: "unauthorized" }, { status: 401 });
   const key = new URL(req.url).searchParams.get("key") || "";
   if (!key) return bad("key required", 400);
-  // key = <wsId>/<goalId>/<file>
-  const parts = key.split("/");
-  if (parts[0] !== ctx.workspaceId) return json({ error: "not found" }, { status: 404 });
-  const goalId = parts[1];
-  if (goalId && !(await goalInScope(ctx.workspaceId, goalId, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  const target = targetOfKey(ctx.workspaceId, key);
+  if (!target || !(await canReadTarget(ctx, target))) return json({ error: "not found" }, { status: 404 });
 
   const b = bucket();
   if (!b) return bad("storage unavailable", 500);
+  const parts = key.split("/");
+  const filename = parts[parts.length - 1].replace(/^[0-9a-f-]{36}-/, "") || "file";
+  const rangeHeader = req.headers.get("range");
+  if (rangeHeader) {
+    const head = await b.head(key);
+    if (!head) return json({ error: "not found" }, { status: 404 });
+    const range = parseRange(rangeHeader, head.size);
+    if (range === "unsatisfiable") return new Response(null, { status: 416, headers: { "content-range": `bytes */${head.size}` } });
+    if (range) {
+      const obj = await b.get(key, { range });
+      if (!obj) return json({ error: "not found" }, { status: 404 });
+      return new Response((obj as R2ObjectBody).body, {
+        status: 206,
+        headers: fileResponseHeaders(head.httpMetadata?.contentType || "", filename, {
+          "content-range": `bytes ${range.offset}-${range.offset + range.length - 1}/${head.size}`,
+          "content-length": String(range.length),
+          "accept-ranges": "bytes",
+        }),
+      });
+    }
+  }
   const obj = await b.get(key);
   if (!obj) return json({ error: "not found" }, { status: 404 });
-  const filename = parts.slice(2).join("/").replace(/^[0-9a-f-]{36}-/, "") || "file";
   // 保存時の種類を信用せず、配信時にもう一度許可リストを通す (古いファイルにも効く)
-  return new Response(obj.body, { headers: fileResponseHeaders(obj.httpMetadata?.contentType || "", filename) });
+  return new Response(obj.body, {
+    headers: fileResponseHeaders(obj.httpMetadata?.contentType || "", filename, { "accept-ranges": "bytes", "content-length": String(obj.size) }),
+  });
 }

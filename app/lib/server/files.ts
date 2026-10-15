@@ -7,7 +7,8 @@ export function bucket(): R2Bucket | null {
   return env.FILES ?? null;
 }
 
-// Sanitize a filename for use inside an object key.
+// Sanitize a filename for use inside an object key. 日本語の名前は残す (ダウンロード時の名前はキーから取るため)。
+// / や .. などキーの区切りになる文字・制御文字は _ にする。
 export function safeName(name: string): string {
-  return (name || "file").replace(/[^\w.\-]+/g, "_").slice(0, 80);
+  return (name || "file").normalize("NFC").replace(/[^\p{L}\p{N}._\-]+/gu, "_").replace(/^\.+/, "_").slice(0, 80);
 }

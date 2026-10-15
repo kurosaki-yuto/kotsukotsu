@@ -192,7 +192,7 @@ export async function inheritAssigneeFromAncestors(env: Env, wsId: string, goalI
 // ---- file uploads (mirrors app/lib/server/files.ts + app/api/files/route.ts) ----
 export const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25MB, same cap as the app's /api/files
 export function safeFileName(name: string): string {
-  return (name || "file").replace(/[^\w.\-]+/g, "_").slice(0, 80);
+  return (name || "file").normalize("NFC").replace(/[^\p{L}\p{N}._\-]+/gu, "_").replace(/^\.+/, "_").slice(0, 80);
 }
 export function decodeBase64(b64: string): Uint8Array {
   const bin = atob(b64);

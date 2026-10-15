@@ -10,7 +10,12 @@ export const RESOURCE_KINDS = ["やり方", "実物", "置き場所", "情報源
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 // why = 何のために見るか (1 行)。URL だけ貼ってある状態を無くすため、画面と MCP では必須にする。
 // 10/14 以前の {name, url} だけの資料は kind=情報源・why 空 として読む。
-export type TemplateResource = { kind: ResourceKind; name: string; url: string; why?: string };
+// url は外のリンク (https://…) か、こつこつに上げたファイル (r2:<ワークスペース>/templates/<型id>/<名前>)。size はファイルのときだけ。
+export type TemplateResource = { kind: ResourceKind; name: string; url: string; why?: string; size?: number };
+
+export const isFileUrl = (url: string) => url.startsWith("r2:");
+/** 型のファイルを置くキーの接頭辞。ここ以外の r2: は型に入れない (他のゴールのファイルを型経由で配らせない)。 */
+export const templateFilePrefix = (wsId: string, templateId: string) => `r2:${wsId}/templates/${templateId}/`;
 // 注意点。差し戻し・照合の×から足されたものは、出どころのゴール・コメントを持つ。
 export type TemplateCaution = { text: string; source_goal_id?: string; source_comment_id?: string; added_at?: string; added_by?: string };
 
@@ -95,12 +100,15 @@ export function normalizeResources(raw: unknown): TemplateResource[] {
   for (const it of raw) {
     if (!it || typeof it !== "object") continue;
     const url = str((it as { url?: unknown }).url, LIMITS.resourceUrl);
-    if (!url || !/^https?:\/\//i.test(url)) continue; // http(s) 以外 (javascript: 等) は入れない
-    const name = str((it as { name?: unknown }).name, LIMITS.resourceName) || url;
+    // http(s) のリンクか、こつこつに上げたファイル (r2:) だけ。javascript: 等は入れない
+    const file = /^r2:[^\s/]+\/templates\/[^\s/]+\/[^\s]+$/.test(url);
+    if (!url || (!file && !/^https?:\/\//i.test(url))) continue;
+    const name = str((it as { name?: unknown }).name, LIMITS.resourceName) || (file ? url.split("/").pop()!.replace(/^[0-9a-f-]{36}-/, "") : url);
     const k = str((it as { kind?: unknown }).kind, 10);
-    const kind: ResourceKind = (RESOURCE_KINDS as readonly string[]).includes(k) ? (k as ResourceKind) : "情報源";
+    const kind: ResourceKind = (RESOURCE_KINDS as readonly string[]).includes(k) ? (k as ResourceKind) : file ? "実物" : "情報源";
     const why = str((it as { why?: unknown }).why, LIMITS.resourceWhy).replace(/\s*\n\s*/g, " ");
-    out.push({ kind, name, url, ...(why ? { why } : {}) });
+    const size = file ? Number((it as { size?: unknown }).size) : NaN;
+    out.push({ kind, name, url, ...(why ? { why } : {}), ...(Number.isFinite(size) && size > 0 ? { size } : {}) });
     if (out.length >= LIMITS.resources) break;
   }
   return out;
@@ -217,6 +225,8 @@ export async function saveTemplate(
 ): Promise<{ changed: boolean; revisionId: string | null }> {
   const before = templateContent(t);
   const after = mergeTemplatePatch(before, patch);
+  const prefix = templateFilePrefix(wsId, t.id);
+  after.resources = after.resources.filter((r) => !isFileUrl(r.url) || r.url.startsWith(prefix));
   if (JSON.stringify(before) === JSON.stringify(after)) return { changed: false, revisionId: null };
   const revisionId = crypto.randomUUID();
   await db.batch([
@@ -478,8 +488,9 @@ export async function applyTemplate(db: D1Database, wsId: string, tpl: Template,
   walk(tpl.tasks, rootId);
   for (const r of tpl.resources) {
     stmts.push({
-      sql: "INSERT INTO resources (id, goal_id, name, kind, content, url, workspace_id) VALUES (?, ?, ?, 'link', ?, ?, ?)",
-      args: [crypto.randomUUID(), rootId, r.name, `${r.kind}${r.why ? `: ${r.why}` : ""}`, r.url, wsId],
+      // 型のファイルはコピーせず同じキーを指す (ゴール側で消しても、削除はゴールの接頭辞にしか効かないので型のファイルは残る)
+      sql: "INSERT INTO resources (id, goal_id, name, kind, content, url, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      args: [crypto.randomUUID(), rootId, r.name, isFileUrl(r.url) ? "file" : "link", `${r.kind}${r.why ? `: ${r.why}` : ""}`, r.url, wsId],
     });
   }
   stmts.push({ sql: "INSERT OR IGNORE INTO goal_members (goal_id, member_id, can_edit) VALUES (?, ?, 1)", args: [rootId, o.memberId] });
@@ -547,7 +558,13 @@ export function templateMarkdown(t: Template, extra: { precedents: ExportPrecede
   L.push("## 資料", "");
   if (t.resources.length) {
     L.push("| 種類 | 名前 | 何のために見るか |", "|---|---|---|");
-    for (const r of t.resources) L.push(`| ${r.kind} | [${esc(r.name).replace(/[[\]]/g, "")}](${r.url.replace(/\|/g, "%7C").replace(/\)/g, "%29").replace(/ /g, "%20")}) | ${esc(r.why ?? "")} |`);
+    for (const r of t.resources) {
+      const label = esc(r.name).replace(/[[\]]/g, "");
+      const cell = isFileUrl(r.url)
+        ? `${label} (こつこつ内のファイル${r.size ? `、${Math.max(1, Math.round(r.size / 1024))}KB` : ""})`
+        : `[${label}](${r.url.replace(/\|/g, "%7C").replace(/\)/g, "%29").replace(/ /g, "%20")})`;
+      L.push(`| ${r.kind} | ${cell} | ${esc(r.why ?? "")} |`);
+    }
   } else L.push("(まだ無い)");
   L.push("", "## 注意点", "");
   if (t.cautions.length) for (const c of t.cautions) L.push(`- ${c.text}${c.added_at ? ` (${c.added_at.slice(0, 10)}${c.added_by ? ` ${c.added_by}` : ""})` : ""}`);

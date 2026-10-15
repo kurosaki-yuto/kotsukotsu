@@ -22,6 +22,8 @@ export function ResourceItem({ r, onChanged, bulkOpen }: { r: Resource; onChange
   const isLink = r.kind === "link";
   const isImage = isFile && ((r.content || "").startsWith("data:image") || /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(r.name));
   const isPdf = isFile && /\.pdf$/i.test(r.name);
+  const isVideo = isFile && /\.(mp4|webm|mov|m4v)$/i.test(r.name);
+  const isAudio = isFile && /\.(mp3|m4a|wav|aac|weba)$/i.test(r.name);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(r.name);
   const [content, setContent] = useState(r.content ?? "");
@@ -82,6 +84,10 @@ export function ResourceItem({ r, onChanged, bulkOpen }: { r: Resource; onChange
           {isFile && (
             isImage ? (
               <img src={fileHref!} alt={r.name} className="max-h-80 rounded-lg border" style={{ borderColor: "var(--border)" }} />
+            ) : isVideo ? (
+              <video src={fileHref!} controls preload="metadata" className="max-h-96 w-full rounded-lg border bg-black" style={{ borderColor: "var(--border)" }} />
+            ) : isAudio ? (
+              <audio src={fileHref!} controls preload="metadata" className="w-full" />
             ) : isPdf ? (
               <iframe src={fileHref!} title={r.name} className="w-full h-[420px] rounded-lg border" style={{ borderColor: "var(--border)" }} />
             ) : (

@@ -446,6 +446,55 @@ export function prefetchGoalBundle(id: string): void {
   }, 150);
 }
 
+// ---------- ファイル (分割アップロード) ----------
+// 大きいファイル (動画など) も上げられるよう、10MB ずつに分けて送る。上限 2GB。サーバーは app/api/files/upload
+export type UploadTarget = { goalId: string } | { templateId: string };
+export type UploadedFile = { key: string; size: number; url: string; name: string; id?: string };
+export const UPLOAD_LIMIT_BYTES = 2 * 1024 * 1024 * 1024;
+
+export async function uploadFile(file: File, target: UploadTarget, opts?: { caption?: string; onProgress?: (done: number, total: number) => void }): Promise<UploadedFile> {
+  if (file.size > UPLOAD_LIMIT_BYTES) throw new Error("ファイルは2GBまでです");
+  const start = (await api("/api/files/upload", {
+    method: "POST",
+    body: JSON.stringify({
+      action: "start",
+      ...("goalId" in target ? { goal_id: target.goalId } : { template_id: target.templateId }),
+      filename: file.name, size: file.size, content_type: file.type || "application/octet-stream",
+    }),
+  })) as { key: string; upload_id: string; part_bytes: number; parts: number };
+  const done: { part: number; etag: string }[] = [];
+  try {
+    for (let i = 0; i < start.parts; i++) {
+      const chunk = file.slice(i * start.part_bytes, Math.min(file.size, (i + 1) * start.part_bytes));
+      const q = `key=${encodeURIComponent(start.key)}&upload_id=${encodeURIComponent(start.upload_id)}&part=${i + 1}`;
+      let lastErr: unknown = null;
+      // 回線が一瞬切れても最初からやり直さずに済むよう、1 つの分割は 3 回まで送り直す
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          done.push((await api(`/api/files/upload?${q}`, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: chunk })) as { part: number; etag: string });
+          lastErr = null;
+          break;
+        } catch (e) { lastErr = e; }
+      }
+      if (lastErr) throw lastErr;
+      opts?.onProgress?.(Math.min(file.size, (i + 1) * start.part_bytes), file.size);
+    }
+    const r = (await api("/api/files/upload", {
+      method: "POST",
+      body: JSON.stringify({ action: "complete", key: start.key, upload_id: start.upload_id, parts: done, filename: file.name, ...(opts?.caption ? { caption: opts.caption } : {}) }),
+    })) as { key: string; size: number; id?: string; name?: string };
+    return { key: r.key, size: r.size, url: `r2:${r.key}`, name: r.name ?? file.name, ...(r.id ? { id: r.id } : {}) };
+  } catch (e) {
+    await api("/api/files/upload", { method: "POST", body: JSON.stringify({ action: "abort", key: start.key, upload_id: start.upload_id }) }).catch(() => {});
+    throw e;
+  }
+}
+
+/** r2: のキーを画面で開くときの URL */
+export function fileHref(url: string): string {
+  return url.startsWith("r2:") ? `/api/files?key=${encodeURIComponent(url.slice(3))}` : url;
+}
+
 // ---------- 型 (テンプレート) ----------
 export type TemplateGoalRow = { id: string; name: string; status: string; created_at: string; completed_at: string | null; deadline: string | null; assignees: GoalMember[] };
 export type TemplatePrecedent = { id: string; title: string; author_name: string | null; steps: string; pitfalls: string | null; updated_at: string };

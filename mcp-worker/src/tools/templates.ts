@@ -1,11 +1,13 @@
 // MCP ツール (templates)。index.ts の tools から切り出し。
 import { z } from "zod";
 import { applyTemplate, snapshotGoalTree, parseTemplateRow, normalizeInputs, normalizeTasks, normalizeResources, normalizeCautions, normalizeValues, missingRequiredInputs, substitute, outlineToTasks, tasksToOutline, countTasks, saveTemplate, listTemplateRevisions, revertTemplateRevision, exportTemplate, kataExportConfig, kataExportTarget, kataExportPath, kataExportUrl, buildKataMarkdown, RESOURCE_KINDS, LIMITS as TEMPLATE_LIMITS, type Template, type TemplateCaution, type TemplatePatch, type TemplateRow } from "../../../app/lib/server/templateCore";
-import { ToolDef, assertAdmin, assertCanEdit, assertGoalInScope, assertTemplateManager, findTemplate, nowIso, recordRecipients, resolveWho, uid, type McpAuth } from "../lib";
+import { ToolDef, assertAdmin, assertCanEdit, assertGoalInScope, assertTemplateManager, findTemplate, nowIso, recordRecipients, resolveWho, uid, decodeBase64, safeFileName, MAX_FILE_BYTES, type McpAuth } from "../lib";
+import { safeContentType } from "../../../app/lib/server/filesCore";
 import type { Env } from "../env";
 import { playbooksForTemplate, templateIdForGoal } from "../kata";
 
-// 資料 1 件。why (何のために見るか) は必須: URL だけ貼ってある状態を無くすため
+// 資料 1 件。why (何のために見るか) は必須: URL だけ貼ってある状態を無くすため。
+// url は外のリンクか、upload_template_file で上げた型のファイル (r2:…)
 const resourceSchema = z.object({
   kind: z.enum(RESOURCE_KINDS).describe("やり方 = 前回どうやったかの手順書 / 実物 = 実際に出した成果物 / 置き場所 = 型の本文の正本 / 情報源 = 参考にするもの"),
   name: z.string().max(TEMPLATE_LIMITS.resourceName).optional(),
@@ -135,7 +137,7 @@ export const templatesTools: Record<string, ToolDef> = {
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         id, wsId, name.slice(0, TEMPLATE_LIMITS.name), args.purpose?.trim() || null, criteria || null,
-        JSON.stringify(normalizeInputs(args.inputs ?? [])), JSON.stringify(tasks), JSON.stringify(normalizeResources(args.resources ?? [])),
+        JSON.stringify(normalizeInputs(args.inputs ?? [])), JSON.stringify(tasks), JSON.stringify(normalizeResources(args.resources ?? []).filter((r) => !r.url.startsWith("r2:"))),
         JSON.stringify(normalizeCautions((args.cautions ?? []).map((text: string) => ({ text, added_at: now, added_by: auth.actor?.name ?? "AI" })))),
         args.from_goal_id ?? null, auth.actor?.userId ?? null, auth.actor?.name ?? null, now, now
       ).run();
@@ -176,6 +178,66 @@ export const templatesTools: Record<string, ToolDef> = {
       const ex = r.changed ? await exportKata(env, wsId, t.id) : {};
       const u = await findTemplate(env, wsId, t.id);
       return { ...(await templateView(env, wsId, u)), changed: r.changed, revision_id: r.revisionId, ...ex };
+    },
+  },
+
+  upload_template_file: {
+    description:
+      "型の資料にファイルを足す (画像・PDF・動画など。こつこつの置き場所に保存し、型の資料に「種類・名前・何のために見るか」付きで載せる)。" +
+      "1 回 1 ファイル、25MB まで (それより大きいものは型の画面から上げる。画面は 2GB まで)。直せるのは管理者と型を作った本人。直した履歴が残る。",
+    schema: z.object({
+      template: z.string().min(1).describe("型の id か名前"),
+      filename: z.string().min(1).max(200).describe("ファイル名。例: 公開したサムネ.png"),
+      contentBase64: z.string().min(1).describe("ファイルの中身 (base64)"),
+      mimeType: z.string().optional().describe("例: image/png"),
+      kind: z.enum(RESOURCE_KINDS).optional().describe("やり方 / 実物 / 置き場所 / 情報源。既定は 実物"),
+      why: z.string().min(1).max(TEMPLATE_LIMITS.resourceWhy).describe("何のために見るか (1 行)"),
+    }),
+    handler: async (args, env, wsId, auth) => {
+      const t = await findTemplate(env, wsId, args.template);
+      assertTemplateManager(auth, t);
+      if (!env.FILES) throw new Error("ファイル置き場 (R2) が設定されていません");
+      let bytes: Uint8Array;
+      try { bytes = decodeBase64(args.contentBase64); } catch { throw new Error("invalid contentBase64: not valid base64"); }
+      if (bytes.byteLength === 0) throw new Error("empty file");
+      if (bytes.byteLength > MAX_FILE_BYTES) throw new Error("ファイルが大きすぎます (25MBまで。大きいものは型の画面から上げてください)");
+      const key = `${wsId}/templates/${t.id}/${uid()}-${safeFileName(args.filename)}`;
+      await env.FILES.put(key, bytes, { httpMetadata: { contentType: safeContentType(args.mimeType) } });
+      const r = await saveTemplate(env.DB, wsId, t, {
+        resources: [...t.resources, { kind: args.kind ?? "実物", name: args.filename.trim(), url: `r2:${key}`, why: args.why, size: bytes.byteLength }],
+      }, { actorName: auth.actor?.name ?? "AI", actorKind: actorKind(auth), reason: `ファイルを足した: ${args.filename}`, now: nowIso() });
+      const ex = r.changed ? await exportKata(env, wsId, t.id) : {};
+      const u = await findTemplate(env, wsId, t.id);
+      return { ...(await templateView(env, wsId, u)), changed: r.changed, revision_id: r.revisionId, file_key: key, ...ex };
+    },
+  },
+
+  get_file: {
+    description:
+      "こつこつに上げたファイル (資料・リソースの url が r2: で始まるもの) を読む。key は r2: の後ろ。" +
+      "4MB までは中身 (base64) を返す。それより大きいもの (動画など) は大きさと種類だけ返すので、画面で開いてもらう。",
+    schema: z.object({ key: z.string().min(1).describe("r2: の後ろのキー (r2: 付きでもよい)") }),
+    handler: async (args, env, wsId, auth) => {
+      const key = args.key.replace(/^r2:/, "");
+      const parts = key.split("/");
+      if (parts[0] !== wsId || parts.some((p: string) => !p || p === "..")) throw new Error("file not found");
+      if (parts[1] === "templates") {
+        await findTemplate(env, wsId, parts[2]); // 型のファイルはワークスペースの全員が読める
+      } else {
+        await assertGoalInScope(env, auth, parts[1]);
+      }
+      if (!env.FILES) throw new Error("ファイル置き場 (R2) が設定されていません");
+      const obj = await env.FILES.get(key);
+      if (!obj) throw new Error("file not found");
+      const name = parts[parts.length - 1].replace(/^[0-9a-f-]{36}-/, "");
+      const type = obj.httpMetadata?.contentType ?? "application/octet-stream";
+      if (obj.size > 4 * 1024 * 1024) {
+        return { key, name, size: obj.size, content_type: type, note: "4MB を超えるので中身は返さない。画面 (型の画面・ゴールのリソース) で開いてもらう" };
+      }
+      const buf = new Uint8Array(await obj.arrayBuffer());
+      let bin = "";
+      for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+      return { key, name, size: obj.size, content_type: type, content_base64: btoa(bin) };
     },
   },
 

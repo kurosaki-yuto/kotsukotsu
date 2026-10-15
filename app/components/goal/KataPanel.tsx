@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getGoalKata } from "../../lib/addness";
+import { getGoalKata, fileHref } from "../../lib/addness";
 import type { Template } from "../../lib/db";
 
 // 「この仕事の型」。ゴールか祖先が型から作られていれば、型の資料と注意点を出す。
@@ -37,7 +37,7 @@ export function KataPanel({ goalId }: { goalId: string }) {
             {tpl.resources.map((r, i) => (
               <li key={i} className="text-[13px] leading-snug">
                 <span className="mr-2 rounded px-1.5 py-0.5 text-[11px]" style={{ background: "var(--hover)" }}>{r.kind}</span>
-                <a href={r.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 break-all" style={{ color: "var(--accent)" }}>{r.name}</a>
+                <a href={fileHref(r.url)} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 break-all" style={{ color: "var(--accent)" }}>{r.name}</a>
                 {r.why && <span className="ml-2 text-[12px]" style={{ color: "var(--muted)" }}>{r.why}</span>}
               </li>
             ))}

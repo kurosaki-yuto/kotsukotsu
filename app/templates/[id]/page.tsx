@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -13,6 +13,9 @@ import {
   revertTemplateRevision,
   getTemplatePlaybooks,
   linkTemplatePlaybook,
+  uploadFile,
+  fileHref,
+  UPLOAD_LIMIT_BYTES,
   type TemplateDetail,
   type TemplatePrecedent,
 } from "../../lib/addness";
@@ -40,6 +43,12 @@ function TaskTreePreview({ tasks, depth = 0 }: { tasks: TemplateTask[]; depth?: 
       ))}
     </ul>
   );
+}
+
+function formatBytes(n: number): string {
+  if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(1)}GB`;
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)}MB`;
+  return `${Math.max(1, Math.round(n / 1024))}KB`;
 }
 
 // 型に結んだ前例 (以前この種類の仕事をしたときのやり方)。結ぶ・外すは型を直せる人だけ
@@ -131,6 +140,8 @@ export default function TemplateDetailPage() {
   const [inputs, setInputs] = useState<TemplateInput[]>([]);
   const [resources, setResources] = useState<TemplateResource[]>([]);
   const [cautions, setCautions] = useState<TemplateCaution[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [outline, setOutline] = useState("");
   const [dirtyTasks, setDirtyTasks] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -173,6 +184,24 @@ export default function TemplateDetailPage() {
   useAutoRefresh(() => { void load(); }, { intervalMs: 30000 });
 
   const canManage = !!tpl?.can_manage;
+
+  // ファイルは選んだ時点で置き場所 (R2) に上がる。型に載るのは「保存」を押したとき
+  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f || !tpl) return;
+    if (f.size > UPLOAD_LIMIT_BYTES) { setSaveError("ファイルは2GBまでです"); return; }
+    setSaveError(null);
+    setUploadPct(0);
+    try {
+      const up = await uploadFile(f, { templateId: tpl.id }, { onProgress: (d, t) => setUploadPct(Math.floor((d / t) * 100)) });
+      setResources((p) => [...p, { kind: "実物", name: f.name, url: up.url, why: "", size: up.size }]);
+    } catch (err) {
+      setSaveError(`ファイルを上げられませんでした${err instanceof Error ? `: ${err.message}` : ""}`);
+    } finally {
+      setUploadPct(null);
+    }
+  };
 
   const dirty = !!tpl && (
     name !== tpl.name ||
@@ -411,12 +440,18 @@ export default function TemplateDetailPage() {
               <div className="flex items-center justify-between">
                 <h2 className="text-[14px] font-bold">資料 ({resources.length})</h2>
                 {!ro && (
-                  <button type="button" className="chip" onClick={() => setResources((p) => [...p, { kind: "やり方", name: "", url: "", why: "" }])}>+ 資料を足す</button>
+                  <div className="flex items-center gap-2">
+                    <input ref={fileInput} type="file" className="hidden" onChange={(e) => void onPickFile(e)} />
+                    <button type="button" className="chip" disabled={uploadPct !== null} onClick={() => fileInput.current?.click()}>
+                      {uploadPct !== null ? `アップロード中 ${uploadPct}%` : "+ ファイルを足す"}
+                    </button>
+                    <button type="button" className="chip" onClick={() => setResources((p) => [...p, { kind: "やり方", name: "", url: "", why: "" }])}>+ リンクを足す</button>
+                  </div>
                 )}
               </div>
               <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
                 本文はこつこつに入れず外 (手順書・実物・参考) に置き、ここには「どこを見ればいいか」だけを書きます。
-                種類は やり方 (前回どうやったか) / 実物 (実際に出した成果物) / 置き場所 (型の本文の正本) / 情報源 (参考)。「何のために見るか」は必須です。振ると新しいゴールのリソースに付きます。
+                種類は やり方 (前回どうやったか) / 実物 (実際に出した成果物) / 置き場所 (型の本文の正本) / 情報源 (参考)。「何のために見るか」は必須です。リンクでもファイル (動画・画像・PDF など、2GB まで) でも入れられます。振ると新しいゴールのリソースに付きます。
               </p>
               {resources.length > 0 && (
                 <ul className="mt-3 flex flex-col gap-3">
@@ -426,12 +461,18 @@ export default function TemplateDetailPage() {
                         {RESOURCE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
                       </select>
                       <input value={r.name} readOnly={ro} placeholder="名前" onChange={(e) => setResources((p) => p.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} className={inputCls} style={inputStyle} />
-                      <input value={r.url} readOnly={ro} placeholder="https://…" onChange={(e) => setResources((p) => p.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))} className={`${inputCls} col-span-2 md:col-span-1 order-last md:order-none`} style={inputStyle} />
+                      {r.url.startsWith("r2:") ? (
+                        <a href={fileHref(r.url)} target="_blank" rel="noopener noreferrer" className={`${inputCls} col-span-2 md:col-span-1 order-last md:order-none truncate underline underline-offset-2`} style={{ ...inputStyle, color: "var(--accent)" }}>
+                          ファイルを開く{r.size ? ` (${formatBytes(r.size)})` : ""}
+                        </a>
+                      ) : (
+                        <input value={r.url} readOnly={ro} placeholder="https://…" onChange={(e) => setResources((p) => p.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))} className={`${inputCls} col-span-2 md:col-span-1 order-last md:order-none`} style={inputStyle} />
+                      )}
                       {!ro ? (
                         <button type="button" className="text-[12px] underline underline-offset-2 whitespace-nowrap self-center" style={{ color: "var(--danger)" }} onClick={() => setResources((p) => p.filter((_, j) => j !== i))}>削除</button>
                       ) : <span />}
                       <input value={r.why ?? ""} readOnly={ro} placeholder="何のために見るか (例: 顔の大きさと文字量の基準を見る)" onChange={(e) => setResources((p) => p.map((x, j) => (j === i ? { ...x, why: e.target.value } : x)))} className={`${inputCls} col-span-3 md:col-span-4 order-last`} style={{ ...inputStyle, ...(!r.why?.trim() && r.url.trim() ? { borderColor: "var(--danger)" } : {}) }} />
-                      {ro && r.url && (
+                      {ro && r.url && !r.url.startsWith("r2:") && (
                         <a href={r.url} target="_blank" rel="noopener noreferrer" className="col-span-3 md:col-span-4 text-[12px] underline underline-offset-2 order-last" style={{ color: "var(--accent)" }}>開く</a>
                       )}
                     </li>

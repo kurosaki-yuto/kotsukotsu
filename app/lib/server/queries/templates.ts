@@ -56,7 +56,7 @@ export async function createTemplate(wsId: string, d: TemplateDraft, user: { id:
     (d.completion_criteria ?? "").toString().trim().slice(0, TEMPLATE_LIMITS.criteria) || null,
     JSON.stringify(normalizeInputs(d.inputs)),
     JSON.stringify(tasksOf(d.tasks)),
-    JSON.stringify(normalizeResources(d.resources)),
+    JSON.stringify(normalizeResources(d.resources).filter((r) => !r.url.startsWith("r2:"))), // ファイルは型を作ってから足す
     JSON.stringify(normalizeCautions(d.cautions)),
     d.source_goal_id ?? null,
     user.id, user.name || user.email, now, now
