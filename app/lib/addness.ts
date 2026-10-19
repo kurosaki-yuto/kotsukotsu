@@ -490,9 +490,42 @@ export async function uploadFile(file: File, target: UploadTarget, opts?: { capt
   }
 }
 
-/** r2: のキーを画面で開くときの URL */
+// Word・Excel・PowerPoint は /api/files だとダウンロードになるので、画面内のビューアー (/files/view) で描く。
+// 種類はキーの末尾 (上げたときのファイル名の拡張子) で見る。旧形式 (.doc / .ppt) は描けないのでダウンロードのまま
+export type OfficeKind = "docx" | "sheet" | "pptx";
+export function officeKindOf(name: string): OfficeKind | null {
+  const m = /\.([a-z0-9]+)$/i.exec(name);
+  const ext = m ? m[1].toLowerCase() : "";
+  if (ext === "docx") return "docx";
+  if (ext === "xlsx" || ext === "xlsm" || ext === "xls" || ext === "csv") return "sheet";
+  if (ext === "pptx") return "pptx";
+  return null;
+}
+
+/** r2: のキーを画面で開くときの URL (Office はビューアー) */
 export function fileHref(url: string): string {
-  return url.startsWith("r2:") ? `/api/files?key=${encodeURIComponent(url.slice(3))}` : url;
+  if (!url.startsWith("r2:")) return url;
+  const key = url.slice(3);
+  return officeKindOf(key) ? `/files/view?key=${encodeURIComponent(key)}` : `/api/files?key=${encodeURIComponent(key)}`;
+}
+
+/** 上げたファイルの中身 (ビューアー用)。失敗は api() と同じく読み込み失敗のバナーに出す */
+export async function fetchFileBytes(key: string): Promise<ArrayBuffer> {
+  const path = `/api/files?key=${encodeURIComponent(key)}`;
+  let r: Response;
+  try {
+    r = await fetch(path, { credentials: "same-origin" });
+  } catch (e) {
+    announce(FETCH_ERROR_EVENT, { path, message: e instanceof Error ? e.message : "network error" });
+    throw e;
+  }
+  if (!r.ok) {
+    const message = ((await r.json().catch(() => ({}))) as { error?: string }).error || r.statusText;
+    if (r.status !== 401) announce(FETCH_ERROR_EVENT, { path, status: r.status, message });
+    throw new Error(message);
+  }
+  announce(FETCH_OK_EVENT, { path });
+  return r.arrayBuffer();
 }
 
 // ---------- 型 (テンプレート) ----------

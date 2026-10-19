@@ -2,9 +2,10 @@
 
 // リソース 1 行 (ファイル / リンク / 旧メモ)。app/goals/[id]/page.tsx から切り出し。
 import { useEffect, useState } from "react";
-import { updateResource, deleteResource } from "../../lib/addness";
+import { updateResource, deleteResource, officeKindOf } from "../../lib/addness";
 import type { Resource } from "../../lib/db";
 import AutoGrowTextarea from "../AutoGrowTextarea";
+import { OfficeViewer } from "../OfficeViewer";
 import { I } from "./Icon";
 
 // One resource row: a file (click to toggle an inline preview below it), a
@@ -24,6 +25,9 @@ export function ResourceItem({ r, onChanged, bulkOpen }: { r: Resource; onChange
   const isPdf = isFile && /\.pdf$/i.test(r.name);
   const isVideo = isFile && /\.(mp4|webm|mov|m4v)$/i.test(r.name);
   const isAudio = isFile && /\.(mp3|m4a|wav|aac|weba)$/i.test(r.name);
+  // Word・Excel・PowerPoint は画面内のビューアーで描く (R2 に上げたものだけ。種類はキーの拡張子で見る)
+  const r2Key = isFile && r.url?.startsWith("r2:") ? r.url.slice(3) : null;
+  const isOffice = !!r2Key && !!officeKindOf(r2Key);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(r.name);
   const [content, setContent] = useState(r.content ?? "");
@@ -90,6 +94,11 @@ export function ResourceItem({ r, onChanged, bulkOpen }: { r: Resource; onChange
               <audio src={fileHref!} controls preload="metadata" className="w-full" />
             ) : isPdf ? (
               <iframe src={fileHref!} title={r.name} className="w-full h-[420px] rounded-lg border" style={{ borderColor: "var(--border)" }} />
+            ) : isOffice ? (
+              <>
+                <OfficeViewer fileKey={r2Key!} className="h-[480px]" />
+                <a href={`/files/view?key=${encodeURIComponent(r2Key!)}`} className="self-start text-[12px] underline underline-offset-2" style={{ color: "var(--accent)" }}>大きく開く</a>
+              </>
             ) : (
               <div className="text-[12px] text-[var(--muted-soft)]">このファイル形式はブラウザでプレビューできません。ダウンロードして確認してください。</div>
             )
