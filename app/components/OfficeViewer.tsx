@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchFileBytes, officeKindOf } from "../lib/addness";
+import { fetchFileBytes, officeKindOf, type OfficeKind } from "../lib/addness";
 
 // Word・Excel・PowerPoint をブラウザの中だけで描く (ファイルを外のサービスに送らない)。
 // 描いた中身は sandbox の iframe (スクリプトが動かない) に入れる。ファイルに javascript: のリンクや
@@ -20,7 +20,7 @@ html,body{margin:0;background:#f3f4f6;color:#1f2328;font-family:"Noto Sans JP","
 .slides{padding:16px;display:flex;justify-content:safe center}
 .pptx-preview-wrapper{height:auto!important;overflow:visible!important;background:transparent!important}
 .pptx-preview-slide-wrapper{box-shadow:0 1px 4px rgba(0,0,0,.15);margin-bottom:16px!important}
-</style></head><body></body></html>`;
+</style></head><body data-viewer="1"></body></html>`;
 
 // 大きい表をそのまま描くと画面が固まるので、先頭だけ描いて残りはダウンロードしてもらう
 const SHEET_MAX_ROWS = 2000;
@@ -68,10 +68,43 @@ function showSheet(doc: Document, s: Sheet) {
   doc.documentElement.scrollTop = 0;
 }
 
+/** iframe の文書に描く。表はシートの一覧を返す (描くのはシートを選んだとき) */
+async function renderInto(doc: Document, kind: OfficeKind, buf: ArrayBuffer, fileKey: string): Promise<Sheet[] | null> {
+  doc.body.replaceChildren();
+  if (kind === "docx") {
+    const { renderAsync } = await import("docx-preview");
+    // docx-preview は渡した置き場所の中身を消してから書くので、head (こちらのスタイル) ではなく専用の箱を渡す
+    const styleBox = doc.createElement("div");
+    const pages = doc.createElement("div");
+    // append() は Workers の型 (HTMLRewriter の Element) と混ざって型が合わないので appendChild を使う
+    doc.body.appendChild(styleBox);
+    doc.body.appendChild(pages);
+    await renderAsync(buf, pages, styleBox, {
+      inWrapper: true,
+      ignoreLastRenderedPageBreak: true,
+      ignoreFonts: true, // 埋め込みフォントは blob: で読むので CSP に止められる。無くても本文は読める
+      useBase64URL: true, // 画像は data: で埋める (blob: の後始末が要らない)
+      renderComments: false,
+    });
+    return null;
+  }
+  if (kind === "pptx") {
+    const { init } = await import("pptx-preview");
+    const host = doc.createElement("div");
+    host.className = "slides";
+    const inner = doc.createElement("div");
+    host.appendChild(inner);
+    doc.body.appendChild(host);
+    await init(inner, { width: SLIDE_WIDTH, height: Math.round((SLIDE_WIDTH * 9) / 16), mode: "list" }).preview(buf);
+    return null;
+  }
+  return readSheets(buf, /\.csv$/i.test(fileKey));
+}
+
 export function OfficeViewer({ fileKey, className }: { fileKey: string; className?: string }) {
   const kind = officeKindOf(fileKey);
   const frame = useRef<HTMLIFrameElement>(null);
-  const [frameReady, setFrameReady] = useState(false);
+  const [frameDoc, setFrameDoc] = useState<Document | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
   const [sheets, setSheets] = useState<Sheet[]>([]);
@@ -88,51 +121,27 @@ export function OfficeViewer({ fileKey, className }: { fileKey: string; classNam
     if (w > avail && avail > 0) doc.body.style.zoom = String(avail / w);
   }, [kind]);
 
-  useEffect(() => {
-    const el = frame.current;
-    if (el?.contentDocument?.readyState === "complete" && el.contentDocument.body) setFrameReady(true);
+  // iframe は最初 about:blank (読み込み済み扱い) で、そのあと srcDoc に入れ替わる。about:blank に描くと
+  // 入れ替わりで消えるので、srcDoc の目印 (data-viewer) が付いた文書になってから描く。入れ替わったら描き直す
+  const takeDoc = useCallback(() => {
+    const d = frame.current?.contentDocument;
+    if (d?.body?.dataset.viewer === "1") setFrameDoc(d);
   }, []);
+  useEffect(() => { takeDoc(); }, [takeDoc]);
 
   useEffect(() => {
-    if (!frameReady || !kind) return;
-    const doc = frame.current?.contentDocument;
-    if (!doc) return;
+    if (!frameDoc || !kind) return;
     let alive = true;
     setStatus("loading");
     (async () => {
       const buf = await fetchFileBytes(fileKey);
       if (!alive) return;
-      doc.body.replaceChildren();
-      if (kind === "docx") {
-        const { renderAsync } = await import("docx-preview");
-        // docx-preview は渡した置き場所の中身を消してから書くので、head (こちらのスタイル) ではなく専用の箱を渡す
-        const styleBox = doc.createElement("div");
-        const pages = doc.createElement("div");
-        // append() は Workers の型 (HTMLRewriter の Element) と混ざって型が合わないので appendChild を使う
-        doc.body.appendChild(styleBox);
-        doc.body.appendChild(pages);
-        await renderAsync(buf, pages, styleBox, {
-          inWrapper: true,
-          ignoreLastRenderedPageBreak: true,
-          ignoreFonts: true, // 埋め込みフォントは blob: で読むので CSP に止められる。無くても本文は読める
-          useBase64URL: true, // 画像は data: で埋める (blob: の後始末が要らない)
-          renderComments: false,
-        });
-      } else if (kind === "pptx") {
-        const { init } = await import("pptx-preview");
-        const host = doc.createElement("div");
-        host.className = "slides";
-        const inner = doc.createElement("div");
-        host.appendChild(inner);
-        doc.body.appendChild(host);
-        await init(inner, { width: SLIDE_WIDTH, height: Math.round((SLIDE_WIDTH * 9) / 16), mode: "list" }).preview(buf);
-      } else {
-        const list = await readSheets(buf, /\.csv$/i.test(fileKey));
-        if (!alive) return;
+      const list = await renderInto(frameDoc, kind, buf, fileKey);
+      if (!alive) return;
+      if (list) {
         setSheets(list);
         setSheetIdx(0);
       }
-      if (!alive) return;
       fit();
       setStatus("ready");
     })().catch((e) => {
@@ -141,16 +150,14 @@ export function OfficeViewer({ fileKey, className }: { fileKey: string; classNam
       setStatus("error");
     });
     return () => { alive = false; };
-  }, [frameReady, kind, fileKey, fit]);
+  }, [frameDoc, kind, fileKey, fit]);
 
   // 表はシートを切り替えるたびに描き直す
   useEffect(() => {
-    if (kind !== "sheet" || !sheets.length) return;
-    const doc = frame.current?.contentDocument;
+    if (kind !== "sheet" || !sheets.length || !frameDoc) return;
     const s = sheets[sheetIdx];
-    if (!doc?.body || !s) return;
-    showSheet(doc, s);
-  }, [kind, sheets, sheetIdx]);
+    if (s) showSheet(frameDoc, s);
+  }, [kind, sheets, sheetIdx, frameDoc]);
 
   useEffect(() => {
     const el = frame.current;
@@ -193,7 +200,7 @@ export function OfficeViewer({ fileKey, className }: { fileKey: string; classNam
         title="ファイルの中身"
         srcDoc={FRAME_DOC}
         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-        onLoad={() => setFrameReady(true)}
+        onLoad={takeDoc}
         className="w-full flex-1 min-h-0 rounded-lg border bg-white"
         style={{ borderColor: "var(--border)" }}
       />
