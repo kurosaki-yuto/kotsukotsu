@@ -26,6 +26,11 @@ export async function first<T = Record<string, unknown>>(sql: string, ...args: u
 export async function run(sql: string, ...args: unknown[]): Promise<void> {
   await db().prepare(sql).bind(...args).run();
 }
+/** run と同じだが、書き換わった行数を返す (条件付き UPDATE が効いたかを見る用) */
+export async function runChanges(sql: string, ...args: unknown[]): Promise<number> {
+  const r = await db().prepare(sql).bind(...args).run();
+  return Number(r.meta?.changes ?? 0);
+}
 export async function batch(stmts: { sql: string; args?: unknown[] }[]): Promise<void> {
   if (!stmts.length) return;
   const d = db();

@@ -136,6 +136,11 @@ export default function GoalDetail() {
         if (!alive) return;
         suppressNextCommentScrollRef.current = true;
         applyBundle(b, { withTitle: !cached });
+        // 先読みの中身が古い (開く前に名前を変えた) と、見出しが古い名前のまま残り、
+        // 欄に触って離れただけで古い名前で上書きしていた。まだ手を付けていなければ新しい名前に差し替える。
+        if (cached && (cached.goal.name || "") !== (b.goal.name || "")) {
+          setTitle((t) => (t === (cached.goal.name || "") ? b.goal.name || "" : t));
+        }
       } catch { if (alive && !cached) setNotFound(true); }
     })();
     (async () => {

@@ -62,7 +62,7 @@ async function myTasksIn(env: Env, wsId: string, auth: McpAuth, who: string, lim
   // 番号付きの引数で書く。?7 は担当範囲 (scopeRoots) の JSON。範囲が無いときは使わない
   const cte = `WITH RECURSIVE sub(id) AS (
       SELECT id FROM projects WHERE workspace_id = ?3 AND id IN (SELECT value FROM json_each(?7))
-      UNION ALL
+      UNION
       SELECT p.id FROM sub s CROSS JOIN projects p ON p.parent_goal_id = s.id)`;
   const sql = `${scoped ? cte : ""}
     SELECT p.id, p.name, p.deadline, p.today_date, p.started_at, p.started_via,
@@ -110,7 +110,7 @@ async function myTurnIn(env: Env, wsId: string, auth: McpAuth, who: string) {
   const scoped = !!auth.scopeRoots;
   const cte = `WITH RECURSIVE sub(id) AS (
       SELECT id FROM projects WHERE workspace_id = ?1 AND id IN (SELECT value FROM json_each(?2))
-      UNION ALL
+      UNION
       SELECT p.id FROM sub s CROSS JOIN projects p ON p.parent_goal_id = s.id)`;
   const sql = `${scoped ? cte : ""}
     SELECT p.id, p.name, par.name AS parent_name, p.deadline, p.state_updated_at, p.current_state

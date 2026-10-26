@@ -490,7 +490,7 @@ export function assertOwnMessage(auth: McpAuth, msg: { author: string | null; au
 /** SQL fragment: recursive subtrees of ALL scope roots. Bind wsId + JSON array of root ids. */
 export const SUBTREE_CTE = `WITH RECURSIVE sub(id) AS (
   SELECT id FROM projects WHERE workspace_id = ? AND id IN (SELECT value FROM json_each(?))
-  UNION ALL
+  UNION
   SELECT p.id FROM sub s CROSS JOIN projects p ON p.parent_goal_id = s.id
 )`;
 

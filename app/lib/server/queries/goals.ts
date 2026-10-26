@@ -1,6 +1,6 @@
 import "server-only";
 import { createNotification } from "./notifications";
-import { all, first, run, batch, uid, nowIso } from "../db";
+import { all, first, run, runChanges, batch, uid, nowIso } from "../db";
 import { ballRank, ballText, personKeys } from "../../ball";
 
 // ---------------- goals (projects) ----------------
@@ -13,7 +13,7 @@ export async function listGoals(wsId: string, scopeGoalId: string | null = null,
   return all(
     `WITH RECURSIVE sub(id) AS (
        SELECT id FROM projects WHERE id = ? AND workspace_id = ?
-       UNION ALL
+       UNION
        SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?
      )
      SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id, started_at, started_by_name, started_via FROM projects WHERE workspace_id = ? AND ${statusClause} AND id IN (SELECT id FROM sub)
@@ -37,13 +37,32 @@ export async function createGoal(name: string, wsId: string) {
 // parent_goal_id はここでは受けない。付け替えは moveGoal (循環・スコープ・ワークスペースを検査する) だけ。
 const GOAL_COLS = new Set(["name","emoji","deadline","current_state","completion_criteria","owner","status","archived_at","order_idx"]);
 const GOAL_STATUS = new Set(["active", "done", "archived"]);
+export const GOAL_TEXT_MAX = 20000;
+export class GoalTextTooLong extends Error {
+  constructor(public field: string) { super(`${field} は${GOAL_TEXT_MAX.toLocaleString()}字までです`); }
+}
 export async function updateGoal(id: string, patch: Record<string, unknown>, wsId: string) {
   if ("status" in patch && !GOAL_STATUS.has(String(patch.status))) delete patch.status;
-  if ("deadline" in patch && patch.deadline != null && !/^\d{4}-\d{2}-\d{2}$/.test(String(patch.deadline))) delete patch.deadline;
+  // 形だけでなく実在する日付か (2026-02-30 が保存され、画面の期日欄は空に見えていた)
+  if ("deadline" in patch && patch.deadline != null) {
+    const d = String(patch.deadline);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(d)) || new Date(d).toISOString().slice(0, 10) !== d) delete patch.deadline;
+  }
   if ("order_idx" in patch && !Number.isInteger(patch.order_idx)) delete patch.order_idx;
+  const long: string[] = [];
   for (const k of ["name", "emoji", "current_state", "completion_criteria", "owner"]) {
     if (k in patch && patch[k] != null && typeof patch[k] !== "string") delete patch[k];
-    if (typeof patch[k] === "string" && (patch[k] as string).length > 20000) patch[k] = (patch[k] as string).slice(0, 20000);
+    if (typeof patch[k] === "string" && (patch[k] as string).length > GOAL_TEXT_MAX) long.push(k);
+  }
+  // 上限を超えた文字は黙って切らない。画面は欄から離れるたびに同じ値を送り直すので、
+  // 切ると触っただけで後ろが消える (MCP など上限の無い経路で入った長文が消えた)。
+  // 保存済みと同じ値ならその欄は書かずに通し、変わっていれば保存せずに知らせる。
+  if (long.length) {
+    const cur = await first<Record<string, unknown>>(`SELECT ${long.join(", ")} FROM projects WHERE id = ? AND workspace_id = ?`, id, wsId);
+    for (const k of long) {
+      if (cur && cur[k] === patch[k]) delete patch[k];
+      else throw new GoalTextTooLong(k);
+    }
   }
   const keys = Object.keys(patch).filter((k) => GOAL_COLS.has(k));
   if (!keys.length) return;
@@ -88,7 +107,7 @@ export async function moveGoal(id: string, newParentId: string | null, beforeId:
   const self = await first<{ id: string }>("SELECT id FROM projects WHERE id = ? AND workspace_id = ?", id, wsId);
   if (!self) return false;
   if (newParentId) {
-    const dest = await first<{ id: string }>("SELECT id FROM projects WHERE id = ? AND workspace_id = ?", newParentId, wsId);
+    const dest = await first<{ id: string }>("SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND status != 'archived'", newParentId, wsId);
     if (!dest) return false;
     await clearStartedOnParent(newParentId, wsId);
     // walk up from the destination; if we reach `id`, the destination is a
@@ -113,7 +132,23 @@ export async function moveGoal(id: string, newParentId: string | null, beforeId:
     if (idx >= 0) insertAt = idx;
   }
   order.splice(insertAt, 0, id);
-  await run("UPDATE projects SET parent_goal_id = ? WHERE id = ? AND workspace_id = ?", newParentId, id, wsId);
+  // 上の循環チェックと付け替えの間に別の移動が割り込むと、A→B と B→A が両方通って循環ができる
+  // (同時に投げると10回中10回できた)。付け替えの UPDATE 自体に「行き先の祖先に自分がいない」
+  // 条件を入れ、1文で判定と書き込みをする。
+  const changed = await runChanges(
+    `UPDATE projects SET parent_goal_id = ?1 WHERE id = ?2 AND workspace_id = ?3
+       AND (?1 IS NULL OR NOT EXISTS (
+         WITH RECURSIVE anc(id) AS (
+           SELECT ?1
+           UNION
+           SELECT p.parent_goal_id FROM anc JOIN projects p ON p.id = anc.id AND p.workspace_id = ?3
+            WHERE p.parent_goal_id IS NOT NULL
+         )
+         SELECT 1 FROM anc WHERE id = ?2
+       ))`,
+    newParentId, id, wsId
+  );
+  if (!changed) return false;
   await batch(order.map((sid, i) => ({ sql: "UPDATE projects SET order_idx = ? WHERE id = ? AND workspace_id = ?", args: [i, sid, wsId] })));
   return true;
 }
@@ -134,6 +169,9 @@ export async function listChildren(parentId: string, wsId: string) {
   return all("SELECT * FROM projects WHERE parent_goal_id = ? AND status != 'archived' AND workspace_id = ? ORDER BY order_idx ASC, created_at ASC", parentId, wsId);
 }
 export async function createChild(parentId: string, name: string, wsId: string, userId?: string) {
+  // 削除 (アーカイブ) 済みの親の下には作らない。作ると親が一覧に無いので子だけがトップに浮く
+  const parent = await first<{ id: string }>("SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND status != 'archived'", parentId, wsId);
+  if (!parent) return null;
   const c = await first<{ c: number }>("SELECT COUNT(*) AS c FROM projects WHERE parent_goal_id = ? AND workspace_id = ?", parentId, wsId);
   const id = uid();
   await run(
@@ -176,7 +214,7 @@ export async function cascadeGoalDone(id: string, wsId: string) {
   await run(
     `WITH RECURSIVE sub(id) AS (
        SELECT id FROM projects WHERE id = ?1 AND workspace_id = ?2
-       UNION ALL
+       UNION
        SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
      )
      UPDATE projects SET status = 'done', completed_at = COALESCE(completed_at, ?3)
@@ -187,7 +225,7 @@ export async function cascadeGoalDone(id: string, wsId: string) {
   await run(
     `WITH RECURSIVE sub(id) AS (
        SELECT id FROM projects WHERE id = ?1 AND workspace_id = ?2
-       UNION ALL
+       UNION
        SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
      )
      UPDATE nodes SET completed_at = ?3, updated_at = ?3
@@ -201,7 +239,7 @@ export async function cascadeNodeDone(id: string, wsId: string) {
   await run(
     `WITH RECURSIVE sub(id) AS (
        SELECT id FROM nodes WHERE id = ?1 AND workspace_id = ?2
-       UNION ALL
+       UNION
        SELECT n.id FROM sub CROSS JOIN nodes n ON n.parent_id = sub.id WHERE n.workspace_id = ?2
      )
      UPDATE nodes SET completed_at = ?3, updated_at = ?3
@@ -247,20 +285,24 @@ export async function clearStartedOnParent(parentId: string | null, wsId: string
   );
 }
 
-export async function toggleProjectDone(id: string, done: boolean, wsId: string, byEmail: string | null = null) {
+export async function toggleProjectDone(id: string, done: boolean, wsId: string, byEmail: string | null = null): Promise<boolean> {
   // completed_at を残す (MCP の complete_subtask と同じ)。無いと「いつ終わったか」が
   // 分からず、ゴールの自動の進捗欄に「最近の完了」を出せない。
   // completed_by は「終えたタスク」の数え上げ用 (0025)。一緒に閉じる配下 (cascadeGoalDone) には入れない。
-  await run(
-    "UPDATE projects SET status = ?, completed_at = ?, completed_by = ? WHERE id = ? AND workspace_id = ?",
+  // 削除 (アーカイブ) 済みは触らない。古いタブに残った行のチェックを押すと、削除したタスクが
+  // done/active に戻って一覧に復活していた。
+  const changed = await runChanges(
+    "UPDATE projects SET status = ?, completed_at = ?, completed_by = ? WHERE id = ? AND workspace_id = ? AND status != 'archived'",
     done ? "done" : "active", done ? nowIso() : null, done && byEmail ? byEmail.toLowerCase().trim() : null, id, wsId
   );
+  if (!changed) return false;
   if (done) {
     await cascadeGoalDone(id, wsId);
     await run("UPDATE members SET points = points + 1 WHERE is_you = 1 AND workspace_id = ?", wsId);
     const it = await first<{ name: string; parent_goal_id: string | null }>("SELECT name, parent_goal_id FROM projects WHERE id = ? AND workspace_id = ?", id, wsId);
     if (it?.name?.trim()) await createNotification({ kind: "goal", title: "完了", body: `「${it.name.trim()}」を完了しました`, goal_id: id });
   }
+  return true;
 }
 export async function listMyAssignedItems(user: { email: string }, wsId: string) {
   const email = user.email.toLowerCase().trim();

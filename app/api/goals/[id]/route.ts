@@ -1,6 +1,6 @@
 import { json } from "../../../lib/server/db";
 import { requireWorkspace, goalInScope, requireGoalEdit } from "../../../lib/server/workspace";
-import { getGoal, updateGoal, archiveGoal, assignOnTouch } from "../../../lib/server/queries";
+import { getGoal, updateGoal, archiveGoal, assignOnTouch, GoalTextTooLong } from "../../../lib/server/queries";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const wctx = await requireWorkspace(req);
@@ -18,7 +18,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const { id } = await ctx.params;
   const denied = await requireGoalEdit(wctx, id); if (denied) return denied;
   const patch = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-  await updateGoal(id, patch, wctx.workspaceId);
+  try {
+    await updateGoal(id, patch, wctx.workspaceId);
+  } catch (e) {
+    if (e instanceof GoalTextTooLong) return json({ error: e.message, field: e.field }, { status: 400 });
+    throw e;
+  }
   await assignOnTouch(wctx.user, id, wctx.workspaceId);
   return json({ ok: true });
 }

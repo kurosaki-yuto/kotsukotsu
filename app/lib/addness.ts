@@ -162,6 +162,8 @@ export async function createGoal(name: string): Promise<Goal> {
 
 export async function updateGoal(id: string, patch: Partial<Goal>): Promise<void> {
   await api(`/api/goals/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+  // 先読み済みの古い中身 (名前など) で詳細画面を描かないよう捨てる
+  bundleCache.delete(id);
 }
 
 export async function archiveGoal(id: string): Promise<void> {

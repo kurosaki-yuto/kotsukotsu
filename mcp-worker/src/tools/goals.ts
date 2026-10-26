@@ -6,6 +6,17 @@ import { exportTemplate, kataExportConfig, kataExportTarget } from "../../../app
 import { COMPLETION_CRITERIA_DOC, CURRENT_STATE_DOC } from "../instructions";
 import { GOAL_LIST_COLUMNS, SUBTREE_CTE, ToolDef, assertCanEdit, assertGoalInScope, assignCreatorAsHolder, clearStartedOnParent, formatFieldText, goalInScope, inheritAssigneeFromAncestors, nowIso, parentStateNote, recordRecipients, resolveCreator, taskProgress, uid } from "../lib";
 
+// 名前・現状・完了の基準の上限 (Web の編集 API の GOAL_TEXT_MAX と同じ)。
+// MCP だけ上限が無いと、ここで入った長文を画面が触っただけで切ってしまう。
+const GOAL_TEXT_MAX = 20000;
+function assertTextLen(fields: Record<string, unknown>) {
+  for (const [k, v] of Object.entries(fields)) {
+    if (typeof v === "string" && v.length > GOAL_TEXT_MAX) {
+      throw new Error(`${k} は${GOAL_TEXT_MAX.toLocaleString()}字までです (今は${v.length.toLocaleString()}字)。長い資料はファイルか外部のURLにして、ここには要点とリンクを書いてください`);
+    }
+  }
+}
+
 export const goalsTools: Record<string, ToolDef> = {
   list_goals: {
     description:
@@ -80,10 +91,11 @@ export const goalsTools: Record<string, ToolDef> = {
       if (auth.scopeRoots && !parentId) {
         throw new Error("parentId is required: 複数のゴールにアサインされているため、どのゴール配下に作成するか parentId で指定してください");
       }
+      assertTextLen({ name: args.name, completion_criteria: args.completion_criteria, current_state: args.current_state });
       if (parentId) {
         await assertGoalInScope(env, auth, parentId);
         await assertCanEdit(env, wsId, auth, parentId);
-        const parent = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?").bind(parentId, wsId).first();
+        const parent = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND status != 'archived'").bind(parentId, wsId).first();
         if (!parent) throw new Error(`parent goal not found: ${parentId}`);
       }
       const id = uid();
@@ -140,6 +152,24 @@ export const goalsTools: Record<string, ToolDef> = {
     handler: async (args, env, wsId, auth) => {
       await assertGoalInScope(env, auth, args.id);
       await assertCanEdit(env, wsId, auth, args.id);
+      assertTextLen({ name: args.name, current_state: args.current_state, completion_criteria: args.completion_criteria });
+      // 状態と期日は画面 (app/lib/server/queries/goals.ts の updateGoal) と同じ値だけ受ける。
+      // 決まっていない状態 (completed・foo など) は完了とも未完了とも扱えず一覧に残り続け、
+      // 「来週金曜」のような期日は画面の期日欄に出ない。
+      if (args.status !== undefined && !["active", "done", "archived"].includes(args.status)) {
+        throw new Error(`status は active / done / archived のどれかにしてください (完了にするなら complete_subtask)`);
+      }
+      if (args.deadline !== undefined) {
+        if (args.deadline === "") args.deadline = null;
+        else {
+          const m = /^(\d{4}-\d{2}-\d{2})(T.*)?$/.exec(args.deadline);
+          const day = m?.[1];
+          if (!day || Number.isNaN(Date.parse(day)) || new Date(day).toISOString().slice(0, 10) !== day) {
+            throw new Error(`deadline は YYYY-MM-DD の実在する日付にしてください (受け取った値: ${args.deadline.slice(0, 40)})`);
+          }
+          args.deadline = day;
+        }
+      }
       if (args.current_state !== undefined) args.current_state = formatFieldText(args.current_state);
       if (args.completion_criteria !== undefined) args.completion_criteria = formatFieldText(args.completion_criteria);
       const fields: string[] = [];
@@ -215,7 +245,7 @@ export const goalsTools: Record<string, ToolDef> = {
       const self = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?").bind(id, wsId).first();
       if (!self) throw new Error(`goal not found: ${id}`);
       if (newParentId) {
-        const dest = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?").bind(newParentId, wsId).first();
+        const dest = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND status != 'archived'").bind(newParentId, wsId).first();
         if (!dest) throw new Error(`parent goal not found: ${newParentId}`);
         await clearStartedOnParent(env, wsId, newParentId);
         // cycle guard: walk up from the destination; hitting `id` means the
@@ -241,7 +271,21 @@ export const goalsTools: Record<string, ToolDef> = {
         if (idx >= 0) insertAt = idx;
       }
       order.splice(insertAt, 0, id);
-      await env.DB.prepare("UPDATE projects SET parent_goal_id = ? WHERE id = ? AND workspace_id = ?").bind(newParentId, id, wsId).run();
+      // 上の循環チェックと付け替えの間に別の移動が割り込むと循環ができる。判定と書き込みを1文にする
+      // (app/lib/server/queries/goals.ts の moveGoal と同じ)
+      const moved = await env.DB.prepare(
+        `UPDATE projects SET parent_goal_id = ?1 WHERE id = ?2 AND workspace_id = ?3
+           AND (?1 IS NULL OR NOT EXISTS (
+             WITH RECURSIVE anc(id) AS (
+               SELECT ?1
+               UNION
+               SELECT p.parent_goal_id FROM anc JOIN projects p ON p.id = anc.id AND p.workspace_id = ?3
+                WHERE p.parent_goal_id IS NOT NULL
+             )
+             SELECT 1 FROM anc WHERE id = ?2
+           ))`
+      ).bind(newParentId, id, wsId).run();
+      if (!moved.meta.changes) throw new Error("cannot move a goal under its own descendant");
       if (order.length) {
         await env.DB.batch(order.map((sid, i) =>
           env.DB.prepare("UPDATE projects SET order_idx = ? WHERE id = ? AND workspace_id = ?").bind(i, sid, wsId)
@@ -292,7 +336,9 @@ export const goalsTools: Record<string, ToolDef> = {
     handler: async (args, env, wsId, auth) => {
       await assertGoalInScope(env, auth, args.goalId);
       await assertCanEdit(env, wsId, auth, args.goalId);
-      const goal = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?").bind(args.goalId, wsId).first();
+      assertTextLen({ text: args.text, completion_criteria: args.completion_criteria, current_state: args.current_state });
+      // 削除 (アーカイブ) 済みの親には足さない。親が一覧に無いので子だけがトップに浮く
+      const goal = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND status != 'archived'").bind(args.goalId, wsId).first();
       if (!goal) throw new Error(`goal not found: ${args.goalId}`);
       const id = uid();
       const created = nowIso();
@@ -385,17 +431,19 @@ export const goalsTools: Record<string, ToolDef> = {
     handler: async (args, env, wsId, auth) => {
       await assertGoalInScope(env, auth, args.id);
       await assertCanEdit(env, wsId, auth, args.id);
+      assertTextLen({ current_state: args.current_state });
       const status = args.completed ? "done" : "active";
       // completed_at を残す。projects には status='done' しか無かったため
       // 「いつ終わったか」が一切残らず、速度も「提案は実行されたか」も測れなかった
       // (done_log は nodes 側の完了しか書かない)。
       // completed_by は「終えたタスク」の数え上げ用 (0025)。AI が閉じたらトークンの持ち主の完了として数える
       const res = await env.DB.prepare(
-        "UPDATE projects SET status = ?, completed_at = ?, completed_by = ? WHERE id = ? AND workspace_id = ?"
+        // 削除 (アーカイブ) 済みは done/active に戻さない (一覧に復活していた)
+        "UPDATE projects SET status = ?, completed_at = ?, completed_by = ? WHERE id = ? AND workspace_id = ? AND status != 'archived'"
       )
         .bind(status, args.completed ? nowIso() : null, args.completed ? (auth.actor?.email?.toLowerCase().trim() || null) : null, args.id, wsId)
         .run();
-      if (!res.meta.changes) throw new Error(`subtask not found: ${args.id}`);
+      if (!res.meta.changes) throw new Error(`subtask not found (or archived): ${args.id}`);
       if (args.current_state?.trim()) {
         await env.DB.prepare("UPDATE projects SET current_state = ?, state_updated_at = ? WHERE id = ? AND workspace_id = ?")
           .bind(args.current_state.trim(), nowIso(), args.id, wsId).run();
@@ -407,7 +455,7 @@ export const goalsTools: Record<string, ToolDef> = {
         await env.DB.prepare(
           `WITH RECURSIVE sub(id) AS (
              SELECT id FROM projects WHERE id = ?1 AND workspace_id = ?2
-             UNION ALL
+             UNION
              SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
            )
            UPDATE projects SET status = 'done', completed_at = ?3
@@ -418,7 +466,7 @@ export const goalsTools: Record<string, ToolDef> = {
         await env.DB.prepare(
           `WITH RECURSIVE sub(id) AS (
              SELECT id FROM projects WHERE id = ?1 AND workspace_id = ?2
-             UNION ALL
+             UNION
              SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?2
            )
            UPDATE nodes SET completed_at = ?3, updated_at = ?3
