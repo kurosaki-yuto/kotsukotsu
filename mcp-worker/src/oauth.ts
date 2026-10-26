@@ -28,6 +28,11 @@ const CODE_TTL_SEC = 300;
 // ログイン画面になる。
 const APP_ORIGIN = "https://kotukotu.app";
 const authorizeOrigin = (origin: string) => (new URL(origin).hostname.endsWith("kotukotu.app") ? APP_ORIGIN : origin);
+// issuer は mcp.kotukotu.app に固定する。/authorize だけ別ドメインなので、戻り先に iss を付けて
+// (RFC 9207) どの認可サーバーの応答かをクライアントが確かめられるようにする。Codex は
+// これが無いと「authorization endpoint origin does not match」で止まる (2026-10-26)。
+const MCP_ORIGIN = "https://mcp.kotukotu.app";
+const issuerOrigin = (origin: string) => (new URL(origin).hostname.endsWith("kotukotu.app") ? MCP_ORIGIN : origin);
 
 /** 認可コードを返してよい redirect_uri。claude.ai / claude.com のコールバックと、
  *  Claude Desktop のアプリ内スキーム、Claude Code が使うループバック (ポートは毎回変わる) だけ。 */
@@ -195,7 +200,7 @@ export async function handleOAuth(
     const suffix = p.slice("/.well-known/oauth-protected-resource".length);
     return json({
       resource: origin + (suffix && suffix !== "/" ? suffix : "/mcp"),
-      authorization_servers: [origin],
+      authorization_servers: [issuerOrigin(origin)],
       bearer_methods_supported: ["header"],
       resource_name: "こつこつ",
     });
@@ -203,11 +208,13 @@ export async function handleOAuth(
 
   // RFC 8414 (+ OIDC 形式で探しに来るクライアント向けにも同じ内容を返す)
   if (p.startsWith("/.well-known/oauth-authorization-server") || p.startsWith("/.well-known/openid-configuration")) {
+    const issuer = issuerOrigin(origin);
     return json({
-      issuer: origin,
+      issuer,
       authorization_endpoint: `${authorizeOrigin(origin)}/authorize`,
-      token_endpoint: `${origin}/token`,
-      registration_endpoint: `${origin}/register`,
+      token_endpoint: `${issuer}/token`,
+      registration_endpoint: `${issuer}/register`,
+      authorization_response_iss_parameter_supported: true,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
@@ -263,6 +270,7 @@ export async function handleOAuth(
       const u = new URL(redirectUri);
       for (const [k, v] of Object.entries(q)) u.searchParams.set(k, v);
       if (params.state) u.searchParams.set("state", params.state);
+      u.searchParams.set("iss", issuerOrigin(origin));
       return Response.redirect(u.toString(), 302);
     };
     if (params.response_type !== "code") return back({ error: "unsupported_response_type" });
