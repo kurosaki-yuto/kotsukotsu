@@ -58,7 +58,7 @@ function CopyButton({ text, label = "指示文をコピー" }: { text: string; l
 }
 
 // 指示文を入れてアプリを開く。押した時点で同じ指示文もコピーしておく (アプリ側で落ちても貼れば始められる)
-function OpenButton({ href, text, label, dark }: { href: string; text: string; label: string; dark?: boolean }) {
+export function OpenButton({ href, text, label, dark }: { href: string; text: string; label: string; dark?: boolean }) {
   return (
     <a
       href={href}
@@ -72,8 +72,8 @@ function OpenButton({ href, text, label, dark }: { href: string; text: string; l
   );
 }
 
-const claudeCodeUrl = (text: string) => `claude://code/new?q=${encodeURIComponent(text)}`;
-const codexUrl = (text: string) => `codex://threads/new?prompt=${encodeURIComponent(text)}`;
+export const claudeCodeUrl = (text: string) => `claude://code/new?q=${encodeURIComponent(text)}`;
+export const codexUrl =(text: string) => `codex://threads/new?prompt=${encodeURIComponent(text)}`;
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
@@ -138,7 +138,7 @@ function ConnectorCard({ c }: { c: Connector }) {
 
 export default function IntegrationGuide({ connectUrl, keyUrl, official }: { connectUrl: string; keyUrl: string; official: boolean }) {
   const ccPrompt = claudeCodeSetupPrompt(connectUrl, official);
-  const cxPrompt = codexSetupPrompt(keyUrl);
+  const cxPrompt = codexSetupPrompt(official ? connectUrl : keyUrl, official);
   const chk = checkPrompt();
   const setupAll = setupAllPrompt(connectUrl, official);
   const diag = diagnosePrompt();
@@ -253,7 +253,9 @@ export default function IntegrationGuide({ connectUrl, keyUrl, official }: { con
               <CopyButton text={cxPrompt} />
             </div>
             <p className="mt-2 text-[11.5px] leading-relaxed" style={{ color: "var(--muted)" }}>
-              指示文にはあなた専用のキー入りURLが入ります。人に共有しないでください。
+              {official
+                ? "Claude Code と同じく、途中でブラウザにこつこつの接続画面が開きます。ログインして「接続する」を押せば完了です。"
+                : "指示文にはあなた専用のキー入りURLが入ります。人に共有しないでください。"}
             </p>
           </Card>
         </div>

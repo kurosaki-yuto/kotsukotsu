@@ -3,7 +3,8 @@
 // 設定 > APIキー / 連携ガイド のタブ。settings/page.tsx から切り出し。
 import { useEffect, useRef, useState } from "react";
 import { MCP_HOST, NODE_RUNTIME } from "../lib/hosts";
-import IntegrationGuide from "./IntegrationGuide";
+import IntegrationGuide, { OpenButton, claudeCodeUrl, codexUrl } from "./IntegrationGuide";
+import { claudeCodeSetupPrompt, codexSetupPrompt } from "../lib/integrations";
 
 
 /* =========================================================
@@ -95,6 +96,9 @@ export function ApiKeyTab({ token, onRegen }: { token: string | null; onRegen: (
   const connectUrl = hasToken ? `${mcpEndpoint()}/${token!}` : "";
   // 見出しの「接続用URL」。自分でデプロイした環境ではキー入りURLになる。
   const headlineUrl = sharedLogin ? MCP_SHARED : connectUrl;
+  // 「〇〇で繋ぐ」ボタンで開く指示文 (連携ガイドのボタンと同じもの)
+  const ccPrompt = claudeCodeSetupPrompt(headlineUrl, sharedLogin);
+  const cxPrompt = codexSetupPrompt(headlineUrl, sharedLogin);
 
   function handleCopyShared() {
     try {
@@ -205,8 +209,12 @@ export function ApiKeyTab({ token, onRegen }: { token: string | null; onRegen: (
           </div>
           <div className="mb-4 text-[12px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>
             {sharedLogin
-              ? "Claude Code は共通URLのまま、初回にブラウザでログインするだけで繋がります。ログイン画面を出せないツール（Codex など）は、あなた専用のキー入りURLを使います。"
-              : "どのツールも、あなた専用のキー入りURLで繋ぎます。"}
+              ? "Claude Code と Codex は共通URLのまま、初回にブラウザでログインするだけで繋がります。ボタンを押すと、繋ぐための指示文が入った状態でアプリが開きます（送信は自分で押してください）。ログイン画面を出せないツールは、あなた専用のキー入りURLを使います。"
+              : "どのツールも、あなた専用のキー入りURLで繋ぎます。ボタンを押すと、繋ぐための指示文が入った状態でアプリが開きます（送信は自分で押してください）。"}
+          </div>
+          <div className="mb-4 hidden flex-wrap gap-2 md:flex">
+            <OpenButton href={claudeCodeUrl(ccPrompt)} text={ccPrompt} label="Claude Code で繋ぐ" dark />
+            <OpenButton href={codexUrl(cxPrompt)} text={cxPrompt} label="Codex で繋ぐ" dark />
           </div>
           <div className="flex flex-col gap-3">
             <Snippet
@@ -221,11 +229,19 @@ export function ApiKeyTab({ token, onRegen }: { token: string | null; onRegen: (
               code={connectUrl}
               note="このURLにはキーが含まれます。人に共有しないでください。"
             />
-            <Snippet
-              label="Codex CLI（~/.codex/config.toml に追記）"
-              code={`[mcp_servers.kotsukotsu]\ncommand = "npx"\nargs = ["-y", "mcp-remote", "${connectUrl}"]`}
-              note="保存後 codex を再起動。npx が mcp-remote を自動取得し、リモートMCPに橋渡しします。"
-            />
+            {sharedLogin ? (
+              <Snippet
+                label="Codex（ターミナル）"
+                code={`codex mcp add kotsukotsu --url ${MCP_SHARED}`}
+                note="実行するとブラウザでこつこつの接続画面が開きます。ログインして「接続する」を押せば完了。Codex を開き直すと使えます。"
+              />
+            ) : (
+              <Snippet
+                label="Codex CLI（~/.codex/config.toml に追記）"
+                code={`[mcp_servers.kotsukotsu]\ncommand = "npx"\nargs = ["-y", "mcp-remote", "${connectUrl}"]`}
+                note="保存後 codex を再起動。npx が mcp-remote を自動取得し、リモートMCPに橋渡しします。"
+              />
+            )}
             <Snippet
               label="その他（Cursor / Windsurf / 汎用 stdio クライアント）"
               code={`npx -y mcp-remote "${connectUrl}"`}

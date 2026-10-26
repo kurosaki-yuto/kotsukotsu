@@ -230,9 +230,21 @@ export function claudeCodeSetupPrompt(url: string, official: boolean): string {
   ].join("\n");
 }
 
-// こつこつ自体を Codex に繋ぐ指示文。Codex はキー入りURLを url に直接書く (ログイン画面を出さずに繋がる)
-export function codexSetupPrompt(keyUrl: string): string {
-  const target = keyUrl || "<こつこつの 設定 → APIキー にある、あなた専用のキー入りURL>";
+// こつこつ自体を Codex に繋ぐ指示文。
+// official = 当社ホスト版: 共通 URL を `codex mcp add --url` で足すと、そのままブラウザでのログインが始まる
+// それ以外: キー入りURLを url に直接書く (ログイン画面を出さずに繋がる)
+export function codexSetupPrompt(url: string, official: boolean): string {
+  if (official) {
+    const target = url || "<こつこつの 設定 → APIキー にある接続用URL>";
+    return [
+      "こつこつ (ゴールとタスクの管理ツール) を、この Codex に MCP で繋いでください。",
+      "1. `codex mcp list` で kotsukotsu が既にあるか確かめる。あってログイン済み (Auth が OAuth) なら、何も変えずに「設定済みです」と返して止まる。あって未ログインなら `codex mcp login kotsukotsu` を実行して 2 の後半へ進む",
+      `2. 無ければ \`codex mcp add kotsukotsu --url ${target}\` を実行する。ブラウザでこつこつの接続画面が開くので、私に「ブラウザでこつこつにログインして『接続する』を押してください」と伝え、コマンドが終わるのを待つ`,
+      "3. ブラウザが開かない・コマンドが権限で止まるときは、私に「ターミナルで上のコマンドを実行してください」とコマンドを添えて伝えて止まる",
+      "4. 終わったら私に「Codex を開き直すと こつこつ のツールが使えます」と伝えて止まる",
+    ].join("\n");
+  }
+  const target = url || "<こつこつの 設定 → APIキー にある、あなた専用のキー入りURL>";
   return [
     "こつこつ (ゴールとタスクの管理ツール) を、この Codex に MCP で繋いでください。",
     "1. ~/.codex/config.toml に [mcp_servers.kotsukotsu] が既にあるか確かめる。あれば何も変えずに「設定済みです」と返して止まる",
