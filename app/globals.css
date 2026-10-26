@@ -230,5 +230,6 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
 .col-figure figcaption { margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
 
 /* 見出しと FAQ の質問が、スマホで最後の1〜2文字だけ次の行に落ちないようにする (2026-10-26 レスポンシブ検査)。
-   auto-phrase は文節で折る (Chrome 系)、balance は行の長さをそろえる (Safari 17.5 以降も対応) */
-h1, h2, h3, h4, summary { text-wrap: balance; word-break: auto-phrase; }
+   auto-phrase は文節で折る (Chrome 系)、balance は行の長さをそろえる (Safari 17.5 以降も対応)。
+   文節が列に入りきらないときだけ中で折る (anywhere。無いと狭い列で見出しがはみ出して切れる) */
+h1, h2, h3, h4, summary { text-wrap: balance; word-break: auto-phrase; overflow-wrap: anywhere; }
