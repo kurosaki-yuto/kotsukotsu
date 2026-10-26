@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSelectedLayoutSegments } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { unreadCount, listGoals, getMe, invalidateMe, prefetchHome, getMyProfile, updateMyAvatar, listWorkspaces, createWorkspace, switchWorkspace, createInvite, UNREAD_CHANGED_EVENT, type MyProfile, type Workspace } from "../lib/addness";
 import { type Goal } from "../lib/db";
@@ -64,12 +64,16 @@ void ICON.chat;
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
+  const officialPage = useSelectedLayoutSegments()[0] === "(official)";
   // ログインしていない人が開くページ。ここでログイン画面へ回すと、パスワード再設定の
   // メールのリンク (/reset/...) を開いた人がログイン画面に着いて先へ進めなくなる。
   // /column はコラムの公開ページ (ログインせずに読める。検索から来た人向け)。
   // /company 配下 (会社のサイト) と /terms /privacy は規約・会社情報 (当社ホスト版だけ。app/(official)/)。
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/reset/") || pathname === "/column" || pathname.startsWith("/column/")
-    || pathname === "/company" || pathname.startsWith("/company/") || pathname === "/terms" || pathname === "/privacy";
+    || pathname === "/company" || pathname.startsWith("/company/") || pathname === "/terms" || pathname === "/privacy"
+    // app/(official)/ のページはアドレスではなくページの置き場所で見分ける。会社サイトは hp.kotukotu.app/message のように
+    // /company の付かないアドレスで開かれる (pages-proxy が読み替える) ので、pathname だけだとアプリ扱いになり読み込み画面で止まる
+    || officialPage;
   const router = useRouter();
   const mainRef = useRef<HTMLElement | null>(null);
   // <main> is a shared layout element that persists across route changes —
