@@ -160,9 +160,23 @@ const REFRESH_TTL_SEC = 90 * 24 * 3600;
 
 const esc = (v: string) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 
+/** 同意画面の CSP の form-action に足す、戻り先の source。
+ *  Chrome / Edge は form-action をフォーム送信後のリダイレクト先にも当てるため、'self' だけだと
+ *  「接続する」→ 302 で戻り先 (Codex の http://127.0.0.1:<port> など) へ飛ぶところが黙って止まる (2026-10-26)。
+ *  戻り先は redirectAllowed で検証済みのものだけが来る。IPv6 や独自スキームは CSP で host を書けないのでスキームで許す。 */
+function formActionTarget(redirectUri: string): string {
+  try {
+    const u = new URL(redirectUri);
+    if ((u.protocol === "http:" || u.protocol === "https:") && !u.hostname.startsWith("[")) return u.origin;
+    return u.protocol;
+  } catch {
+    return "";
+  }
+}
+
 /** 接続の同意画面。cookie だけで承認しない (リンクを踏ませるだけで本人のキーを持ち出せてしまう)。
  *  ボタンを押した POST と、封じた印 (csrf) が揃ったときだけコードを出す。 */
-function consentPage(o: { redirectHost: string; params: Record<string, string>; csrf: string }): Response {
+function consentPage(o: { redirectHost: string; redirectUri: string; params: Record<string, string>; csrf: string }): Response {
   const hidden = Object.entries(o.params)
     .filter(([k]) => ["client_id", "redirect_uri", "response_type", "code_challenge", "code_challenge_method", "state", "resource", "scope"].includes(k))
     .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`)
@@ -175,7 +189,7 @@ function consentPage(o: { redirectHost: string; params: Record<string, string>; 
 <form method="post">${hidden}<input type="hidden" name="csrf" value="${esc(o.csrf)}">
 <div class="row"><button type="submit" name="consent" value="deny">やめる</button><button type="submit" name="consent" value="allow" class="ok">接続する</button></div></form>
 </div></body></html>`;
-  return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" } });
+  return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' ${formActionTarget(o.redirectUri)}; frame-ancestors 'none'` } });
 }
 
 async function keyHash(key: string): Promise<string> {
@@ -311,7 +325,7 @@ export async function handleOAuth(
     const kh = await keyHash(key);
     if (req.method === "GET") {
       const csrf = await seal(secret, { t: "consent", kh, c: params.code_challenge, r: redirectUri, exp: Math.floor(Date.now() / 1000) + CONSENT_TTL_SEC } satisfies ConsentPayload);
-      return consentPage({ redirectHost: new URL(redirectUri).host || redirectUri, params, csrf });
+      return consentPage({ redirectHost: new URL(redirectUri).host || redirectUri, redirectUri, params, csrf });
     }
     if (params.consent !== "allow") return back({ error: "access_denied", error_description: "接続を取りやめました" });
     const consent = await unseal<ConsentPayload>(secret, params.csrf ?? "");
