@@ -6,12 +6,13 @@ import { joinViaInvite, inviteEmailMatches, createWorkspace } from "../../../lib
 
 import { limitOr429, clientIp, HOUR } from "../../../lib/server/ratelimit";
 import { crossOriginWrite } from "../../../lib/server/auth";
+import { parseSignupSource } from "../../../lib/firstTouch";
 
 export async function POST(req: Request) {
   if (crossOriginWrite(req)) return json({ error: "forbidden" }, { status: 403 });
   const limited = await limitOr429(`register:ip:${clientIp(req)}`, 10, HOUR);
   if (limited) return limited;
-  const body = (await req.json().catch(() => ({}))) as { email?: string; password?: string; name?: string; invite?: string };
+  const body = (await req.json().catch(() => ({}))) as { email?: string; password?: string; name?: string; invite?: string; source?: string };
   const email = (body.email ?? "").trim();
   const password = body.password ?? "";
   const name = (body.name ?? "").trim().slice(0, 80);
@@ -39,6 +40,14 @@ export async function POST(req: Request) {
   // workspace; everyone else gets a fresh personal workspace they own.
   try {
     const user = await createUser(email, password, name, role);
+    // どこから来たか (app/lib/firstTouch.ts)。残せなくても登録は通す
+    const src = parseSignupSource(body.source);
+    if (src) {
+      await run(
+        "UPDATE users SET signup_ref = ?, signup_utm_source = ?, signup_utm_medium = ?, signup_utm_campaign = ?, signup_landing = ? WHERE id = ?",
+        src.ref || null, src.utmSource || null, src.utmMedium || null, src.utmCampaign || null, src.landing || null, user.id
+      ).catch((e) => console.error("signup source", e));
+    }
     let workspaceId: string;
     if (invite) {
       workspaceId = await joinViaInvite(invite, user);

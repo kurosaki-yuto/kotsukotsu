@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { validateInvite, acceptInviteAsUser } from "../lib/addness";
 import OfficialOnly from "../column/OfficialOnly";
+import { FIRST_TOUCH_KEY } from "../lib/firstTouch";
 
 const feather = (
   <svg
@@ -143,7 +144,14 @@ export default function LoginPage() {
         email: email.trim(),
         password,
       };
-      if (mode === "register") payload.name = name.trim();
+      if (mode === "register") {
+        payload.name = name.trim();
+        // どこから来たか (app/lib/firstTouch.ts)。読めなければ送らない
+        try {
+          const ft = sessionStorage.getItem(FIRST_TOUCH_KEY);
+          if (ft) payload.source = ft;
+        } catch {}
+      }
       // both paths honor the invite: register joins on signup, login joins on sign-in
       if (inviteToken && !inviteInvalid) payload.invite = inviteToken;
 
