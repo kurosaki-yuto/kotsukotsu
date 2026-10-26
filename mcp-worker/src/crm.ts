@@ -5,10 +5,10 @@ import type { McpAuth } from "./lib";
 type Tool = { name: string; description: string; inputSchema: Record<string, unknown> };
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
 
-export async function crmToolsList(_env: Env, _own: Set<string>): Promise<Tool[]> {
+export async function crmToolsList(_env: Env, _own: Set<string>, _auth: McpAuth): Promise<Tool[]> {
   return [];
 }
-export async function crmInstructions(_env: Env): Promise<string> {
+export async function crmInstructions(_env: Env, _auth: McpAuth): Promise<string> {
   return "";
 }
 export async function isCrmTool(_env: Env, _name: string): Promise<boolean> {

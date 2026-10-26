@@ -80,7 +80,7 @@ async function handleRpc(message: any, env: Env, auth: McpAuth): Promise<unknown
       const instructions = buildInstructions(auth);
       // 顧客台帳の使い方は版の管理 (instructionsVersion) に入れない。顧客台帳側で直すたびに
       // 全接続に「運用ルールが更新されました」が出るのを避けるため。
-      const withCrm = instructions + (await crmInstructions(env));
+      const withCrm = instructions + (await crmInstructions(env, auth));
       // The client is receiving them right here, so this connection is current.
       await markInstructionsDelivered(env, auth, instructionsVersion(instructions)).catch((err) => {
         console.log(`instruction delivery bookkeeping failed: ${(err as { message?: string })?.message ?? err}`);
@@ -102,7 +102,7 @@ async function handleRpc(message: any, env: Env, auth: McpAuth): Promise<unknown
       return rpcResult(id, {});
 
     case "tools/list":
-      return rpcResult(id, { tools: [...TOOLS_LIST, ...(await crmToolsList(env, OWN_TOOLS))] });
+      return rpcResult(id, { tools: [...TOOLS_LIST, ...(await crmToolsList(env, OWN_TOOLS, auth))] });
 
     case "tools/call": {
       const name = params?.name as string;
