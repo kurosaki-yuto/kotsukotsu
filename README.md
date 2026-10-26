@@ -8,7 +8,7 @@
 「何をやるか」ではなく「どのゴールの、どの完了基準を満たすためにやるか」から
 タスクを分解して積む。人と AI (Claude / MCP) が同じ画面を正のソースとして共有する。
 
-ホスト版: https://kotukotu.app (合同会社もちもつが運営)
+ホスト版: https://kotukotu.app/?utm_source=github&utm_medium=readme (合同会社もちもつが運営)
 
 ## できること
 
