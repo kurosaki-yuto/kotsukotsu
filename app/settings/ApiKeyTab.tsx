@@ -218,24 +218,11 @@ export function ApiKeyTab({ token, onRegen }: { token: string | null; onRegen: (
           </div>
           <div className="flex flex-col gap-3">
             <Snippet
-              label="Claude Code（ターミナル）"
-              code={`claude mcp add --transport http kotsukotsu ${headlineUrl}`}
-              note={sharedLogin
-                ? "実行後、Claude Code で /mcp → kotsukotsu → Authenticate を選ぶとブラウザでログイン画面が開きます。"
-                : "キー入りURLなので、実行すればそのまま繋がります。コマンドは人に共有しないでください。"}
-            />
-            <Snippet
               label="あなた専用のキー入りURL（ログイン画面を出せないツール用）"
               code={connectUrl}
               note="このURLにはキーが含まれます。人に共有しないでください。"
             />
-            {sharedLogin ? (
-              <Snippet
-                label="Codex（ターミナル）"
-                code={`codex mcp add kotsukotsu --url ${MCP_SHARED}`}
-                note="実行するとブラウザでこつこつの接続画面が開きます。ログインして「接続する」を押せば完了。Codex を開き直すと使えます。"
-              />
-            ) : (
+            {!sharedLogin && (
               <Snippet
                 label="Codex CLI（~/.codex/config.toml に追記）"
                 code={`[mcp_servers.kotsukotsu]\ncommand = "npx"\nargs = ["-y", "mcp-remote", "${connectUrl}"]`}

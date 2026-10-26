@@ -47,7 +47,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 1. 最後に出る「こつこつ」の URL を利用者に渡し、ブラウザで開いて「新規登録」してもらう。
    **パスワードは利用者本人が入れる。AI が代わりにアカウントを作らない**
-2. Claude から使えるようにする: 利用者に 設定 → APIキー の「Claude Code（ターミナル）」のコマンドをコピーしてもらい、実行する。
+2. Claude から使えるようにする: 利用者に 設定 → APIキー の「接続用URL」をコピーしてもらい、`claude mcp add --transport http --scope user kotsukotsu <接続用URL>` を実行する。
    キー入りなので、コマンドやキーをファイル・コミット・ログに残さない。claude.ai で使うときは同じ画面の「接続用URL」をカスタムコネクタに貼る
 3. 繋がったら、`list_goals` などのツールで読み書きできることを確かめて完了を伝える
 4. ほかのツール (Chatwork・Notion・GitHub・Gmail など) も AI に繋ぎたいと言われたら、こつこつの 設定 → 連携ガイド の
