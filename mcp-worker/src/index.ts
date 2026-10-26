@@ -130,7 +130,10 @@ async function handleRpc(message: any, env: Env, auth: McpAuth): Promise<unknown
       try {
         const callAuth = name === "list_workspaces" ? auth : await authForWorkspace(env, auth, params?.arguments?.workspace);
         const wsId = callAuth.wsId;
-        const result = await def.handler(parsed.data, env, wsId, callAuth);
+        const wsArg = params?.arguments?.workspace;
+        const result = await def.handler(parsed.data, env, wsId, callAuth, {
+          workspaceGiven: typeof wsArg === "string" && wsArg.trim() !== "",
+        });
         if (MUTATING_TOOLS.has(name)) await notifyRealtime(env, wsId);
         if (PUSH_TOOLS.has(name)) {
           // most PUSH_TOOLS take goalId directly; complete_subtask's id IS the
