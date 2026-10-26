@@ -36,7 +36,7 @@ function splitOwners(ball: string): { owner: string; inner: string }[] {
     if (ch === "(" || ch === "（") { depth++; if (depth === 1) continue; }
     if (ch === ")" || ch === "）") { depth = Math.max(0, depth - 1); if (depth === 0) continue; }
     if (depth === 0 && /[。/／、,]/.test(ch)) { flush(); continue; }
-    // 「先方 (…) と小西さん (…)」: 閉じ括弧の直後の「と」も区切り
+    // 「先方 (…) と佐藤さん (…)」: 閉じ括弧の直後の「と」も区切り
     if (depth === 0 && ch === "と" && /[)）]\s*$/.test(ball.slice(0, i))) { flush(); continue; }
     if (depth === 0) owner += ch; else inner += ch;
   }
@@ -46,16 +46,16 @@ function splitOwners(ball: string): { owner: string; inner: string }[] {
 
 /**
  * ボールの行がその人を指しているか。
- * 0 = 指していない / 1 = 持ち主として書かれている (「黒崎 (…)」「…は小西さん」)
+ * 0 = 指していない / 1 = 持ち主として書かれている (「黒崎 (…)」「…は佐藤さん」)
  * 2 = 持ち主が「こちら」で、括弧の中にその人が出る (「こちら (黒崎の判断待ち)」)
- * 「黒崎 (野田さんへの連絡)」の野田は相手であって持ち主ではない。「先方 (松本さん本人)」の松本は先方の人。どちらも数えない。
+ * 「黒崎 (鈴木さんへの連絡)」の鈴木は相手であって持ち主ではない。「先方 (高橋さん本人)」の高橋は先方の人。どちらも数えない。
  */
 export function ballRank(ball: string, keys: string[]): 0 | 1 | 2 {
   if (!keys.length) return 0;
   let mentioned = false;
   for (const { owner, inner } of splitOwners(ball)) {
     if (keys.some((k) => owner.includes(k))) return 1;
-    // 「小西さんに渡す」「野田さんへ連絡」のように、渡す・伝える相手として出てくるものは数えない
+    // 「佐藤さんに渡す」「鈴木さんへ連絡」のように、渡す・伝える相手として出てくるものは数えない
     if (owner.includes("こちら") && keys.some((k) => new RegExp(`${k}(?:さん|様)?(?!(?:さん|様)?(?:に|へ|から))`).test(inner))) mentioned = true;
   }
   return mentioned ? 2 : 0;

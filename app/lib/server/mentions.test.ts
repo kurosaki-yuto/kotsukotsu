@@ -4,8 +4,8 @@ import { resolveMentionedMembers } from "./mentions.ts";
 
 const members = [
   { id: "1", name: "黒崎優斗", email: "kurosaki@example.com" },
-  { id: "2", name: "田中", email: "tanaka-short@example.com" },
-  { id: "3", name: "田中大二朗", email: "tanaka@example.com" },
+  { id: "2", name: "山田", email: "yamada-short@example.com" },
+  { id: "3", name: "山田太郎", email: "yamada@example.com" },
 ];
 
 test("@全員 resolves every assigned member", () => {
@@ -13,11 +13,11 @@ test("@全員 resolves every assigned member", () => {
 });
 
 test("a named mention resolves only the longest matching name", () => {
-  assert.deepEqual(resolveMentionedMembers("@田中大二朗 進捗をください", members), [members[2]]);
+  assert.deepEqual(resolveMentionedMembers("@山田太郎 進捗をください", members), [members[2]]);
 });
 
 test("@全員 plus a named mention does not duplicate a recipient", () => {
-  assert.deepEqual(resolveMentionedMembers("@全員 @田中大二朗 確認してください", members), members);
+  assert.deepEqual(resolveMentionedMembers("@全員 @山田太郎 確認してください", members), members);
 });
 
 test("plain text does not resolve recipients", () => {
@@ -39,7 +39,7 @@ test("an honorific after the name does not break the mention", () => {
 });
 
 test("an exact short name is not widened to the longer one", () => {
-  assert.deepEqual(resolveMentionedMembers("@田中 お願いします", members), [members[1]]);
+  assert.deepEqual(resolveMentionedMembers("@山田 お願いします", members), [members[1]]);
 });
 
 test("a latin name matches case-insensitively", () => {
@@ -48,5 +48,5 @@ test("a latin name matches case-insensitively", () => {
 });
 
 test("an email address in the body is not a mention", () => {
-  assert.deepEqual(resolveMentionedMembers("連絡先は tanaka@example.com です", members), []);
+  assert.deepEqual(resolveMentionedMembers("連絡先は yamada@example.com です", members), []);
 });

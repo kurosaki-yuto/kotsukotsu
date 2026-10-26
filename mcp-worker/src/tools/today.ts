@@ -197,7 +197,7 @@ export const todayTools: Record<string, ToolDef> = {
       "見える範囲は今までどおり (担当範囲が決まっている人は、その範囲のタスクだけ)。" +
       "複数のワークスペースに所属している人は、workspace を渡さなければ所属する全ワークスペースから集め、各行に workspace (id・名前) を付けて返す。1つに絞るときは workspace を渡す。",
     schema: z.object({
-      member: z.string().optional().describe("誰のタスクか。名前 (例: 田中 / 田中大二朗) かメール。省略時は接続している本人"),
+      member: z.string().optional().describe("誰のタスクか。名前 (例: 山田 / 山田太郎) かメール。省略時は接続している本人"),
       email: z.string().optional().describe("旧引数。member と同じ扱い"),
       limit: z.number().int().min(1).max(100).optional().describe("既定 30"),
       offset: z.number().int().min(0).optional().describe("既定 0"),

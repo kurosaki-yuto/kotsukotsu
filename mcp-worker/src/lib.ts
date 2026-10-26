@@ -160,7 +160,7 @@ export async function assignCreatorAsHolder(env: Env, wsId: string, goalId: stri
 // アサインのあるゴールを見つけ、その中で ワークスペース admin > members.role=Admin
 // > 先にアサインされた順 で1人選ぶ。
 // 以前はこれを作成者アサインと併用していたため、黒崎の AI が作ったタスクに
-// 上位ゴールの担当者(田中など)が勝手に付いていた。今は assignCreatorAsHolder が
+// 上位ゴールの担当者(山田など)が勝手に付いていた。今は assignCreatorAsHolder が
 // 効いた時点でこの継承は呼ばない。通知は出さない — 自動付与で毎回鳴ると邪魔。
 export async function inheritAssigneeFromAncestors(env: Env, wsId: string, goalId: string, parentId: string | null): Promise<string | null> {
   let cur: string | null = parentId;
