@@ -22,6 +22,7 @@ import {
 import type { Goal } from "./lib/db";
 import { useAutoRefresh } from "./lib/useAutoRefresh";
 import MyTurn from "./components/MyTurn";
+import Attention from "./components/Attention";
 import { ItemRow } from "./components/tasks/ItemRow";
 import { daysUntil, useIndent, countChildren, buildItemTree, pruneToAssigned, type DropPos, type DropHint } from "./components/tasks/tree";
 import DoneCounts from "./components/DoneCounts";
@@ -384,6 +385,7 @@ export default function TasksPage() {
         </p>
 
         <MyTurn />
+        <Attention />
         <DoneCounts myEmail={myEmail} />
 
         {/* PC(lg+): 左=ゴールツリー / 右=期限が近い。スマホは期限が近い→ツリーの縦1列 */}

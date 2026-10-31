@@ -31,7 +31,7 @@ import { chatTools } from "./tools/chat";
 import { miscTools } from "./tools/misc";
 import { templatesTools } from "./tools/templates";
 import { membersTools } from "./tools/members";
-import { runDueReminders, runSelfCheck, isDailySelfCheckTick } from "./cron";
+import { runDueReminders, runSelfCheck, isDailySelfCheckTick, runStallSweep } from "./cron";
 import { Env, MUTATING_TOOLS, PUSH_TOOLS } from "./env";
 import { McpAuth, PushPayload, RPC, SUBTREE_CTE, ToolDef, authForWorkspace, corsHeaders, jsonResponse, notifyPush, notifyRealtime, reachableWorkspaces, resolveAuth, rpcError, rpcResult, toolText } from "./lib";
 import { PROTOCOL_VERSION, SERVER_INFO, buildInstructions, instructionsAreStale, instructionsVersion, markInstructionsDelivered } from "./instructions";
@@ -243,6 +243,7 @@ async function memberKeyFromSession(req: Request, env: Env): Promise<string | nu
 export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runDueReminders(env));
+    ctx.waitUntil(runStallSweep(env, event));
     if (isDailySelfCheckTick(event)) ctx.waitUntil(runSelfCheck(env));
   },
   async fetch(request: Request, env: Env): Promise<Response> {

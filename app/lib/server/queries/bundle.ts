@@ -4,6 +4,7 @@ import { listMessages } from "./chat";
 import { getGoal, getAncestors, listChildren } from "./goals";
 import { GOAL_ID_CHUNK, listGoalMembers, listGoalMembersBatch } from "./goalMembers";
 import { all } from "../db";
+import { listSteps } from "./attention";
 
 // ---------------- goal page bundle (one request per page transition) ----------------
 // The goal detail page used to fire 2 requests per child (progress + assignees)
@@ -11,12 +12,13 @@ import { all } from "../db";
 export async function goalBundle(id: string, wsId: string) {
   const goal = await getGoal(id, wsId);
   if (!goal) return null;
-  const [ancestors, children, resources, comments, assignees] = await Promise.all([
+  const [ancestors, children, resources, comments, assignees, steps] = await Promise.all([
     getAncestors(id, wsId),
     listChildren(id, wsId),
     listResources(id, wsId),
     listMessages(id, wsId),
     listGoalMembers(id, wsId),
+    listSteps(id, wsId),
   ]);
   const ids = (children as { id: string }[]).map((c) => c.id);
   const childProgress: Record<string, { done: number; total: number }> = {};
@@ -46,5 +48,5 @@ export async function goalBundle(id: string, wsId: string) {
     for (const rows of progChunks) for (const r of rows) childProgress[r.pid] = { done: r.done, total: r.total };
     for (const [cid, ms] of Object.entries(byGoal)) childAssignees[cid] = ms;
   }
-  return { goal, ancestors, children, resources, comments, assignees, childProgress, childAssignees };
+  return { goal, ancestors, children, resources, comments, assignees, childProgress, childAssignees, steps };
 }

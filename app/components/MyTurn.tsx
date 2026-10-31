@@ -21,6 +21,13 @@ function deadlineLabel(d: string | null): string | null {
   return days < 0 ? `期限切れ ${-days}日` : days === 0 ? "今日まで" : `あと${days}日`;
 }
 
+// 現状が書かれてから何日たったか = 何日待たせているか。3日以上だけ出す (11/1 本番: 黒崎の番44件のうち42件が7日以上)
+function waitingLabel(iso: string | null): string | null {
+  if (!iso) return null;
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  return Number.isNaN(days) || days < 3 ? null : `${days}日待ち`;
+}
+
 export default function MyTurn() {
   const router = useRouter();
   const [items, setItems] = useState<MyTurnItem[] | null>(null);
@@ -47,6 +54,7 @@ export default function MyTurn() {
       <ul className="divide-y divide-[var(--doing-border)]">
         {shown.map((t, i) => {
           const dl = deadlineLabel(t.deadline);
+          const wait = waitingLabel(t.state_updated_at);
           return (
             // スマホは画面が狭いので3件まで (4・5件目は「すべて表示」で出す)
             <li key={t.id} className={!all && i >= FIRST_PHONE ? "hidden md:block" : undefined}>
@@ -60,6 +68,7 @@ export default function MyTurn() {
                   {dl && (
                     <span className="flex-none text-[11.5px] font-bold" style={{ color: dl.startsWith("期限切れ") || dl === "今日まで" ? "var(--danger)" : "var(--muted)" }}>{dl}</span>
                   )}
+                  {!dl && wait && <span className="flex-none text-[11.5px]" style={{ color: "var(--muted)" }}>{wait}</span>}
                 </div>
                 <div className="mt-0.5 line-clamp-1 md:line-clamp-2 text-[12.5px] leading-relaxed" style={{ color: "var(--foreground-soft)" }}>
                   ボール: {t.ball}

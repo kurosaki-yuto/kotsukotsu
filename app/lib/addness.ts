@@ -405,6 +405,28 @@ export async function setItemStarted(id: string, started: boolean): Promise<void
   await api(`/api/goals/${id}/start`, { method: "PATCH", body: JSON.stringify({ started }) });
 }
 
+// ---------- 作業の手順 (タスクの中のチェックリスト。AI が作業を始めるときに切る) ----------
+export type TaskStep = { id: string; task_id: string; text: string; order_idx: number; created_at: string; done_at: string | null; created_by: string | null };
+export async function setStepDone(stepId: string, done: boolean, taskId: string): Promise<void> {
+  await api(`/api/steps/${stepId}`, { method: "PATCH", body: JSON.stringify({ done }) });
+  bundleCache.delete(taskId);
+}
+
+// ---------- 片付け: 閉じていい？ / 止まっている ----------
+export type ClosableItem = {
+  id: string; name: string; parent_name: string | null; state_updated_at: string | null;
+  reason: "children_done" | "steps_done" | "state_says_done"; detail: string;
+};
+export type StalledItem = { id: string; name: string; parent_name: string | null; stalled_at: string; stalled_note: string | null };
+export async function getAttention(): Promise<{ closable: ClosableItem[]; stalled: StalledItem[] }> {
+  return (await api("/api/attention")) as { closable: ClosableItem[]; stalled: StalledItem[] };
+}
+/** keep_open = 「まだ」(現状が変わるまで閉じていい？に出さない) / ack_stall = 「確認した」(止まっているを消す) */
+export async function dismissAttention(id: string, action: "keep_open" | "ack_stall"): Promise<void> {
+  await api("/api/attention", { method: "POST", body: JSON.stringify({ id, action }) });
+  bundleCache.delete(id);
+}
+
 // ---------- goal page bundle (fast transitions) ----------
 // One request loads everything the goal page needs. Bundles are kept in a
 // module-level cache so revisiting (or hover-prefetching) a goal renders
@@ -418,6 +440,7 @@ export type GoalBundle = {
   assignees: GoalMember[];
   childProgress: Record<string, { done: number; total: number }>;
   childAssignees: Record<string, GoalMember[]>;
+  steps?: TaskStep[];
 };
 const bundleCache = new Map<string, GoalBundle>();
 const bundleInflight = new Map<string, Promise<GoalBundle>>();

@@ -4,6 +4,7 @@ import { findPrecedents, PRECEDENTS_NOTE, privacyProblem, upsertPlaybook, should
 import { kataForGoal, kataNote, templateIdForGoal } from "../kata";
 import { exportTemplate, kataExportConfig, kataExportTarget } from "../../../app/lib/server/templateCore";
 import { COMPLETION_CRITERIA_DOC, CURRENT_STATE_DOC } from "../instructions";
+import { CLEAR_STALL_SET } from "../../../app/lib/stall";
 import { GOAL_LIST_COLUMNS, SUBTREE_CTE, ToolDef, assertCanEdit, assertGoalInScope, assignCreatorAsHolder, clearStartedOnParent, formatFieldText, goalInScope, inheritAssigneeFromAncestors, nowIso, parentStateNote, recordRecipients, resolveCreator, taskProgress, uid } from "../lib";
 
 // 名前・現状・完了の基準の上限 (Web の編集 API の GOAL_TEXT_MAX と同じ)。
@@ -15,6 +16,14 @@ function assertTextLen(fields: Record<string, unknown>) {
       throw new Error(`${k} は${GOAL_TEXT_MAX.toLocaleString()}字までです (今は${v.length.toLocaleString()}字)。長い資料はファイルか外部のURLにして、ここには要点とリンクを書いてください`);
     }
   }
+}
+
+type StepRow = { id: string; text: string; order_idx: number; done_at: string | null };
+async function listTaskSteps(env: { DB: D1Database }, wsId: string, taskId: string): Promise<StepRow[]> {
+  const { results } = await env.DB.prepare(
+    "SELECT id, text, order_idx, done_at FROM task_steps WHERE task_id = ? AND workspace_id = ? ORDER BY order_idx, created_at"
+  ).bind(taskId, wsId).all<StepRow>();
+  return results ?? [];
 }
 
 export const goalsTools: Record<string, ToolDef> = {
@@ -61,10 +70,13 @@ export const goalsTools: Record<string, ToolDef> = {
         canSee: (id) => goalInScope(env, auth, id),
       });
       const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...g }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>));
+      const steps = await listTaskSteps(env, wsId, args.id);
       return {
         ...(row as object),
         task_progress: p.text,
         current_state_is_stale: p.stale,
+        ...(steps.length ? { steps } : {}),
+        ...((row as { stalled_at?: string | null }).stalled_at ? { stalled_note_for_ai: "このタスクは進行中のまま24時間以上動かず止まっていた (stalled_note)。続けるなら start_task、終わっているなら complete_subtask、やめるなら update_goal で archived。どれかをすると印は消える" } : {}),
         ...(kata ? { kata, kata_note: kataNote(kata, "get") } : {}),
         ...(precedents.length ? { precedents, precedents_note: PRECEDENTS_NOTE } : {}),
       };
@@ -185,6 +197,9 @@ export const goalsTools: Record<string, ToolDef> = {
       if (args.current_state !== undefined) {
         fields.push("state_updated_at = CASE WHEN current_state IS NOT ? THEN ? ELSE state_updated_at END");
         binds.push(args.current_state, nowIso());
+        // 現状を書き直した = 動いたので「止まっている」を外す
+        fields.push("stalled_at = CASE WHEN current_state IS NOT ? THEN NULL ELSE stalled_at END", "stalled_note = CASE WHEN current_state IS NOT ? THEN NULL ELSE stalled_note END");
+        binds.push(args.current_state, args.current_state);
       }
       if (args.completion_criteria !== undefined) {
         fields.push("criteria_updated_at = CASE WHEN completion_criteria IS NOT ? THEN ? ELSE criteria_updated_at END");
@@ -318,6 +333,8 @@ export const goalsTools: Record<string, ToolDef> = {
 
   add_subtask: {
     description:
+      "人が頼んだ単位のタスクを足す (盤に1行として並ぶ)。AI が作業を進めるための手順 (「資料を読む」「下書きを作る」など) はここに作らず add_steps でタスクの中に持たせる。" +
+      "手順を子タスクにすると人が頼んだタスクと同じ盤に並び、名前と中身がずれたタスクとして残る。" +
       "Add a subtask to a goal — creates it as a child goal, exactly like the app's " +
       "own 'タスク' list under this goal (and create_goal with parentId). order_idx " +
       "becomes max+1 among siblings. Call again with the new subtask's id as goalId " +
@@ -400,7 +417,7 @@ export const goalsTools: Record<string, ToolDef> = {
         const who = await resolveCreator(env, wsId, auth.actor);
         const via = (args.agent ?? "").trim() || "AI";
         await env.DB.prepare(
-          `UPDATE projects SET started_at = ?, started_by = ?, started_by_name = ?, started_via = ?
+          `UPDATE projects SET started_at = ?, started_by = ?, started_by_name = ?, started_via = ?, ${CLEAR_STALL_SET}
             WHERE id = ? AND workspace_id = ? AND status = 'active' AND started_at IS NULL
               AND NOT EXISTS (SELECT 1 FROM projects c WHERE c.parent_goal_id = projects.id AND c.workspace_id = projects.workspace_id AND c.status = 'active')`
         ).bind(nowIso(), who?.userId ?? null, who?.name ?? null, via, args.id, wsId).run();
@@ -416,6 +433,66 @@ export const goalsTools: Record<string, ToolDef> = {
       // 始めるときに型を読ませる (取り消し・完了済みでは出さない)
       const kata = args.started !== false && row.status === "active" ? await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>)) : null;
       return { ...(row as object), note, ...(kata ? { kata, kata_note: kataNote(kata, "start") } : {}) };
+    },
+  },
+
+  add_steps: {
+    description:
+      "作業の手順をタスクの中のチェックリストとして足す。AI がタスクに着手するとき、手を動かす前に 2〜5個を1回で渡す。" +
+      "手順は盤 (タスクの一覧) には出ず、そのタスクを開いた人にだけ「作業の手順 2/4」として見える。人が頼んだ単位のタスクを増やすときは add_subtask。" +
+      "1つ終わるごとに check_step。全部済んだらタスク本体を complete_subtask (手順を全部チェックしてもタスクは自動では閉じない)。",
+    schema: z.object({
+      taskId: z.string().min(1).describe("手順を持たせるタスクの id (今から手を動かすタスク)"),
+      steps: z.array(z.string().min(1).max(200)).min(1).max(12).describe("手順の文。1つ = 1アクション。終わったかどうかが判定できる形で書く (例: 「請求書PDFを作って 10_財務/請求/ に置く」)"),
+    }),
+    handler: async (args, env, wsId, auth) => {
+      await assertGoalInScope(env, auth, args.taskId);
+      await assertCanEdit(env, wsId, auth, args.taskId);
+      const t = await env.DB.prepare("SELECT id, status FROM projects WHERE id = ? AND workspace_id = ?").bind(args.taskId, wsId).first<{ id: string; status: string }>();
+      if (!t || t.status === "archived") throw new Error(`task not found: ${args.taskId}`);
+      const who = await resolveCreator(env, wsId, auth.actor);
+      const max = await env.DB.prepare("SELECT COALESCE(MAX(order_idx), -1) AS m FROM task_steps WHERE task_id = ? AND workspace_id = ?").bind(args.taskId, wsId).first<{ m: number }>();
+      let idx = (max?.m ?? -1) + 1;
+      const now = nowIso();
+      await env.DB.batch([
+        ...args.steps.map((text: string) =>
+          env.DB.prepare("INSERT INTO task_steps (id, task_id, workspace_id, text, order_idx, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)")
+            .bind(uid(), args.taskId, wsId, text.trim(), idx++, now, who?.name ?? null)
+        ),
+        env.DB.prepare(`UPDATE projects SET ${CLEAR_STALL_SET} WHERE id = ? AND workspace_id = ? AND stalled_at IS NOT NULL`).bind(args.taskId, wsId),
+      ]);
+      const steps = await listTaskSteps(env, wsId, args.taskId);
+      return { task_id: args.taskId, steps, note: "手を動かす前に start_task でこのタスクを進行中にする。手順が1つ終わるたびに check_step。" };
+    },
+  },
+
+  check_step: {
+    description:
+      "作業の手順 (add_steps で足したもの) を済みにする。1つ終わるたびに呼ぶ (まとめて最後に付けない。人は途中経過を見ている)。" +
+      "done=false で済みを外す。完了の照合は要らない (タスク本体を閉じるときに照合する)。",
+    schema: z.object({
+      id: z.string().min(1).describe("手順の id (add_steps / get_goal の steps[].id)"),
+      done: z.boolean().optional().describe("false で済みを外す (既定 true)"),
+    }),
+    handler: async (args, env, wsId, auth) => {
+      const s = await env.DB.prepare("SELECT task_id FROM task_steps WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first<{ task_id: string }>();
+      if (!s) throw new Error(`step not found: ${args.id}`);
+      await assertGoalInScope(env, auth, s.task_id);
+      await assertCanEdit(env, wsId, auth, s.task_id);
+      const now = nowIso();
+      await env.DB.batch([
+        env.DB.prepare("UPDATE task_steps SET done_at = ? WHERE id = ? AND workspace_id = ?").bind(args.done === false ? null : now, args.id, wsId),
+        env.DB.prepare(`UPDATE projects SET ${CLEAR_STALL_SET} WHERE id = ? AND workspace_id = ? AND stalled_at IS NOT NULL`).bind(s.task_id, wsId),
+      ]);
+      const steps = await listTaskSteps(env, wsId, s.task_id);
+      const open = steps.filter((x) => !x.done_at);
+      return {
+        task_id: s.task_id,
+        steps,
+        note: open.length
+          ? `残り ${open.length} 個。次は「${open[0].text}」`
+          : "手順は全部済んだ。完了基準と照らして満たしていれば、タスク本体を complete_subtask で閉じる (current_state に結果を書く)。満たしていなければ足りない手順を add_steps で足す",
+      };
     },
   },
 
@@ -439,7 +516,7 @@ export const goalsTools: Record<string, ToolDef> = {
       // completed_by は「終えたタスク」の数え上げ用 (0025)。AI が閉じたらトークンの持ち主の完了として数える
       const res = await env.DB.prepare(
         // 削除 (アーカイブ) 済みは done/active に戻さない (一覧に復活していた)
-        "UPDATE projects SET status = ?, completed_at = ?, completed_by = ? WHERE id = ? AND workspace_id = ? AND status != 'archived'"
+        `UPDATE projects SET status = ?, completed_at = ?, completed_by = ?, ${CLEAR_STALL_SET} WHERE id = ? AND workspace_id = ? AND status != 'archived'`
       )
         .bind(status, args.completed ? nowIso() : null, args.completed ? (auth.actor?.email?.toLowerCase().trim() || null) : null, args.id, wsId)
         .run();

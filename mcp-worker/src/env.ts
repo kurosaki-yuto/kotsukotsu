@@ -33,7 +33,7 @@ export interface Env {
 // Tools that change data — after these run, nudge the realtime worker so every
 // connected device refetches instantly.
 export const MUTATING_TOOLS = new Set([
-  "create_goal", "update_goal", "move_goal", "add_subtask", "start_task", "complete_subtask", "set_today",
+  "create_goal", "update_goal", "move_goal", "add_subtask", "add_steps", "check_step", "start_task", "complete_subtask", "set_today",
   "send_chat", "edit_chat", "delete_chat", "create_notification", "assign_member_to_goal",
   "unassign_member_from_goal", "set_member_role", "create_invite", "upload_file",
   "create_template", "update_template", "archive_template", "apply_template",

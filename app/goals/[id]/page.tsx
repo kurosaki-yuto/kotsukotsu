@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getGoal, updateGoal, archiveGoal, createResource, getMe, listMembers, createChild, toggleItemDone, setItemStarted, getGoalBundle, cachedGoalBundle, prefetchGoalBundle, createTemplateFromGoal, uploadFile, UPLOAD_LIMIT_BYTES, type GoalBundle } from "../../lib/addness";
+import { getGoal, updateGoal, archiveGoal, createResource, getMe, listMembers, createChild, toggleItemDone, setItemStarted, getGoalBundle, cachedGoalBundle, prefetchGoalBundle, createTemplateFromGoal, uploadFile, UPLOAD_LIMIT_BYTES, type GoalBundle, type TaskStep } from "../../lib/addness";
 import type { Goal, Resource, Member, ChatMessage } from "../../lib/db";
 import type { Me, GoalMember } from "../../lib/addness";
 import AgentLaunch from "../../components/AgentLaunch";
@@ -14,6 +14,7 @@ import { CommentsPanel } from "../../components/goal/CommentsPanel";
 import { AssignPanel } from "../../components/goal/AssignPanel";
 import { MetaSection } from "../../components/goal/MetaSection";
 import { KataPanel } from "../../components/goal/KataPanel";
+import { StepsPanel } from "../../components/goal/StepsPanel";
 import { InProgressBadge, StartButton, TaskCheck, isInProgress } from "../../components/InProgress";
 import { Assignees } from "../../components/Assignees";
 import { useAutoRefresh } from "../../lib/useAutoRefresh";
@@ -39,6 +40,7 @@ export default function GoalDetail() {
   // recursive child items (subtasks == child goals)
   const [ancestors, setAncestors] = useState<{ id: string; name: string }[]>([]);
   const [children, setChildren] = useState<Goal[]>([]);
+  const [steps, setSteps] = useState<TaskStep[]>([]);
   const [showDoneChildren, setShowDoneChildren] = useState(false);
   const [childAssignees, setChildAssignees] = useState<Record<string, GoalMember[]>>({});
   const [childProgress, setChildProgress] = useState<Record<string, { done: number; total: number }>>({});
@@ -67,6 +69,7 @@ export default function GoalDetail() {
     setResources(b.resources);
     setComments(b.comments);
     setAssignees(b.assignees);
+    setSteps(b.steps ?? []);
   }, []);
   const refreshBundle = useCallback(async () => {
     try { applyBundle(await getGoalBundle(id)); } catch { /* tolerate */ }
@@ -455,6 +458,8 @@ export default function GoalDetail() {
         </div>
           );
         })()}
+
+        <StepsPanel goal={goal} steps={steps} onChanged={refreshBundle} />
 
         <MetaSection goal={goal} showMeta={showMeta} setShowMeta={setShowMeta} patch={patch} />
 

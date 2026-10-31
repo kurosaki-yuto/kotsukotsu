@@ -9,6 +9,7 @@
 // next sweep skips it, and wakes phones for that goal.
 import { Env } from "./env";
 import { notifyPush, notifyRealtime, nowIso, recordRecipients, uid } from "./lib";
+import { sweepStalled } from "../../app/lib/stall";
 export async function runDueReminders(env: Env): Promise<void> {
   const now = nowIso();
   const { results } = await env.DB.prepare(
@@ -97,4 +98,13 @@ export async function runSelfCheck(env: Env): Promise<void> {
 export function isDailySelfCheckTick(event: ScheduledEvent): boolean {
   const d = new Date(event.scheduledTime);
   return d.getUTCHours() === 0 && d.getUTCMinutes() < 5;
+}
+
+// 進行中のまま24時間動かなかったタスクを「止まっている」に切り替える (app/lib/stall.ts)。
+// 5分ごとの cron のうち、毎時0〜4分の1回だけ回す。画面を開いたときにもそのワークスペース分を回している。
+export async function runStallSweep(env: Env, event: ScheduledEvent): Promise<void> {
+  const d = new Date(event.scheduledTime);
+  if (d.getUTCMinutes() >= 5) return;
+  const n = await sweepStalled(env.DB as never, d);
+  if (n) console.log(`[stall] marked ${n} task(s) as stalled`);
 }

@@ -22,6 +22,9 @@ export type Project = {
   started_by_name?: string | null;
   started_via?: string | null;      // 'app' = 画面のボタン / それ以外 = AI の名前
   template_id?: string | null;      // 型 (テンプレート) から作られたゴール
+  // 進行中のまま24時間動かなかった (lib/stall.ts)。動かすか「確認した」で消える
+  stalled_at?: string | null;
+  stalled_note?: string | null;
 };
 export type Goal = Project;
 

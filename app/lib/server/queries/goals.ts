@@ -2,6 +2,7 @@ import "server-only";
 import { createNotification } from "./notifications";
 import { all, first, run, runChanges, batch, uid, nowIso } from "../db";
 import { ballRank, ballText, personKeys } from "../../ball";
+import { CLEAR_STALL_SET } from "../../stall";
 
 // ---------------- goals (projects) ----------------
 export async function listGoals(wsId: string, scopeGoalId: string | null = null, activeOnly = false) {
@@ -74,6 +75,9 @@ export async function updateGoal(id: string, patch: Record<string, unknown>, wsI
   if (keys.includes("current_state")) {
     sets.push("state_updated_at = CASE WHEN current_state IS NOT ? THEN ? ELSE state_updated_at END");
     binds.push(patch.current_state, now);
+    // 現状を書き直した = 動いたので「止まっている」を外す
+    sets.push("stalled_at = CASE WHEN current_state IS NOT ? THEN NULL ELSE stalled_at END", "stalled_note = CASE WHEN current_state IS NOT ? THEN NULL ELSE stalled_note END");
+    binds.push(patch.current_state, patch.current_state);
   }
   if (keys.includes("completion_criteria")) {
     sets.push("criteria_updated_at = CASE WHEN completion_criteria IS NOT ? THEN ? ELSE criteria_updated_at END");
@@ -263,7 +267,7 @@ export async function setProjectStarted(
 ) {
   if (started) {
     await run(
-      `UPDATE projects SET started_at = ?, started_by = ?, started_by_name = ?, started_via = ?
+      `UPDATE projects SET started_at = ?, started_by = ?, started_by_name = ?, started_via = ?, ${CLEAR_STALL_SET}
         WHERE id = ? AND workspace_id = ? AND status = 'active' AND started_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM projects c WHERE c.parent_goal_id = projects.id AND c.workspace_id = projects.workspace_id AND c.status = 'active')`,
       nowIso(), by.userId, by.name, by.via, id, wsId
@@ -292,7 +296,7 @@ export async function toggleProjectDone(id: string, done: boolean, wsId: string,
   // 削除 (アーカイブ) 済みは触らない。古いタブに残った行のチェックを押すと、削除したタスクが
   // done/active に戻って一覧に復活していた。
   const changed = await runChanges(
-    "UPDATE projects SET status = ?, completed_at = ?, completed_by = ? WHERE id = ? AND workspace_id = ? AND status != 'archived'",
+    `UPDATE projects SET status = ?, completed_at = ?, completed_by = ?, ${CLEAR_STALL_SET} WHERE id = ? AND workspace_id = ? AND status != 'archived'`,
     done ? "done" : "active", done ? nowIso() : null, done && byEmail ? byEmail.toLowerCase().trim() : null, id, wsId
   );
   if (!changed) return false;
