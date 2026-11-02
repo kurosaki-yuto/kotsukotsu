@@ -2,30 +2,39 @@ import "server-only";
 import { listGoalMembersBatch } from "./goalMembers";
 import { all, first, run, uid, nowIso, db } from "../db";
 import { platformEnv } from "../platform";
-import { parseTemplateRow, normalizeInputs, normalizeTasks, normalizeResources, normalizeCautions, outlineToTasks, countTasks, saveTemplate, listTemplateRevisions, revertTemplateRevision, exportTemplate, kataExportConfig, LIMITS as TEMPLATE_LIMITS, type Template, type TemplateRow, type TemplatePatch } from "../templateCore";
+import { parseTemplateRow, templateReadableSql, templateReadableBinds, canReadTemplate, redactTemplate, normalizeFunction, normalizeVisibility, DEFAULT_VISIBILITY, TEMPLATE_FUNCTIONS, type TemplateViewer, normalizeInputs, normalizeTasks, normalizeResources, normalizeCautions, outlineToTasks, countTasks, saveTemplate, listTemplateRevisions, revertTemplateRevision, exportTemplate, kataExportConfig, LIMITS as TEMPLATE_LIMITS, type Template, type TemplateRow, type TemplatePatch } from "../templateCore";
 
 // ---------------- 型 (テンプレート) ----------------
 // 中身の変換・適用は templateCore.ts (mcp-worker と共有)。ここは Web 向けの読み書きだけ。
 
-export type TemplateSummary = Template & { task_count: number; used_count: number };
+export type TemplateSummary = Template & { task_count: number; used_count: number; can_manage: boolean };
+
+// 画面のログイン中の人を、型を読む人にする
+export function templateViewer(ctx: { user: { id: string; email: string }; role: string }): TemplateViewer {
+  return { userId: ctx.user.id, email: ctx.user.email, admin: ctx.role === "admin" };
+}
 // tasks はアウトライン文字列 (1 行 1 タスク) でも木の配列でも受ける
 const tasksOf = (v: unknown) => (typeof v === "string" ? outlineToTasks(v) : normalizeTasks(v));
 
-export async function listTemplates(wsId: string): Promise<TemplateSummary[]> {
+// 読める型だけ。機能の順 (経営→財務→…→その他→未分類)、同じ機能の中は新しく直した順
+export async function listTemplates(wsId: string, viewer: TemplateViewer): Promise<TemplateSummary[]> {
   const rows = await all<TemplateRow & { used_count: number }>(
     `SELECT t.*,
             (SELECT COUNT(*) FROM projects p
               WHERE p.template_id = t.id AND p.workspace_id = t.workspace_id AND p.status != 'archived'
                 AND NOT EXISTS (SELECT 1 FROM projects q WHERE q.id = p.parent_goal_id AND q.template_id = t.id)) AS used_count
        FROM templates t
-      WHERE t.workspace_id = ? AND t.archived_at IS NULL
+      WHERE t.workspace_id = ? AND t.archived_at IS NULL AND ${templateReadableSql("t")}
       ORDER BY t.updated_at DESC`,
-    wsId
+    wsId, ...templateReadableBinds(viewer)
   );
-  return rows.map((r) => {
-    const t = parseTemplateRow(r);
-    return { ...t, task_count: countTasks(t.tasks), used_count: r.used_count };
-  });
+  const order = (f: string | null) => { const i = (TEMPLATE_FUNCTIONS as readonly string[]).indexOf(f ?? ""); return i < 0 ? TEMPLATE_FUNCTIONS.length : i; };
+  return rows
+    .map((r) => {
+      const t = redactTemplate(parseTemplateRow(r), viewer);
+      return { ...t, task_count: countTasks(t.tasks), used_count: r.used_count };
+    })
+    .sort((a, b) => order(a.function) - order(b.function));
 }
 
 export async function getTemplate(id: string, wsId: string): Promise<Template | null> {
@@ -42,14 +51,16 @@ export type TemplateDraft = {
   resources?: unknown;
   cautions?: unknown;
   source_goal_id?: string | null;
+  function?: unknown;
+  visibility?: unknown;
 };
 
 export async function createTemplate(wsId: string, d: TemplateDraft, user: { id: string; name: string | null; email: string }): Promise<Template> {
   const id = uid();
   const now = nowIso();
   await run(
-    `INSERT INTO templates (id, workspace_id, name, purpose, completion_criteria, inputs, tasks, resources, cautions, source_goal_id, created_by, author_name, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO templates (id, workspace_id, name, purpose, completion_criteria, inputs, tasks, resources, cautions, source_goal_id, created_by, author_name, created_at, updated_at, visibility, function)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     id, wsId,
     (d.name || "").trim().slice(0, TEMPLATE_LIMITS.name) || "新しい型",
     (d.purpose ?? "").toString().trim().slice(0, TEMPLATE_LIMITS.purpose) || null,
@@ -59,7 +70,8 @@ export async function createTemplate(wsId: string, d: TemplateDraft, user: { id:
     JSON.stringify(normalizeResources(d.resources).filter((r) => !r.url.startsWith("r2:"))), // ファイルは型を作ってから足す
     JSON.stringify(normalizeCautions(d.cautions)),
     d.source_goal_id ?? null,
-    user.id, user.name || user.email, now, now
+    user.id, user.name || user.email, now, now,
+    normalizeVisibility(d.visibility, DEFAULT_VISIBILITY), normalizeFunction(d.function)
   );
   return (await getTemplate(id, wsId))!;
 }
@@ -139,7 +151,7 @@ export async function linkTemplatePlaybook(templateId: string, playbookId: strin
 
 // このゴールか一番近い祖先が型から作られていれば、その型 (ゴール画面の「この仕事の型」に出す)。
 // mcp-worker/src/kata.ts の templateIdForGoal と同じ辿り方。
-export async function templateForGoal(goalId: string, wsId: string): Promise<Template | null> {
+export async function templateForGoal(goalId: string, wsId: string, viewer: TemplateViewer): Promise<Template | null> {
   const row = await first<{ tpl: string }>(
     `WITH RECURSIVE up(id, parent, tpl, depth) AS (
        SELECT id, parent_goal_id, template_id, 0 FROM projects WHERE id = ? AND workspace_id = ?
@@ -152,5 +164,6 @@ export async function templateForGoal(goalId: string, wsId: string): Promise<Tem
   );
   if (!row) return null;
   const t = await getTemplate(row.tpl, wsId);
-  return t && !t.archived_at ? t : null;
+  if (!t || t.archived_at || !(await canReadTemplate(db(), wsId, t.id, viewer))) return null;
+  return redactTemplate(t, viewer);
 }

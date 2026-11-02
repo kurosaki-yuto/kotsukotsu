@@ -5,7 +5,7 @@ import { kataForGoal, kataNote, templateIdForGoal } from "../kata";
 import { exportTemplate, kataExportConfig, kataExportTarget } from "../../../app/lib/server/templateCore";
 import { COMPLETION_CRITERIA_DOC, CURRENT_STATE_DOC } from "../instructions";
 import { CLEAR_STALL_SET } from "../../../app/lib/stall";
-import { GOAL_LIST_COLUMNS, SUBTREE_CTE, ToolDef, assertCanEdit, assertGoalInScope, assignCreatorAsHolder, clearStartedOnParent, formatFieldText, goalInScope, inheritAssigneeFromAncestors, nowIso, parentStateNote, recordRecipients, resolveCreator, taskProgress, uid } from "../lib";
+import { GOAL_LIST_COLUMNS, SUBTREE_CTE, ToolDef, templateViewerOf, assertCanEdit, assertGoalInScope, assignCreatorAsHolder, clearStartedOnParent, formatFieldText, goalInScope, inheritAssigneeFromAncestors, nowIso, parentStateNote, recordRecipients, resolveCreator, taskProgress, uid } from "../lib";
 
 // 名前・現状・完了の基準の上限 (Web の編集 API の GOAL_TEXT_MAX と同じ)。
 // MCP だけ上限が無いと、ここで入った長文を画面が触っただけで切ってしまう。
@@ -69,7 +69,7 @@ export const goalsTools: Record<string, ToolDef> = {
         excludeSourceIds: [args.id],
         canSee: (id) => goalInScope(env, auth, id),
       });
-      const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...g }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>));
+      const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...g }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>), templateViewerOf(auth));
       const steps = await listTaskSteps(env, wsId, args.id);
       return {
         ...(row as object),
@@ -431,7 +431,7 @@ export const goalsTools: Record<string, ToolDef> = {
         : hasKids ? "子を持つタスクなので進行中にしていない。進行中は一番下の小タスクにだけ付ける。今から手を付ける小タスク (list_subtasks で見る) に start_task する。"
         : "進行中。終わったら complete_subtask で完了にする。";
       // 始めるときに型を読ませる (取り消し・完了済みでは出さない)
-      const kata = args.started !== false && row.status === "active" ? await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>)) : null;
+      const kata = args.started !== false && row.status === "active" ? await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>), templateViewerOf(auth)) : null;
       return { ...(row as object), note, ...(kata ? { kata, kata_note: kataNote(kata, "start") } : {}) };
     },
   },
@@ -574,7 +574,7 @@ export const goalsTools: Record<string, ToolDef> = {
       }
       // 終えるときは型の注意点で照合させる (サーバー側で渡すので、どのメンバーの AI にも効く)
       if (args.completed && row) {
-        const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>));
+        const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>), templateViewerOf(auth));
         if (kata && (kata.how === "from_template" || kata.cautions.length)) { note.kata = kata; note.kata_note = kataNote(kata, "complete"); }
       }
       return { ...(row as object), ...note };

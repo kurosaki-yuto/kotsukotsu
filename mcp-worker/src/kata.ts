@@ -6,7 +6,7 @@
  * 選び方: そのタスクか祖先が型から作られていればその型。無ければ、名前と完了の基準が近い型を 1 本。
  * 型の本文は持たない。返すのは 資料 (種類・URL・何のために見るか)・注意点・結んだ前例 だけ。
  */
-import { parseTemplateRow, kataExportPath, kataExportStale, kataExportUrl, type KataExportTarget, type Template, type TemplateRow } from "../../app/lib/server/templateCore";
+import { parseTemplateRow, kataExportPath, kataExportStale, kataExportUrl, templateReadableSql, templateReadableBinds, canManageTemplate, type KataExportTarget, type Template, type TemplateRow, type TemplateViewer } from "../../app/lib/server/templateCore";
 import { EMBED_MODEL, MIN_SCORE, MIN_SIMILARITY, cosine, embed, grams, overlapScore, packVec, unpackVec } from "./playbooks";
 
 export type KataPrecedent = { playbook_id: string; title: string; by: string; steps: string; pitfalls?: string; updated_at: string };
@@ -21,6 +21,8 @@ export type Kata = {
   purpose: string | null;
   resources: Template["resources"];
   cautions: string[];
+  /** 自分だけのメモ (型を直せる人の AI にだけ付く) */
+  private_note?: string;
   precedents: KataPrecedent[];
   export_url: string | null;
   /** 外の置き場所 (GitHub) の Markdown が型より古いとき、書き直す先 */
@@ -53,12 +55,13 @@ function templateText(t: Pick<Template, "name" | "purpose">): string {
 
 /** text に一番近い型を 1 本。前例と同じしきい値 (意味の近さ 0.56 / 言葉の重なり 2.7)。 */
 export async function similarTemplate(
-  db: D1Database, wsId: string, text: string, ai?: Ai
+  db: D1Database, wsId: string, text: string, ai: Ai | undefined, viewer: TemplateViewer
 ): Promise<{ row: TemplateRow; score: number; semantic: boolean } | null> {
   if (text.trim().length < 4) return null;
+  // 読める型 (見える範囲) の中からだけ選ぶ
   const res = await db
-    .prepare("SELECT * FROM templates WHERE workspace_id = ? AND archived_at IS NULL ORDER BY updated_at DESC, id LIMIT ?")
-    .bind(wsId, SCAN_LIMIT)
+    .prepare(`SELECT * FROM templates t WHERE t.workspace_id = ? AND t.archived_at IS NULL AND ${templateReadableSql("t")} ORDER BY t.updated_at DESC, t.id LIMIT ?`)
+    .bind(wsId, ...templateReadableBinds(viewer), SCAN_LIMIT)
     .all<TemplateRow>();
   const rows = res.results ?? [];
   if (!rows.length) return null;
@@ -102,18 +105,25 @@ export async function playbooksForTemplate(db: D1Database, wsId: string, templat
 }
 
 export async function kataForGoal(
-  db: D1Database, wsId: string, goal: { id: string; name?: string | null; completion_criteria?: string | null }, ai?: Ai,
-  exportTarget?: KataExportTarget | null
+  db: D1Database, wsId: string, goal: { id: string; name?: string | null; completion_criteria?: string | null }, ai: Ai | undefined,
+  exportTarget: KataExportTarget | null | undefined, viewer: TemplateViewer
 ): Promise<Kata | null> {
   let row: TemplateRow | null = null;
   let how: Kata["how"] = "from_template";
   let similarity: number | undefined;
   const tplId = await templateIdForGoal(db, wsId, goal.id);
   if (tplId) {
-    row = await db.prepare("SELECT * FROM templates WHERE id = ? AND workspace_id = ? AND archived_at IS NULL").bind(tplId, wsId).first<TemplateRow>();
+    // 型から作った仕事でも、見える範囲の外の型は出さない (自分だけの型を人に振った場合など)
+    row = await db.prepare(`SELECT * FROM templates t WHERE t.id = ? AND t.workspace_id = ? AND t.archived_at IS NULL AND ${templateReadableSql("t")}`)
+      .bind(tplId, wsId, ...templateReadableBinds(viewer)).first<TemplateRow>();
+    // 型から作った仕事なのに読めない (見える範囲の外) ときは、似た別の型を代わりに出さない
+    if (!row) {
+      const exists = await db.prepare("SELECT 1 AS ok FROM templates WHERE id = ? AND workspace_id = ? AND archived_at IS NULL").bind(tplId, wsId).first();
+      if (exists) return null;
+    }
   }
   if (!row) {
-    const hit = await similarTemplate(db, wsId, `${goal.name ?? ""}\n${goal.completion_criteria ?? ""}`, ai);
+    const hit = await similarTemplate(db, wsId, `${goal.name ?? ""}\n${goal.completion_criteria ?? ""}`, ai, viewer);
     if (!hit) return null;
     row = hit.row;
     how = "similar";
@@ -129,6 +139,8 @@ export async function kataForGoal(
     purpose: t.purpose,
     resources: t.resources,
     cautions: t.cautions.map((c) => c.text),
+    // 自分だけのメモは、型を直せる人 (作った本人・管理者) の AI にだけ渡す
+    ...(t.private_note && canManageTemplate(viewer, t) ? { private_note: t.private_note } : {}),
     precedents: await playbooksForTemplate(db, wsId, t.id),
     export_url: t.export_url ?? null,
     ...(exportTarget && kataExportStale(t)

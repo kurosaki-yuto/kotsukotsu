@@ -1,13 +1,13 @@
 import { json, bad } from "../../lib/server/db";
 import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
-import { listTemplates, createTemplate, getGoal, canEditGoal, exportKata } from "../../lib/server/queries";
+import { listTemplates, createTemplate, getGoal, canEditGoal, exportKata, templateViewer } from "../../lib/server/queries";
 import { snapshotGoalTree } from "../../lib/server/templateCore";
 import { db } from "../../lib/server/db";
 
 export async function GET(req: Request) {
   const ctx = await requireWorkspace(req);
   if (!ctx) return json({ error: "unauthorized" }, { status: 401 });
-  return json(await listTemplates(ctx.workspaceId));
+  return json(await listTemplates(ctx.workspaceId, templateViewer(ctx)));
 }
 
 // 型を作る。{ from_goal_id } ならそのゴールのタスク木を写して作る。それ以外は手入力の中身で作る。
@@ -30,6 +30,8 @@ export async function POST(req: Request) {
       completion_criteria: goal.completion_criteria,
       tasks,
       source_goal_id: fromGoalId,
+      function: body.function,
+      visibility: body.visibility,
     }, user);
     await exportKata(t.id, ctx.workspaceId);
     return json(t);
@@ -44,6 +46,8 @@ export async function POST(req: Request) {
     tasks: body.tasks,
     resources: body.resources,
     cautions: body.cautions,
+    function: body.function,
+    visibility: body.visibility,
   }, user);
   await exportKata(t.id, ctx.workspaceId);
   return json(t);

@@ -1,7 +1,7 @@
 // ツールが共有する部品: 通知・認証・スコープ/権限・RPC の応答・タスク進捗。
 import { type ZodType } from "zod";
 import { resolveMentionedMembers } from "../../app/lib/server/mentions";
-import { parseTemplateRow, type TemplateRow } from "../../app/lib/server/templateCore";
+import { parseTemplateRow, templateReadableSql, templateReadableBinds, type TemplateRow, type TemplateViewer } from "../../app/lib/server/templateCore";
 import { safeEqual } from "../../app/lib/server/compare";
 import { Env } from "./env";
 
@@ -451,10 +451,21 @@ export async function assertCanManage(env: Env, wsId: string, auth: McpAuth, goa
 }
 
 // 型 (テンプレート) を id か名前で引く。名前は完全一致 → 部分一致。0 件・複数件はエラー。
-export async function findTemplate(env: Env, wsId: string, ref: string) {
-  const byId = await env.DB.prepare("SELECT * FROM templates WHERE id = ? AND workspace_id = ? AND archived_at IS NULL").bind(ref, wsId).first<TemplateRow>();
+/** MCP の接続を、型を読む人にする。workspace キー (actor なし) は管理者と同じく全部読める。 */
+export function templateViewerOf(auth: McpAuth | undefined): TemplateViewer {
+  if (!auth?.actor) return { userId: null, email: null, admin: true };
+  return { userId: auth.actor.userId, email: auth.actor.email, admin: auth.actor.role === "admin" };
+}
+
+// 型を id か名前で引く。auth を渡すと、その人の見える範囲 (templates.visibility) の型だけから探す。
+// 見える範囲の外の型は「見つかりません」と同じに返す (あることも知らせない)。
+export async function findTemplate(env: Env, wsId: string, ref: string, auth?: McpAuth) {
+  const v = templateViewerOf(auth);
+  const byId = await env.DB.prepare(`SELECT * FROM templates t WHERE t.id = ? AND t.workspace_id = ? AND t.archived_at IS NULL AND ${templateReadableSql("t")}`)
+    .bind(ref, wsId, ...templateReadableBinds(v)).first<TemplateRow>();
   if (byId) return parseTemplateRow(byId);
-  const { results } = await env.DB.prepare("SELECT * FROM templates WHERE workspace_id = ? AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 200").bind(wsId).all<TemplateRow>();
+  const { results } = await env.DB.prepare(`SELECT * FROM templates t WHERE t.workspace_id = ? AND t.archived_at IS NULL AND ${templateReadableSql("t")} ORDER BY t.updated_at DESC LIMIT 200`)
+    .bind(wsId, ...templateReadableBinds(v)).all<TemplateRow>();
   const all = results ?? [];
   const q = ref.trim().toLowerCase();
   const exact = all.filter((t) => t.name.trim().toLowerCase() === q);

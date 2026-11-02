@@ -1,7 +1,7 @@
 import { json, bad, db, first, nowIso } from "../../../../lib/server/db";
 import { requireWorkspace, requireGoalEdit } from "../../../../lib/server/workspace";
-import { getTemplate, createNotification } from "../../../../lib/server/queries";
-import { applyTemplate, normalizeValues, missingRequiredInputs, substitute } from "../../../../lib/server/templateCore";
+import { getTemplate, createNotification, templateViewer } from "../../../../lib/server/queries";
+import { applyTemplate, normalizeValues, missingRequiredInputs, substitute, canReadTemplate } from "../../../../lib/server/templateCore";
 import { notifyWorkspace } from "../../../../lib/server/realtime";
 import { limitOr429, HOUR } from "../../../../lib/server/ratelimit";
 
@@ -11,7 +11,7 @@ export async function POST(req: Request, c: { params: Promise<{ id: string }> })
   if (!ctx) return json({ error: "unauthorized" }, { status: 401 });
   const { id } = await c.params;
   const tpl = await getTemplate(id, ctx.workspaceId);
-  if (!tpl || tpl.archived_at) return json({ error: "not found" }, { status: 404 });
+  if (!tpl || tpl.archived_at || !(await canReadTemplate(db(), ctx.workspaceId, id, templateViewer(ctx)))) return json({ error: "not found" }, { status: 404 });
 
   const body = (await req.json().catch(() => null)) as { parentId?: unknown; memberId?: unknown; values?: unknown; deadline?: unknown } | null;
   if (!body || typeof body !== "object") return bad("invalid body", 400);

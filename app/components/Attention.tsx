@@ -1,16 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getAttention, dismissAttention, toggleItemDone, type ClosableItem, type StalledItem } from "../lib/addness";
-import { useAutoRefresh } from "../lib/useAutoRefresh";
-import { Chevron, useCollapsed } from "../lib/useCollapsed";
+import { dismissAttention, toggleItemDone, type ClosableItem, type StalledItem } from "../lib/addness";
 
-// タスク画面の「止まっている」と「閉じていい？」(2026-11-01)。
+// タスク画面の「止まっている」と「閉じていい？」の中身 (2026-11-01)。読み込みと開け閉めは BoardSummary が持つ。
 // 止まっている: 進行中のまま24時間動かず、印を外したタスク (lib/stall.ts)。誰がいつ始めてどこで止まったかを出す。
 // 閉じていい？: 現状に「照合 PASS」「作業は済み」と書いてある・手順が全部済んだ・配下が全部終わったのに開いたままのタスク。
 //   「閉じる」で完了、「まだ」で現状が書き換わるまで出さない。
-// どちらも0件なら何も出さない。読み込みに失敗したら api() が上部のバナーで知らせる (空と区別するため)。
 const FIRST = 5;
 const FIRST_PHONE = 3;
 
@@ -21,58 +18,26 @@ function ago(iso: string | null): string {
   return days <= 0 ? "今日" : `${days}日前`;
 }
 
-export default function Attention() {
-  const [data, setData] = useState<{ closable: ClosableItem[]; stalled: StalledItem[] } | null>(null);
-  const load = useCallback(async () => {
-    try { setData(await getAttention()); } catch { /* api() がバナーを出す。前の表示は残す */ }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-  useAutoRefresh(() => { void load(); }, { intervalMs: 60000 });
-  if (!data) return null;
+function MoreButton({ count, all, setAll, color }: { count: number; all: boolean; setAll: (f: (v: boolean) => boolean) => void; color: string }) {
+  if (count <= FIRST_PHONE) return null;
   return (
-    <>
-      <Stalled items={data.stalled} reload={load} />
-      <Closable items={data.closable} reload={load} />
-    </>
+    <button type="button" onClick={() => setAll((v) => !v)} className={`w-full py-2 text-[12.5px] font-bold ${count <= FIRST ? "md:hidden" : ""}`} style={{ color }}>
+      {all ? "少なく表示" : `すべて表示 (${count})`}
+    </button>
   );
 }
 
-function Section({ id, title, hint, count, color, children, more }: {
-  id: string; title: string; hint: string; count: number; color: { fg: string; border: string; bg: string };
-  children: React.ReactNode; more?: React.ReactNode;
-}) {
-  const [closed, toggle] = useCollapsed(id);
-  return (
-    <section className="card mb-6 px-4 py-1" style={{ borderColor: color.border, background: color.bg }} aria-label={title}>
-      <button type="button" onClick={toggle} aria-expanded={!closed} className="flex w-full items-center gap-1.5 py-2.5 text-left text-[13px] font-bold cjk" style={{ color: color.fg }}>
-        <Chevron closed={closed} />
-        {title}
-        <span className="font-normal">{count}</span>
-        <span className="ml-1 hidden md:inline text-[11.5px] font-normal" style={{ color: "var(--muted)" }}>{hint}</span>
-      </button>
-      {!closed && (<>{children}{more}</>)}
-    </section>
-  );
-}
-
-function Stalled({ items, reload }: { items: StalledItem[]; reload: () => Promise<void> }) {
+export function StalledList({ items, reload }: { items: StalledItem[]; reload: () => Promise<void> }) {
   const router = useRouter();
   const [all, setAll] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  if (!items.length) return null;
   const shown = all ? items : items.slice(0, FIRST);
   const ack = async (id: string) => {
     setBusy(id);
     try { await dismissAttention(id, "ack_stall"); await reload(); } catch { /* バナー */ } finally { setBusy(null); }
   };
   return (
-    <Section id="stalled" title="止まっている" hint="進行中のまま24時間動かなかったタスク。開いて続けるか、確認したら消す" count={items.length}
-      color={{ fg: "var(--danger)", border: "var(--border-strong)", bg: "var(--surface)" }}
-      more={items.length > FIRST_PHONE && (
-        <button type="button" onClick={() => setAll((v) => !v)} className="w-full py-2 text-[12.5px] font-bold" style={{ color: "var(--danger)" }}>
-          {all ? "少なく表示" : `すべて表示 (${items.length})`}
-        </button>
-      )}>
+    <>
       <ul className="divide-y divide-[var(--border)]">
         {shown.map((t, i) => (
           <li key={t.id} className={`flex items-start gap-3 py-2.5 ${!all && i >= FIRST_PHONE ? "hidden md:flex" : ""}`}>
@@ -85,15 +50,15 @@ function Stalled({ items, reload }: { items: StalledItem[]; reload: () => Promis
           </li>
         ))}
       </ul>
-    </Section>
+      <MoreButton count={items.length} all={all} setAll={setAll} color="var(--danger)" />
+    </>
   );
 }
 
-function Closable({ items, reload }: { items: ClosableItem[]; reload: () => Promise<void> }) {
+export function ClosableList({ items, reload }: { items: ClosableItem[]; reload: () => Promise<void> }) {
   const router = useRouter();
   const [all, setAll] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  if (!items.length) return null;
   const shown = all ? items : items.slice(0, FIRST);
   const act = async (id: string, close: boolean) => {
     setBusy(id);
@@ -104,13 +69,7 @@ function Closable({ items, reload }: { items: ClosableItem[]; reload: () => Prom
     } catch { /* バナー */ } finally { setBusy(null); }
   };
   return (
-    <Section id="closable" title="閉じていい？" hint="終わったと書いてある・手順や配下が全部済んだのに開いたままのタスク" count={items.length}
-      color={{ fg: "var(--done-strong)", border: "var(--done-border)", bg: "var(--done-soft)" }}
-      more={items.length > FIRST_PHONE && (
-        <button type="button" onClick={() => setAll((v) => !v)} className="w-full py-2 text-[12.5px] font-bold" style={{ color: "var(--done-strong)" }}>
-          {all ? "少なく表示" : `すべて表示 (${items.length})`}
-        </button>
-      )}>
+    <>
       <ul className="divide-y divide-[var(--done-border)]">
         {shown.map((t, i) => (
           <li key={t.id} className={`flex items-start gap-3 py-2.5 ${!all && i >= FIRST_PHONE ? "hidden md:flex" : ""}`}>
@@ -129,6 +88,7 @@ function Closable({ items, reload }: { items: ClosableItem[]; reload: () => Prom
           </li>
         ))}
       </ul>
-    </Section>
+      <MoreButton count={items.length} all={all} setAll={setAll} color="var(--done-strong)" />
+    </>
   );
 }

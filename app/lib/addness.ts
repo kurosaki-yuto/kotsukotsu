@@ -556,22 +556,22 @@ export async function fetchFileBytes(key: string): Promise<ArrayBuffer> {
 // ---------- 型 (テンプレート) ----------
 export type TemplateGoalRow = { id: string; name: string; status: string; created_at: string; completed_at: string | null; deadline: string | null; assignees: GoalMember[] };
 export type TemplatePrecedent = { id: string; title: string; author_name: string | null; steps: string; pitfalls: string | null; updated_at: string };
-export type TemplateDetail = Template & { goals: TemplateGoalRow[]; revisions: TemplateRevision[]; can_manage: boolean };
+export type TemplateDetail = Template & { goals: TemplateGoalRow[]; revisions: TemplateRevision[]; can_manage: boolean; routine_setup: string | null };
 export async function listTemplates(): Promise<TemplateSummary[]> {
   return (await api("/api/templates")) as TemplateSummary[];
 }
 export async function getTemplate(id: string): Promise<TemplateDetail> {
   return (await api(`/api/templates/${id}`)) as TemplateDetail;
 }
-export async function createTemplate(draft: Partial<Pick<Template, "name" | "purpose" | "completion_criteria" | "inputs" | "tasks" | "resources">>): Promise<Template> {
+export async function createTemplate(draft: Partial<Pick<Template, "name" | "purpose" | "completion_criteria" | "inputs" | "tasks" | "resources" | "function" | "visibility">>): Promise<Template> {
   return (await api("/api/templates", { method: "POST", body: JSON.stringify(draft) })) as Template;
 }
 // 終えたゴールのタスク木を写して型にする
 export async function createTemplateFromGoal(goalId: string): Promise<Template> {
   return (await api("/api/templates", { method: "POST", body: JSON.stringify({ from_goal_id: goalId }) })) as Template;
 }
-export async function updateTemplate(id: string, patch: Partial<Pick<Template, "name" | "purpose" | "completion_criteria" | "inputs" | "tasks" | "resources" | "cautions">>): Promise<Template> {
-  return (await api(`/api/templates/${id}`, { method: "PATCH", body: JSON.stringify(patch) })) as Template;
+export async function updateTemplate(id: string, patch: Partial<Pick<Template, "name" | "purpose" | "completion_criteria" | "inputs" | "tasks" | "resources" | "cautions" | "function" | "visibility" | "private_note" | "schedule" | "schedule_target">>): Promise<TemplateDetail> {
+  return (await api(`/api/templates/${id}`, { method: "PATCH", body: JSON.stringify(patch) })) as TemplateDetail;
 }
 // このゴールの型 (ゴールか祖先が型から作られていれば)。無ければ null
 export async function getGoalKata(goalId: string): Promise<Template | null> {

@@ -1,7 +1,7 @@
 // MCP ツール (templates)。index.ts の tools から切り出し。
 import { z } from "zod";
-import { applyTemplate, snapshotGoalTree, parseTemplateRow, normalizeInputs, normalizeTasks, normalizeResources, normalizeCautions, normalizeValues, missingRequiredInputs, substitute, outlineToTasks, tasksToOutline, countTasks, saveTemplate, listTemplateRevisions, revertTemplateRevision, exportTemplate, kataExportConfig, kataExportTarget, kataExportPath, kataExportUrl, buildKataMarkdown, RESOURCE_KINDS, LIMITS as TEMPLATE_LIMITS, type Template, type TemplateCaution, type TemplatePatch, type TemplateRow } from "../../../app/lib/server/templateCore";
-import { ToolDef, assertAdmin, assertCanEdit, assertGoalInScope, assertTemplateManager, findTemplate, nowIso, recordRecipients, resolveWho, uid, decodeBase64, safeFileName, MAX_FILE_BYTES, type McpAuth } from "../lib";
+import { applyTemplate, snapshotGoalTree, parseTemplateRow, normalizeInputs, normalizeTasks, normalizeResources, normalizeCautions, normalizeValues, missingRequiredInputs, substitute, outlineToTasks, tasksToOutline, countTasks, saveTemplate, listTemplateRevisions, revertTemplateRevision, exportTemplate, kataExportConfig, kataExportTarget, kataExportPath, kataExportUrl, buildKataMarkdown, RESOURCE_KINDS, LIMITS as TEMPLATE_LIMITS, TEMPLATE_FUNCTIONS, TEMPLATE_VISIBILITIES, VISIBILITY_LABEL, DEFAULT_VISIBILITY, LIMIT_PRIVATE_NOTE, templateReadableSql, templateReadableBinds, redactTemplate, describeSchedule, routineSetupText, normalizeScheduleTarget, checkScheduleSettings, saveTemplateSettings, type Template, type TemplateCaution, type TemplatePatch, type TemplateRow } from "../../../app/lib/server/templateCore";
+import { ToolDef, assertAdmin, assertCanEdit, assertGoalInScope, assertTemplateManager, findTemplate, templateViewerOf, nowIso, recordRecipients, resolveWho, uid, decodeBase64, safeFileName, MAX_FILE_BYTES, type McpAuth } from "../lib";
 import { safeContentType } from "../../../app/lib/server/filesCore";
 import type { Env } from "../env";
 import { playbooksForTemplate, templateIdForGoal } from "../kata";
@@ -18,12 +18,18 @@ const RESOURCES_DOC = "資料 (外部 URL)。本文はこつこつに入れず�
 const CAUTIONS_DOC = "注意点。1 件 1 行で、守らないと差し戻される所を書く (例: 実在の他人の顔を許諾なしで使わない)";
 
 // 型を見せるときの共通の形 (履歴と結んだ前例を添える)
-async function templateView(env: Env, wsId: string, t: Template) {
+// 直せない人には自分だけのメモと振る先を外す。直せる人には AI の定期実行の組み方 (routine_setup) を添える
+async function templateView(env: Env, wsId: string, t: Template, auth: McpAuth) {
   const [revisions, precedents] = await Promise.all([
     listTemplateRevisions(env.DB, wsId, t.id, 10),
     playbooksForTemplate(env.DB, wsId, t.id),
   ]);
-  return { ...t, tasks_outline: tasksToOutline(t.tasks), task_count: countTasks(t.tasks), precedents, revisions };
+  const v = redactTemplate(t, templateViewerOf(auth));
+  return {
+    ...v, visibility_label: VISIBILITY_LABEL[t.visibility], schedule_label: describeSchedule(t.schedule),
+    ...(v.can_manage && t.schedule ? { routine_setup: routineSetupText(t) } : {}),
+    tasks_outline: tasksToOutline(t.tasks), task_count: countTasks(t.tasks), precedents, revisions,
+  };
 }
 
 // 型を外 (GitHub) に書き出す。
@@ -61,24 +67,28 @@ export const templatesTools: Record<string, ToolDef> = {
   // ---- 型 (テンプレート): 必要な入力値 + 資料リンク + タスクの木。人に振るための再利用の単位 ----
   // 中身の変換・適用は app/lib/server/templateCore.ts (Web と共有)。
   list_templates: {
-    description: "型 (テンプレート) の一覧。型 = 必要な入力値 + 資料リンク + タスクの木。人に同じ種類の仕事を振るときは、先にここを見て合う型を探す。",
+    description: "型 (テンプレート) の一覧。型 = 必要な入力値 + 資料リンク + タスクの木。人に同じ種類の仕事を振るときは、先にここを見て合う型を探す。" +
+      "自分が読める型だけ返す (見える範囲: 自分だけ / 振った相手も / 全員)。function (経営・財務・法務・集客・営業・CS・その他) の順に並ぶ。schedule があれば繰り返しで自動に振られる型。",
     schema: z.object({}),
-    handler: async (_args, env, wsId) => {
+    handler: async (_args, env, wsId, auth) => {
       const { results } = await env.DB.prepare(
         `SELECT t.*,
                 (SELECT COUNT(*) FROM projects p
                   WHERE p.template_id = t.id AND p.workspace_id = t.workspace_id AND p.status != 'archived'
                     AND NOT EXISTS (SELECT 1 FROM projects q WHERE q.id = p.parent_goal_id AND q.template_id = t.id)) AS used_count
-           FROM templates t WHERE t.workspace_id = ? AND t.archived_at IS NULL ORDER BY t.updated_at DESC LIMIT 200`
-      ).bind(wsId).all<TemplateRow & { used_count: number }>();
+           FROM templates t WHERE t.workspace_id = ? AND t.archived_at IS NULL AND ${templateReadableSql("t")} ORDER BY t.updated_at DESC LIMIT 200`
+      ).bind(wsId, ...templateReadableBinds(templateViewerOf(auth))).all<TemplateRow & { used_count: number }>();
+      const order = (f: string | null) => { const i = (TEMPLATE_FUNCTIONS as readonly string[]).indexOf(f ?? ""); return i < 0 ? TEMPLATE_FUNCTIONS.length : i; };
       return (results ?? []).map((r) => {
         const t = parseTemplateRow(r);
         return {
-          id: t.id, name: t.name, purpose: t.purpose, inputs: t.inputs,
+          id: t.id, name: t.name, function: t.function ?? "未分類", visibility: VISIBILITY_LABEL[t.visibility],
+          ...(t.schedule ? { schedule: describeSchedule(t.schedule) } : {}),
+          purpose: t.purpose, inputs: t.inputs,
           task_count: countTasks(t.tasks), resource_count: t.resources.length, caution_count: t.cautions.length,
           used_count: r.used_count, author: t.author_name, updated_at: t.updated_at,
         };
-      });
+      }).sort((a, b) => order(a.function) - order(b.function));
     },
   },
 
@@ -87,15 +97,15 @@ export const templatesTools: Record<string, ToolDef> = {
     schema: z.object({
       template: z.string().min(1).describe("型の id か名前"),
     }),
-    handler: async (args, env, wsId) => {
-      const t = await findTemplate(env, wsId, args.template);
+    handler: async (args, env, wsId, auth) => {
+      const t = await findTemplate(env, wsId, args.template, auth);
       const { results } = await env.DB.prepare(
         `SELECT p.id, p.name, p.status, p.created_at, p.completed_at, p.deadline FROM projects p
           WHERE p.template_id = ? AND p.workspace_id = ? AND p.status != 'archived'
             AND (p.parent_goal_id IS NULL OR p.parent_goal_id NOT IN (SELECT id FROM projects WHERE template_id = ? AND workspace_id = ?))
           ORDER BY p.created_at DESC LIMIT 50`
       ).bind(t.id, wsId, t.id, wsId).all();
-      return { ...(await templateView(env, wsId, t)), goals: results ?? [] };
+      return { ...(await templateView(env, wsId, t, auth)), goals: results ?? [] };
     },
   },
 
@@ -112,6 +122,9 @@ export const templatesTools: Record<string, ToolDef> = {
       tasks: z.union([z.string(), z.array(z.any())]).optional().describe("タスクの木。アウトライン文字列 (1 行 1 タスク、2 スペースで 1 段深く、「 :: 」の後ろが完了の基準) か、[{text, completion_criteria, children}] の配列"),
       resources: z.array(resourceSchema).max(TEMPLATE_LIMITS.resources).optional().describe(RESOURCES_DOC),
       cautions: z.array(z.string().min(1).max(TEMPLATE_LIMITS.cautionText)).max(TEMPLATE_LIMITS.cautions).optional().describe(CAUTIONS_DOC),
+      function: z.enum(TEMPLATE_FUNCTIONS).describe("この型が当たる機能。経営 / 財務 / 法務 / 集客 (問い合わせを作る) / 営業 (問い合わせを受注に・アウトバウンド) / CS (受注後) / その他"),
+      visibility: z.enum(TEMPLATE_VISIBILITIES).optional().describe("見える範囲。private = 作った人と管理者だけ / assigned = 上 + この型から作ったゴールの担当者 (既定) / workspace = メンバー全員"),
+      private_note: z.string().max(LIMIT_PRIVATE_NOTE).optional().describe("自分だけのメモ。作った人と管理者にしか見えない。道具の置き場所・アカウント・口座など、振った相手に見せないものはここに書き、purpose や resources には書かない"),
     }),
     handler: async (args, env, wsId, auth) => {
       let name = args.name?.trim() ?? "";
@@ -133,17 +146,18 @@ export const templatesTools: Record<string, ToolDef> = {
       const id = uid();
       const now = nowIso();
       await env.DB.prepare(
-        `INSERT INTO templates (id, workspace_id, name, purpose, completion_criteria, inputs, tasks, resources, cautions, source_goal_id, created_by, author_name, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO templates (id, workspace_id, name, purpose, completion_criteria, inputs, tasks, resources, cautions, source_goal_id, created_by, author_name, created_at, updated_at, function, visibility, private_note)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         id, wsId, name.slice(0, TEMPLATE_LIMITS.name), args.purpose?.trim() || null, criteria || null,
         JSON.stringify(normalizeInputs(args.inputs ?? [])), JSON.stringify(tasks), JSON.stringify(normalizeResources(args.resources ?? []).filter((r) => !r.url.startsWith("r2:"))),
         JSON.stringify(normalizeCautions((args.cautions ?? []).map((text: string) => ({ text, added_at: now, added_by: auth.actor?.name ?? "AI" })))),
-        args.from_goal_id ?? null, auth.actor?.userId ?? null, auth.actor?.name ?? null, now, now
+        args.from_goal_id ?? null, auth.actor?.userId ?? null, auth.actor?.name ?? null, now, now,
+        args.function, args.visibility ?? DEFAULT_VISIBILITY, args.private_note?.trim() || null
       ).run();
       const ex = await exportKata(env, wsId, id);
-      const t = await findTemplate(env, wsId, id);
-      return { ...(await templateView(env, wsId, t)), ...ex };
+      const t = await findTemplate(env, wsId, id, auth);
+      return { ...(await templateView(env, wsId, t, auth)), ...ex };
     },
   },
 
@@ -161,10 +175,35 @@ export const templatesTools: Record<string, ToolDef> = {
       resources: z.array(resourceSchema).max(TEMPLATE_LIMITS.resources).optional().describe(RESOURCES_DOC),
       cautions: z.array(z.string().min(1).max(TEMPLATE_LIMITS.cautionText)).max(TEMPLATE_LIMITS.cautions).optional().describe(`${CAUTIONS_DOC}。丸ごと置き換える (今ある注意点の出どころは、同じ文面なら引き継ぐ)`),
       reason: z.string().max(1000).optional().describe("なぜ直すか。履歴に残る"),
+      function: z.enum(TEMPLATE_FUNCTIONS).optional().describe("この型が当たる機能 (経営 / 財務 / 法務 / 集客 / 営業 / CS / その他)"),
+      visibility: z.enum(TEMPLATE_VISIBILITIES).optional().describe("見える範囲。private = 作った人と管理者だけ / assigned = 上 + この型から作ったゴールの担当者 / workspace = メンバー全員"),
+      private_note: z.string().max(LIMIT_PRIVATE_NOTE).nullable().optional().describe("自分だけのメモ (作った人と管理者にしか見えない)。丸ごと置き換え"),
+      schedule: z.object({
+        freq: z.enum(["daily", "weekly", "monthly"]),
+        time: z.string().regex(/^\d{1,2}:\d{2}$/).describe("ワークスペースのタイムゾーンの時刻 HH:MM"),
+        weekday: z.number().int().min(0).max(6).optional().describe("weekly のとき。0=日〜6=土"),
+        day: z.number().int().min(1).max(31).optional().describe("monthly のとき。月末を越える日はその月の最終日"),
+      }).nullable().optional().describe("繰り返し。時刻にこつこつが今回分のゴールを作って担当の今日に入れる (前回分が終わっていなければ作らず知らせる)。null で止める。手を動かすのは AI の定期実行: 返り値の routine_setup どおりに組む"),
+      schedule_target: z.object({
+        parent_id: z.string().min(1).describe("置き場所の親ゴール id"),
+        member_id: z.string().min(1).describe("担当の member id (list_members の id)"),
+        values: z.record(z.string(), z.string()).optional().describe("毎回入れる入力値 {ラベル: 値}"),
+        deadline_days: z.number().int().min(0).max(365).optional().describe("振った日から何日後を期限にするか"),
+      }).nullable().optional().describe("繰り返しで振る先"),
     }),
     handler: async (args, env, wsId, auth) => {
-      const t = await findTemplate(env, wsId, args.template);
+      const t = await findTemplate(env, wsId, args.template, auth);
       assertTemplateManager(auth, t);
+      const settings = { function: args.function, visibility: args.visibility, private_note: args.private_note, schedule: args.schedule, schedule_target: args.schedule_target };
+      const hasSettings = Object.values(settings).some((x) => x !== undefined);
+      if (args.schedule !== undefined || args.schedule_target !== undefined) {
+        const schedule = args.schedule !== undefined ? args.schedule : t.schedule;
+        const target = args.schedule_target !== undefined ? args.schedule_target : t.schedule_target;
+        const why = await checkScheduleSettings(env.DB, wsId, t, schedule, target);
+        if (why) throw new Error(why);
+        const g = normalizeScheduleTarget(target);
+        if (schedule && g) await assertCanEdit(env, wsId, auth, g.parent_id);
+      }
       const patch: TemplatePatch = {};
       for (const k of ["name", "purpose", "completion_criteria", "inputs", "tasks", "resources"] as const) {
         if (args[k] !== undefined) patch[k] = args[k];
@@ -173,11 +212,14 @@ export const templatesTools: Record<string, ToolDef> = {
         const prev = new Map(t.cautions.map((c) => [c.text, c]));
         patch.cautions = args.cautions.map((text: string) => prev.get(text.trim()) ?? { text, added_at: nowIso(), added_by: auth.actor?.name ?? "AI" });
       }
-      if (!Object.keys(patch).length) throw new Error("直す項目がありません");
-      const r = await saveTemplate(env.DB, wsId, t, patch, { actorName: auth.actor?.name ?? "AI", actorKind: actorKind(auth), reason: args.reason ?? null, now: nowIso() });
+      if (!Object.keys(patch).length && !hasSettings) throw new Error("直す項目がありません");
+      const r = Object.keys(patch).length
+        ? await saveTemplate(env.DB, wsId, t, patch, { actorName: auth.actor?.name ?? "AI", actorKind: actorKind(auth), reason: args.reason ?? null, now: nowIso() })
+        : { changed: false, revisionId: null };
+      if (hasSettings) await saveTemplateSettings(env.DB, wsId, t.id, settings, nowIso());
       const ex = r.changed ? await exportKata(env, wsId, t.id) : {};
-      const u = await findTemplate(env, wsId, t.id);
-      return { ...(await templateView(env, wsId, u)), changed: r.changed, revision_id: r.revisionId, ...ex };
+      const u = await findTemplate(env, wsId, t.id, auth);
+      return { ...(await templateView(env, wsId, u, auth)), changed: r.changed, revision_id: r.revisionId, ...ex };
     },
   },
 
@@ -194,7 +236,7 @@ export const templatesTools: Record<string, ToolDef> = {
       why: z.string().min(1).max(TEMPLATE_LIMITS.resourceWhy).describe("何のために見るか (1 行)"),
     }),
     handler: async (args, env, wsId, auth) => {
-      const t = await findTemplate(env, wsId, args.template);
+      const t = await findTemplate(env, wsId, args.template, auth);
       assertTemplateManager(auth, t);
       if (!env.FILES) throw new Error("ファイル置き場 (R2) が設定されていません");
       let bytes: Uint8Array;
@@ -207,8 +249,8 @@ export const templatesTools: Record<string, ToolDef> = {
         resources: [...t.resources, { kind: args.kind ?? "実物", name: args.filename.trim(), url: `r2:${key}`, why: args.why, size: bytes.byteLength }],
       }, { actorName: auth.actor?.name ?? "AI", actorKind: actorKind(auth), reason: `ファイルを足した: ${args.filename}`, now: nowIso() });
       const ex = r.changed ? await exportKata(env, wsId, t.id) : {};
-      const u = await findTemplate(env, wsId, t.id);
-      return { ...(await templateView(env, wsId, u)), changed: r.changed, revision_id: r.revisionId, file_key: key, ...ex };
+      const u = await findTemplate(env, wsId, t.id, auth);
+      return { ...(await templateView(env, wsId, u, auth)), changed: r.changed, revision_id: r.revisionId, file_key: key, ...ex };
     },
   },
 
@@ -222,7 +264,7 @@ export const templatesTools: Record<string, ToolDef> = {
       const parts = key.split("/");
       if (parts[0] !== wsId || parts.some((p: string) => !p || p === "..")) throw new Error("file not found");
       if (parts[1] === "templates") {
-        await findTemplate(env, wsId, parts[2]); // 型のファイルはワークスペースの全員が読める
+        await findTemplate(env, wsId, parts[2], auth); // 型のファイルは型を読める人だけ (見える範囲)
       } else {
         await assertGoalInScope(env, auth, parts[1]);
       }
@@ -246,8 +288,8 @@ export const templatesTools: Record<string, ToolDef> = {
       "型を外 (GitHub) に置く Markdown を作って返す。repo・path・url (置き場所のリンク) と markdown を返すので、本人の GitHub ログインで repo の path に書く。" +
       "書けたら record_template_export。こつこつが止まっても、この Markdown から資料と注意点に辿れるようにするためのもの。",
     schema: z.object({ template: z.string().min(1).describe("型の id か名前") }),
-    handler: async (args, env, wsId) => {
-      const t = await findTemplate(env, wsId, args.template);
+    handler: async (args, env, wsId, auth) => {
+      const t = await findTemplate(env, wsId, args.template, auth);
       const target = kataExportTarget(env as unknown as Record<string, unknown>);
       if (!target) throw new Error("書き出し先 (KATA_GITHUB_REPO) が設定されていません。管理者に設定してもらってください");
       const path = kataExportPath(target, t);
@@ -261,8 +303,8 @@ export const templatesTools: Record<string, ToolDef> = {
       template: z.string().min(1).describe("型の id か名前"),
       url: z.string().url().optional().describe("書いたファイルの URL。省略時は get_template_markdown の url"),
     }),
-    handler: async (args, env, wsId) => {
-      const t = await findTemplate(env, wsId, args.template);
+    handler: async (args, env, wsId, auth) => {
+      const t = await findTemplate(env, wsId, args.template, auth);
       const target = kataExportTarget(env as unknown as Record<string, unknown>);
       if (!target) throw new Error("書き出し先 (KATA_GITHUB_REPO) が設定されていません");
       const expected = kataExportUrl(target, kataExportPath(target, t));
@@ -293,7 +335,7 @@ export const templatesTools: Record<string, ToolDef> = {
       await assertGoalInScope(env, auth, args.source_goal_id);
       await assertCanEdit(env, wsId, auth, args.source_goal_id);
       const fromGoal = await templateIdForGoal(env.DB, wsId, args.source_goal_id);
-      const t = await findTemplate(env, wsId, args.template ?? fromGoal ?? "");
+      const t = await findTemplate(env, wsId, args.template ?? fromGoal ?? "", auth);
       // 型から作っていないタスクを口実に、関係ない型を直させない。管理者と型を作った本人だけは別
       if (fromGoal !== t.id) assertTemplateManager(auth, t);
       if (!args.add_cautions?.length && !args.add_resources?.length && args.tasks === undefined) throw new Error("足すもの (add_cautions / add_resources / tasks) がありません");
@@ -316,8 +358,8 @@ export const templatesTools: Record<string, ToolDef> = {
       });
       if (r.changed) await notifyTemplateChanged(env, wsId, t, args.source_goal_id, by, args.reason, auth);
       const ex = r.changed ? await exportKata(env, wsId, t.id) : {};
-      const u = await findTemplate(env, wsId, t.id);
-      return { ...(await templateView(env, wsId, u)), changed: r.changed, revision_id: r.revisionId, ...ex };
+      const u = await findTemplate(env, wsId, t.id, auth);
+      return { ...(await templateView(env, wsId, u, auth)), changed: r.changed, revision_id: r.revisionId, ...ex };
     },
   },
 
@@ -328,12 +370,12 @@ export const templatesTools: Record<string, ToolDef> = {
       revision_id: z.string().min(1).describe("取り消す版の id"),
     }),
     handler: async (args, env, wsId, auth) => {
-      const t = await findTemplate(env, wsId, args.template);
+      const t = await findTemplate(env, wsId, args.template, auth);
       assertTemplateManager(auth, t);
       const r = await revertTemplateRevision(env.DB, wsId, t, args.revision_id, { actorName: auth.actor?.name ?? "AI", actorKind: actorKind(auth), now: nowIso() });
       const ex = r.changed ? await exportKata(env, wsId, t.id) : {};
-      const u = await findTemplate(env, wsId, t.id);
-      return { ...(await templateView(env, wsId, u)), changed: r.changed, revision_id: r.revisionId, ...ex };
+      const u = await findTemplate(env, wsId, t.id, auth);
+      return { ...(await templateView(env, wsId, u, auth)), changed: r.changed, revision_id: r.revisionId, ...ex };
     },
   },
 
@@ -347,7 +389,7 @@ export const templatesTools: Record<string, ToolDef> = {
       unlink: z.boolean().optional(),
     }),
     handler: async (args, env, wsId, auth) => {
-      const t = await findTemplate(env, wsId, args.template);
+      const t = await findTemplate(env, wsId, args.template, auth);
       assertTemplateManager(auth, t);
       const res = args.unlink
         ? await env.DB.prepare("UPDATE playbooks SET template_id = NULL WHERE id = ? AND workspace_id = ? AND template_id = ?").bind(args.playbook_id, wsId, t.id).run()
@@ -362,7 +404,7 @@ export const templatesTools: Record<string, ToolDef> = {
     description: "型 (テンプレート) を一覧から外す (消さない。作ったゴールは残る)。管理者と作った本人だけ。",
     schema: z.object({ template: z.string().min(1).describe("型の id か名前") }),
     handler: async (args, env, wsId, auth) => {
-      const t = await findTemplate(env, wsId, args.template);
+      const t = await findTemplate(env, wsId, args.template, auth);
       assertTemplateManager(auth, t);
       await env.DB.prepare("UPDATE templates SET archived_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(nowIso(), nowIso(), t.id, wsId).run();
       return { ok: true, id: t.id };
@@ -381,7 +423,7 @@ export const templatesTools: Record<string, ToolDef> = {
       deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("新しいゴールの期日 YYYY-MM-DD"),
     }),
     handler: async (args, env, wsId, auth) => {
-      const t = await findTemplate(env, wsId, args.template);
+      const t = await findTemplate(env, wsId, args.template, auth);
       await assertGoalInScope(env, auth, args.parentId);
       await assertCanEdit(env, wsId, auth, args.parentId);
       // 担当者: id → メール/名前 (resolveWho)

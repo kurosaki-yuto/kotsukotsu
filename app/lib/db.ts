@@ -29,8 +29,8 @@ export type Project = {
 export type Goal = Project;
 
 // 型 (テンプレート): 必要な入力値 + 資料 + 注意点 + タスクの木。/templates。中身の型は templateCore.ts が正
-export type { TemplateInput, TemplateTask, TemplateResource, TemplateCaution, ResourceKind, TemplateRevision } from "./server/templateCore";
-import type { TemplateInput, TemplateTask, TemplateResource, TemplateCaution } from "./server/templateCore";
+export type { TemplateInput, TemplateTask, TemplateResource, TemplateCaution, ResourceKind, TemplateRevision, TemplateVisibility, TemplateFunction, TemplateSchedule, TemplateScheduleTarget } from "./server/templateCore";
+import type { TemplateInput, TemplateTask, TemplateResource, TemplateCaution, TemplateVisibility, TemplateFunction, TemplateSchedule, TemplateScheduleTarget } from "./server/templateCore";
 export type Template = {
   id: string;
   workspace_id: string;
@@ -49,6 +49,15 @@ export type Template = {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  // 見える範囲・機能・繰り返し (0030)。private_note と schedule_target は直せる人にだけ入る
+  visibility: TemplateVisibility;
+  function: TemplateFunction | null;
+  private_note: string | null;
+  schedule: TemplateSchedule | null;
+  schedule_target: TemplateScheduleTarget | null;
+  last_run_at?: string | null;
+  last_run_goal_id?: string | null;
+  can_manage?: boolean;
 };
 export type TemplateSummary = Template & { task_count: number; used_count: number };
 

@@ -24,6 +24,7 @@ import { Avatar, Assignees } from "../../components/Assignees";
 import AutoGrowTextarea from "../../components/AutoGrowTextarea";
 import { tasksToOutline, outlineToTasks, countTasks, RESOURCE_KINDS } from "../../lib/server/templateCore";
 import { useAutoRefresh } from "../../lib/useAutoRefresh";
+import TemplateSettings from "./TemplateSettings";
 
 const inputCls = "w-full rounded-lg px-3 py-2 text-[14px] focus:outline-none border";
 const inputStyle = { background: "var(--hover)", borderColor: "var(--border)", color: "var(--foreground)" } as const;
@@ -549,7 +550,8 @@ export default function TemplateDetailPage() {
           </div>
 
           {/* ===== 右: 振る / 作ったゴール ===== */}
-          <aside className="mt-6 lg:mt-0 lg:sticky lg:top-6 flex flex-col gap-4">
+          <aside className="mt-6 lg:mt-0 flex flex-col gap-4">
+            <TemplateSettings tpl={tpl} members={members} goalOptions={goalOptions} onSaved={(t) => setTpl((p) => (p ? { ...p, ...t } : p))} />
             <section className="card px-5 py-4">
               <h2 className="text-[14px] font-bold">この型で振る</h2>
               <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>

@@ -1,49 +1,37 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getDoneCounts, type DoneCounts as Data } from "../lib/addness";
-import { useAutoRefresh } from "../lib/useAutoRefresh";
-import { Chevron, useCollapsed } from "../lib/useCollapsed";
+import type { DoneCounts as Data } from "../lib/addness";
 
-// タスク画面の「終えたタスク」。メンバー全員の今日・今週 (月曜から) の完了数 (/api/done-counts)。
+// 「終えたタスク」の中身。メンバー全員の今日・今週 (月曜から) の完了数 (/api/done-counts)。
 // 数はメンバー全員が全員分見られる。タスク名は自分の分だけ (担当外のタスクの中身は見せない)。
-export default function DoneCounts({ myEmail }: { myEmail: string | null }) {
+// 読み込みと開け閉めは BoardSummary が持つ。
+export function myDoneToday(data: Data, myEmail: string | null): number {
+  const me = (myEmail ?? "").toLowerCase();
+  return data.members.find((m) => m.email === me)?.today ?? 0;
+}
+
+export function DoneCountsBody({ data, myEmail }: { data: Data; myEmail: string | null }) {
   const router = useRouter();
-  const [data, setData] = useState<Data | null>(null);
   const [range, setRange] = useState<"today" | "week">("today");
   const [showMine, setShowMine] = useState(false);
-  // 閉じても「あなた N ・ 全員 M」の1行は残す。スマホは最初から閉じておく (画面が狭いため)
-  const [closed, toggle] = useCollapsed("done-counts", true);
-  const load = useCallback(async () => {
-    try { setData(await getDoneCounts()); } catch { /* api() が上部のバナーで知らせる */ }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-  useAutoRefresh(() => { void load(); }, { intervalMs: 60000 });
-  if (!data || data.members.length === 0) return null;
 
   const me = (myEmail ?? "").toLowerCase();
   const list = [...data.members].sort((a, b) => b[range] - a[range] || a.name.localeCompare(b.name, "ja"));
   const total = list.reduce((s, m) => s + m[range], 0);
   const myCount = list.find((m) => m.email === me)?.[range] ?? 0;
   return (
-    <section className="card mb-6 px-4 py-2.5 md:py-3" aria-label="終えたタスク">
+    <div className="py-2.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <button type="button" onClick={toggle} aria-expanded={!closed} className="flex items-center gap-1.5 text-left text-[13px] font-bold" style={{ color: "var(--done-strong)" }}>
-          <Chevron closed={closed} />
-          終えたタスク
-          <span className="text-[12px] font-normal" style={{ color: "var(--muted)" }}>
-            {range === "today" ? "今日" : "今週"} あなた <b style={{ color: "var(--done-strong)" }}>{myCount}</b> ・ 全員 {total}
-          </span>
-        </button>
-        {!closed && (
-          <div className="tab-seg" role="tablist">
-            <button type="button" role="tab" aria-selected={range === "today"} className={range === "today" ? "active" : ""} onClick={() => setRange("today")}>今日</button>
-            <button type="button" role="tab" aria-selected={range === "week"} className={range === "week" ? "active" : ""} onClick={() => setRange("week")}>今週</button>
-          </div>
-        )}
+        <div className="tab-seg" role="tablist">
+          <button type="button" role="tab" aria-selected={range === "today"} className={range === "today" ? "active" : ""} onClick={() => setRange("today")}>今日</button>
+          <button type="button" role="tab" aria-selected={range === "week"} className={range === "week" ? "active" : ""} onClick={() => setRange("week")}>今週</button>
+        </div>
+        <span className="text-[12px]" style={{ color: "var(--muted)" }}>
+          あなた <b style={{ color: "var(--done-strong)" }}>{myCount}</b> ・ 全員 {total}
+        </span>
       </div>
-      {!closed && (<>
       <ul className="mt-2.5 flex flex-wrap gap-2">
         {list.map((m) => {
           const mine = m.email === me;
@@ -84,7 +72,6 @@ export default function DoneCounts({ myEmail }: { myEmail: string | null }) {
       <p className="mt-2 text-[11px] leading-relaxed" style={{ color: "var(--muted)" }}>
         完了にした人の数 (AI が閉じたものは、その AI を使っている人)。10/5 より前の分は担当者で数え、親と一緒に閉じた小タスクは数えない。
       </p>
-      </>)}
-    </section>
+    </div>
   );
 }

@@ -15,18 +15,14 @@ import {
   getMyTasks,
   toggleItemDone,
   setItemStarted,
-  prefetchGoalBundle,
   type GoalMember,
   type MyTask,
 } from "./lib/addness";
 import type { Goal } from "./lib/db";
 import { useAutoRefresh } from "./lib/useAutoRefresh";
-import MyTurn from "./components/MyTurn";
-import Attention from "./components/Attention";
+import BoardSummary from "./components/BoardSummary";
 import { ItemRow } from "./components/tasks/ItemRow";
 import { daysUntil, useIndent, countChildren, buildItemTree, pruneToAssigned, type DropPos, type DropHint } from "./components/tasks/tree";
-import DoneCounts from "./components/DoneCounts";
-import { Chevron, useCollapsed } from "./lib/useCollapsed";
 
 let loadBusy = false;
 let loadAt = 0;
@@ -36,8 +32,6 @@ export default function TasksPage() {
   const indent = useIndent();
   const [admin, setAdmin] = useState<boolean | null>(null);
   const [myEmail, setMyEmail] = useState<string | null>(null);
-  // 「期限が近い」の開け閉め (スマホの上の段と PC の右の段で同じ状態を使う。端末に覚える)
-  const [deadlinesClosed, toggleDeadlines] = useCollapsed("deadlines");
   const [scoped, setScoped] = useState(false); // task-scoped member: sees their subtree
   const [items, setItems] = useState<Goal[]>([]);
   const [members, setMembers] = useState<Record<string, GoalMember[]>>({});
@@ -384,43 +378,9 @@ export default function TasksPage() {
             : "あなたのタスク"}
         </p>
 
-        <MyTurn />
-        <Attention />
-        <DoneCounts myEmail={myEmail} />
+        <BoardSummary myEmail={myEmail} deadlines={upcomingDeadlines} />
 
-        {/* PC(lg+): 左=ゴールツリー / 右=期限が近い。スマホは期限が近い→ツリーの縦1列 */}
-        <div className="lg:flex lg:gap-8 lg:items-start">
-        <div className="lg:hidden">
-        {upcomingDeadlines.length > 0 && (
-          <div className="card px-4 py-1 mb-6 divide-y divide-[var(--border)]">
-            <button type="button" onClick={toggleDeadlines} aria-expanded={!deadlinesClosed} className="flex w-full items-center gap-1.5 py-2 text-left text-[13px] font-semibold text-[var(--muted)] cjk">
-              <Chevron closed={deadlinesClosed} />
-              期限が近い
-              <span className="font-normal text-[var(--muted-soft)]">{upcomingDeadlines.length}</span>
-            </button>
-            {!deadlinesClosed && upcomingDeadlines.map((g) => (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => router.push(`/goals/${g.id}`)}
-                onMouseEnter={() => prefetchGoalBundle(g.id)}
-                className="flex items-center gap-2 w-full text-left py-2.5 hover:bg-[var(--hover)]"
-              >
-                {g.emoji && <span className="shrink-0">{g.emoji}</span>}
-                <span className="flex-1 min-w-0 break-words text-[14px] cjk text-[var(--foreground)]">{g.name || "（無題）"}</span>
-                <span
-                  className="shrink-0 text-[12.5px] font-medium"
-                  style={{ color: g.daysLeft < 0 ? "#dc2626" : g.daysLeft <= 2 ? "#d97706" : "var(--muted)" }}
-                >
-                  {g.daysLeft < 0 ? `期限切れ ${Math.abs(g.daysLeft)}日` : g.daysLeft === 0 ? "今日まで" : `あと${g.daysLeft}日`}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0">
         {admin === null || loading ? (
           <div className="py-8 text-[14px] text-[var(--muted)]">読み込み中…</div>
         ) : tree.length === 0 && doneItems.length === 0 ? (
@@ -547,36 +507,6 @@ export default function TasksPage() {
               </div>
             )}
           </>
-        )}
-        </div>
-        {upcomingDeadlines.length > 0 && (
-          <aside className="hidden lg:block w-80 shrink-0 lg:sticky lg:top-6">
-                  <div className="card px-4 py-1 mb-6 lg:mb-0 divide-y divide-[var(--border)]">
-            <button type="button" onClick={toggleDeadlines} aria-expanded={!deadlinesClosed} className="flex w-full items-center gap-1.5 py-2 text-left text-[13px] font-semibold text-[var(--muted)] cjk">
-              <Chevron closed={deadlinesClosed} />
-              期限が近い
-              <span className="font-normal text-[var(--muted-soft)]">{upcomingDeadlines.length}</span>
-            </button>
-            {!deadlinesClosed && upcomingDeadlines.map((g) => (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => router.push(`/goals/${g.id}`)}
-                onMouseEnter={() => prefetchGoalBundle(g.id)}
-                className="flex items-center gap-2 w-full text-left py-2.5 hover:bg-[var(--hover)]"
-              >
-                {g.emoji && <span className="shrink-0">{g.emoji}</span>}
-                <span className="flex-1 min-w-0 break-words text-[14px] cjk text-[var(--foreground)]">{g.name || "（無題）"}</span>
-                <span
-                  className="shrink-0 text-[12.5px] font-medium"
-                  style={{ color: g.daysLeft < 0 ? "#dc2626" : g.daysLeft <= 2 ? "#d97706" : "var(--muted)" }}
-                >
-                  {g.daysLeft < 0 ? `期限切れ ${Math.abs(g.daysLeft)}日` : g.daysLeft === 0 ? "今日まで" : `あと${g.daysLeft}日`}
-                </span>
-              </button>
-            ))}
-          </div>
-          </aside>
         )}
         </div>
       </div>

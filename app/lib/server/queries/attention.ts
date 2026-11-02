@@ -53,6 +53,8 @@ async function visibility(viewerEmail: string, wsId: string, opts: { admin: bool
 // セッションが終わって残ったタスクが自分でこう書いている (11/1 本番で15件)。FAIL が書いてあるものは出さない
 const DONE_WORDS = ["%照合%PASS%", "%作業は済み%", "%完了チェックはまだ%", "%完了の印を付けられていない%", "%完了の関門%"];
 
+const COMPANY_WORDS = ["%株式会社%", "%合同会社%", "%有限会社%", "%（株）%", "%(株)%"];
+
 export type ClosableItem = {
   id: string; name: string; parent_name: string | null; state_updated_at: string | null;
   reason: "children_done" | "steps_done" | "state_says_done"; detail: string;
@@ -78,8 +80,13 @@ export async function listAttention(
 
   type Row = { id: string; name: string; parent_name: string | null; state_updated_at: string | null; current_state: string | null; n?: number };
   const [kidsDone, stepsDone, stateDone, stalled] = await Promise.all([
-    // 配下が全部終わった中間のタスク。一番上のゴール (顧客・事業の箱) は配下が片付いても続くので出さない
-    all<Row>(`SELECT ${cols}, ${kids} AS n ${from} WHERE ${base} AND p.parent_goal_id IS NOT NULL AND ${kids} > 0 AND ${openKids} = 0`, wsId, ...vis.args),
+    // 配下が全部終わった中間のタスク。一番上のゴールと顧客の箱 (社名のゴール) は、今の配下が片付いても付き合いが続くので出さない
+    // (11/1 本番で顧客の社名のゴール 2 件が候補に出た)
+    all<Row>(
+      `SELECT ${cols}, ${kids} AS n ${from} WHERE ${base} AND p.parent_goal_id IS NOT NULL AND ${kids} > 0 AND ${openKids} = 0
+         AND ${COMPANY_WORDS.map(() => "p.name NOT LIKE ?").join(" AND ")}`,
+      wsId, ...vis.args, ...COMPANY_WORDS
+    ),
     all<Row>(`SELECT ${cols}, ${steps} AS n ${from} WHERE ${base} AND ${steps} > 0 AND ${openSteps} = 0 AND ${openKids} = 0`, wsId, ...vis.args),
     all<Row>(
       `SELECT ${cols} ${from} WHERE ${base} AND ${openKids} = 0 AND p.current_state NOT LIKE '%FAIL%'

@@ -39,14 +39,217 @@ export type TemplateRow = {
   exported_at?: string | null;
   embedding?: string | null;
   embedding_model?: string | null;
+  // 0030: 見える範囲・自分だけのメモ・機能・繰り返し
+  visibility?: string | null;
+  private_note?: string | null;
+  function?: string | null;
+  schedule?: string | null;
+  schedule_target?: string | null;
+  last_run_key?: string | null;
+  last_run_at?: string | null;
+  last_run_goal_id?: string | null;
 };
 
-export type Template = Omit<TemplateRow, "inputs" | "tasks" | "resources" | "cautions" | "embedding" | "embedding_model"> & {
+export type Template = Omit<TemplateRow, "inputs" | "tasks" | "resources" | "cautions" | "embedding" | "embedding_model" | "visibility" | "function" | "schedule" | "schedule_target"> & {
   inputs: TemplateInput[];
   tasks: TemplateTask[];
   resources: TemplateResource[];
   cautions: TemplateCaution[];
+  visibility: TemplateVisibility;
+  function: TemplateFunction | null;
+  schedule: TemplateSchedule | null;
+  schedule_target: TemplateScheduleTarget | null;
 };
+
+// ---------- 見える範囲・機能・繰り返し (0030) ----------
+// 見える範囲: private = 作った人と管理者 / assigned = 上 + その型から作ったゴールの担当者 / workspace = 全員
+export const TEMPLATE_VISIBILITIES = ["private", "assigned", "workspace"] as const;
+export type TemplateVisibility = (typeof TEMPLATE_VISIBILITIES)[number];
+export const VISIBILITY_LABEL: Record<TemplateVisibility, string> = { private: "自分だけ", assigned: "振った相手も", workspace: "全員" };
+/** 新しく作る型の見える範囲 (黒崎判断 2026-11-02: 振った相手まで)。 */
+export const DEFAULT_VISIBILITY: TemplateVisibility = "assigned";
+// 機能: もちもつのフォルダ 00〜50 と同じ区分。型の一覧をこの順で並べる
+export const TEMPLATE_FUNCTIONS = ["経営", "財務", "法務", "集客", "営業", "CS", "その他"] as const;
+export type TemplateFunction = (typeof TEMPLATE_FUNCTIONS)[number];
+// 繰り返し。time はワークスペースのタイムゾーンの HH:MM。weekday は 0=日〜6=土、day は 1〜31 (月末を越える日はその月の最終日)
+export type TemplateSchedule = { freq: "daily" | "weekly" | "monthly"; time: string; weekday?: number; day?: number };
+// 繰り返しで振る先。deadline_days = 振った日から何日後を期限にするか
+export type TemplateScheduleTarget = { parent_id: string; member_id: string; values: Record<string, string>; deadline_days?: number };
+export const LIMIT_PRIVATE_NOTE = 4000;
+
+export function normalizeVisibility(v: unknown, fallback: TemplateVisibility = "workspace"): TemplateVisibility {
+  return (TEMPLATE_VISIBILITIES as readonly string[]).includes(v as string) ? (v as TemplateVisibility) : fallback;
+}
+export function normalizeFunction(v: unknown): TemplateFunction | null {
+  const s = typeof v === "string" ? v.trim() : "";
+  return (TEMPLATE_FUNCTIONS as readonly string[]).includes(s) ? (s as TemplateFunction) : null;
+}
+export function normalizeSchedule(raw: unknown): TemplateSchedule | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const freq = o.freq;
+  if (freq !== "daily" && freq !== "weekly" && freq !== "monthly") return null;
+  const m = typeof o.time === "string" ? /^(\d{1,2}):(\d{2})$/.exec(o.time.trim()) : null;
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+  const time = `${m[1].padStart(2, "0")}:${m[2]}`;
+  if (freq === "weekly") {
+    const w = Number(o.weekday);
+    return Number.isInteger(w) && w >= 0 && w <= 6 ? { freq, time, weekday: w } : null;
+  }
+  if (freq === "monthly") {
+    const d = Number(o.day);
+    return Number.isInteger(d) && d >= 1 && d <= 31 ? { freq, time, day: d } : null;
+  }
+  return { freq, time };
+}
+export function normalizeScheduleTarget(raw: unknown): TemplateScheduleTarget | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const parent_id = typeof o.parent_id === "string" ? o.parent_id.trim() : "";
+  const member_id = typeof o.member_id === "string" ? o.member_id.trim() : "";
+  if (!parent_id || !member_id) return null;
+  const values: Record<string, string> = {};
+  if (o.values && typeof o.values === "object") {
+    for (const [k, v] of Object.entries(o.values as Record<string, unknown>)) {
+      if (typeof v === "string" && k.length <= LIMITS.inputLabel) values[k] = v.trim().slice(0, LIMITS.valueLen);
+    }
+  }
+  const dd = Number(o.deadline_days);
+  return { parent_id, member_id, values, ...(Number.isInteger(dd) && dd >= 0 && dd <= 365 ? { deadline_days: dd } : {}) };
+}
+
+const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+/** 「毎週月曜 9:00」のような 1 行。 */
+export function describeSchedule(s: TemplateSchedule | null): string {
+  if (!s) return "繰り返さない";
+  const t = s.time.replace(/^0/, "");
+  if (s.freq === "daily") return `毎日 ${t}`;
+  if (s.freq === "weekly") return `毎週${WEEKDAYS[s.weekday ?? 1]}曜 ${t}`;
+  return `毎月${s.day}日 ${t}`;
+}
+
+// 型を読む人。workspace キー (人に結びつかない接続) と管理者は全部読める
+export type TemplateViewer = { userId: string | null; email: string | null; admin: boolean };
+
+/** 型を直せる (= 自分だけのメモ・繰り返しの設定まで読める) のは管理者と作った本人。 */
+export function canManageTemplate(v: TemplateViewer, t: { created_by: string | null }): boolean {
+  return v.admin || (!!t.created_by && !!v.userId && t.created_by === v.userId);
+}
+
+/**
+ * 型 (別名 alias) を viewer が読めるかの SQL 条件。続けて templateReadableBinds(viewer) を bind する。
+ * assigned は「その型から作ったゴール (配下のタスクも template_id を持つ) に、メールが一致する担当がいる」で見る。
+ * 担当は今の状態から毎回計算する (読めるかは今の権限なので、スナップショットしない)。
+ */
+export function templateReadableSql(alias = "t"): string {
+  return `(? = 1 OR ${alias}.created_by = ? OR COALESCE(${alias}.visibility, 'workspace') = 'workspace'
+     OR (${alias}.visibility = 'assigned' AND EXISTS (
+       SELECT 1 FROM projects rp
+         JOIN goal_members rgm ON rgm.goal_id = rp.id
+         JOIN members rm ON rm.id = rgm.member_id
+        WHERE rp.template_id = ${alias}.id AND rp.workspace_id = ${alias}.workspace_id AND rp.status != 'archived'
+          AND rm.workspace_id = ${alias}.workspace_id AND rm.email IS NOT NULL AND lower(rm.email) = lower(?))))`;
+}
+export function templateReadableBinds(v: TemplateViewer): unknown[] {
+  return [v.admin ? 1 : 0, v.userId ?? "", v.email ?? ""];
+}
+
+/** 型を読めるか (1 件)。 */
+export async function canReadTemplate(db: D1Database, wsId: string, templateId: string, v: TemplateViewer): Promise<boolean> {
+  const r = await db.prepare(`SELECT 1 AS ok FROM templates t WHERE t.id = ? AND t.workspace_id = ? AND ${templateReadableSql("t")}`)
+    .bind(templateId, wsId, ...templateReadableBinds(v)).first<{ ok: number }>();
+  return !!r;
+}
+
+/** 直せない人に返すときは、自分だけのメモと振る先を外す。 */
+export function redactTemplate<T extends Pick<Template, "created_by" | "private_note" | "schedule_target">>(t: T, v: TemplateViewer): T & { can_manage: boolean } {
+  const can = canManageTemplate(v, t);
+  return can ? { ...t, can_manage: true } : { ...t, private_note: null, schedule_target: null, can_manage: false };
+}
+
+// 見える範囲・メモ・機能・繰り返しを直す。中身 (履歴に残す範囲) とは別に保存する。
+export type TemplateSettingsPatch = { visibility?: unknown; private_note?: unknown; function?: unknown; schedule?: unknown; schedule_target?: unknown };
+export async function saveTemplateSettings(db: D1Database, wsId: string, templateId: string, p: TemplateSettingsPatch, now: string): Promise<boolean> {
+  const sets: string[] = [];
+  const args: unknown[] = [];
+  if (p.visibility !== undefined) { sets.push("visibility = ?"); args.push(normalizeVisibility(p.visibility, DEFAULT_VISIBILITY)); }
+  if (p.private_note !== undefined) { sets.push("private_note = ?"); args.push(typeof p.private_note === "string" ? p.private_note.trim().slice(0, LIMIT_PRIVATE_NOTE) || null : null); }
+  if (p.function !== undefined) { sets.push("function = ?"); args.push(normalizeFunction(p.function)); }
+  if (p.schedule !== undefined) { const s = normalizeSchedule(p.schedule); sets.push("schedule = ?"); args.push(s ? JSON.stringify(s) : null); }
+  if (p.schedule_target !== undefined) { const s = normalizeScheduleTarget(p.schedule_target); sets.push("schedule_target = ?"); args.push(s ? JSON.stringify(s) : null); }
+  if (!sets.length) return false;
+  await db.prepare(`UPDATE templates SET ${sets.join(", ")}, updated_at = ? WHERE id = ? AND workspace_id = ?`).bind(...args, now, templateId, wsId).run();
+  return true;
+}
+
+/**
+ * 繰り返しの設定を保存する前の確かめ。直せないものは日本語の理由を返す (null なら通す)。
+ * 振る先の親ゴール・担当・必須の入力が揃っていないと、時刻になっても振れずに黙って止まるため。
+ */
+export async function checkScheduleSettings(
+  db: D1Database, wsId: string, t: Pick<Template, "inputs">, schedule: unknown, target: unknown
+): Promise<string | null> {
+  if (schedule === null || schedule === undefined) return null;
+  const s = normalizeSchedule(schedule);
+  if (!s) return "繰り返しの書き方が正しくありません (freq: daily/weekly/monthly、time: HH:MM、weekly は weekday 0〜6、monthly は day 1〜31)";
+  const g = normalizeScheduleTarget(target);
+  if (!g) return "繰り返すときは、振る先 (置き場所のゴールと担当) が要ります";
+  const parent = await db.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND status != 'archived'").bind(g.parent_id, wsId).first();
+  if (!parent) return "振る先の置き場所 (ゴール) が見つかりません";
+  const member = await db.prepare("SELECT id FROM members WHERE id = ? AND workspace_id = ?").bind(g.member_id, wsId).first();
+  if (!member) return "振る先の担当が見つかりません";
+  const missing = missingRequiredInputs(t.inputs, g.values);
+  if (missing.length) return `繰り返しで振るときの入力が空です: ${missing.join("、")}`;
+  return null;
+}
+
+/**
+ * 今がこの繰り返しの回に当たるなら、その回の印 ("YYYY-MM-DDTHH:MM"、ワークスペースの時刻) を返す。
+ * その日の時刻を過ぎていれば当日中は同じ印を返す (cron が遅れても、その日のうちに一度だけ振る)。
+ */
+export function scheduleOccurrence(s: TemplateSchedule, now: Date, timezone: string): string | null {
+  let parts: Record<string, string>;
+  try {
+    parts = Object.fromEntries(
+      new Intl.DateTimeFormat("en-US", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short", hour12: false })
+        .formatToParts(now).map((p) => [p.type, p.value])
+    );
+  } catch {
+    return timezone === "Asia/Tokyo" ? null : scheduleOccurrence(s, now, "Asia/Tokyo");
+  }
+  const date = `${parts.year}-${parts.month}-${parts.day}`;
+  const hm = `${parts.hour === "24" ? "00" : parts.hour}:${parts.minute}`;
+  if (hm < s.time) return null;
+  if (s.freq === "weekly") {
+    const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(parts.weekday);
+    if (wd !== s.weekday) return null;
+  }
+  if (s.freq === "monthly") {
+    const y = Number(parts.year), mo = Number(parts.month), d = Number(parts.day);
+    const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    if (d !== Math.min(s.day ?? 1, last)) return null;
+  }
+  return `${date}T${s.time}`;
+}
+
+/**
+ * AI の定期実行 (クラウドのルーチン) を組むための指示。繰り返しを入れた型に付けて返す。
+ * こつこつは時刻に今回分のゴールを作るだけで、手を動かすのは AI の定期実行 (黒崎判断 2026-11-02)。
+ */
+export function routineSetupText(t: Pick<Template, "id" | "name" | "schedule">): string | null {
+  if (!t.schedule) return null;
+  const [h, m] = t.schedule.time.split(":").map(Number);
+  const after = `${String((h + (m + 15 >= 60 ? 1 : 0)) % 24).padStart(2, "0")}:${String((m + 15) % 60).padStart(2, "0")}`;
+  const when = describeSchedule({ ...t.schedule, time: after });
+  return [
+    `型「${t.name}」は ${describeSchedule(t.schedule)} に、こつこつが今回分のゴールを作って担当の今日に入れる。`,
+    `手順を最後まで回すのは AI の定期実行。まだ組んでいなければ、${when} (こつこつが作った15分後) に動くクラウドの定期実行を1本組み、次の指示を入れる:`,
+    "",
+    `「こつこつの list_my_tasks で、型「${t.name}」(template_id: ${t.id}) から今日作られた未完了のゴールを探す。無ければ何もせず終える。`,
+    "あれば get_goal でその型 (kata) と完了の基準を読み、上のタスクから順に start_task → 手順 → 完了基準照合 → complete_subtask で最後まで進める。",
+    "外向きの送信・支払い・契約・公開は実行せず、下書きを作って現状に「承認待ち」と書いて止まる。終わったら send_chat でそのゴールに結果を残す。」",
+  ].join("\n");
+}
 
 // 型の中身 (直した履歴に丸ごと残す範囲)
 export type TemplateContent = Pick<Template, "name" | "purpose" | "completion_criteria" | "inputs" | "tasks" | "resources" | "cautions">;
@@ -174,12 +377,18 @@ export function parseTemplateRow(row: TemplateRow): Template {
   // 埋め込みは選ぶときにだけ使う。返り値に載せると 1 件 1.4KB の文字列が毎回 AI に流れる
   const { embedding: _e, embedding_model: _m, ...rest } = row;
   void _e; void _m;
+  const obj = (s: string | null | undefined): unknown => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
   return {
     ...rest,
     inputs: normalizeInputs(safe(row.inputs)),
     tasks: normalizeTasks(safe(row.tasks)),
     resources: normalizeResources(safe(row.resources)),
     cautions: normalizeCautions(safe(row.cautions)),
+    visibility: normalizeVisibility(row.visibility),
+    private_note: row.private_note ?? null,
+    function: normalizeFunction(row.function),
+    schedule: normalizeSchedule(obj(row.schedule)),
+    schedule_target: normalizeScheduleTarget(obj(row.schedule_target)),
   };
 }
 

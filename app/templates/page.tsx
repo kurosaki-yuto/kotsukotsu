@@ -5,10 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { listTemplates, createTemplate, getMe, type Me } from "../lib/addness";
 import type { TemplateSummary } from "../lib/db";
+import { TEMPLATE_FUNCTIONS, VISIBILITY_LABEL, describeSchedule } from "../lib/server/templateCore";
 import { useAutoRefresh } from "../lib/useAutoRefresh";
 
 // 型 (テンプレート) の一覧。型 = 必要な入力値 + 資料リンク + タスクの木。
 // 終えたゴールの「…」→「型にする」で作り、ここから「この型で振る」でメンバーに丸ごと渡す。
+// 機能 (経営・財務・法務・集客・営業・CS・その他) ごとの見出しで並べる。読める型だけが返ってくる (見える範囲)。
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);
@@ -68,33 +70,57 @@ export default function TemplatesPage() {
             まだ型がありません。終えたゴールを開き、右上の「…」→「型にする」で作れます。
           </div>
         ) : (
-          <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {items.map((t) => (
-              <li key={t.id}>
-                <Link
-                  href={`/templates/${t.id}`}
-                  className="card block px-5 py-4 h-full hover:shadow-md transition-shadow"
-                  style={{ borderLeft: "4px solid var(--accent)" }}
-                >
-                  <div className="font-bold text-[15px] leading-snug break-words">{t.name}</div>
-                  {t.purpose && (
-                    <p className="mt-1.5 text-[12.5px] leading-relaxed line-clamp-3 break-words" style={{ color: "var(--foreground-soft)" }}>
-                      {t.purpose}
-                    </p>
-                  )}
-                  <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[12px]" style={{ color: "var(--muted)" }}>
-                    <span>入力 {t.inputs.length}</span>
-                    <span>タスク {t.task_count}</span>
-                    <span>資料 {t.resources.length}</span>
-                    <span>使った回数 {t.used_count}</span>
-                  </div>
-                  <div className="mt-2 text-[11.5px]" style={{ color: "var(--muted-soft)" }}>
-                    {t.author_name ?? "—"} · 更新 {fmtDate(t.updated_at)}
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col gap-7">
+            {[...TEMPLATE_FUNCTIONS, null].map((fn) => {
+              const group = items.filter((t) => (t.function ?? null) === fn);
+              if (!group.length) return null;
+              return (
+                <section key={fn ?? "none"} aria-label={fn ?? "未分類"}>
+                  <h2 className="mb-2.5 flex items-baseline gap-2 text-[14px] font-bold cjk">
+                    {fn ?? "未分類"}
+                    <span className="text-[12px] font-normal" style={{ color: "var(--muted)" }}>{group.length}</span>
+                  </h2>
+                  <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {group.map((t) => (
+                      <li key={t.id}>
+                        <Link
+                          href={`/templates/${t.id}`}
+                          className="card block px-5 py-4 h-full hover:shadow-md transition-shadow"
+                          style={{ borderLeft: "4px solid var(--accent)" }}
+                        >
+                          <div className="font-bold text-[15px] leading-snug break-words">{t.name}</div>
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            <span className="rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: "var(--border)", color: "var(--foreground-soft)" }}>
+                              見える: {VISIBILITY_LABEL[t.visibility] ?? "全員"}
+                            </span>
+                            {t.schedule && (
+                              <span className="rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: "var(--doing-border)", background: "var(--doing-soft)", color: "var(--doing)" }}>
+                                {describeSchedule(t.schedule)}
+                              </span>
+                            )}
+                          </div>
+                          {t.purpose && (
+                            <p className="mt-1.5 text-[12.5px] leading-relaxed line-clamp-3 break-words" style={{ color: "var(--foreground-soft)" }}>
+                              {t.purpose}
+                            </p>
+                          )}
+                          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[12px]" style={{ color: "var(--muted)" }}>
+                            <span>入力 {t.inputs.length}</span>
+                            <span>タスク {t.task_count}</span>
+                            <span>資料 {t.resources.length}</span>
+                            <span>使った回数 {t.used_count}</span>
+                          </div>
+                          <div className="mt-2 text-[11.5px]" style={{ color: "var(--muted-soft)" }}>
+                            {t.author_name ?? "—"} · 更新 {fmtDate(t.updated_at)}
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
