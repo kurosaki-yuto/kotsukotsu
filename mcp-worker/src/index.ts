@@ -30,6 +30,7 @@ import { todayTools } from "./tools/today";
 import { chatTools } from "./tools/chat";
 import { miscTools } from "./tools/misc";
 import { templatesTools } from "./tools/templates";
+import { statusTools } from "./tools/status";
 import { membersTools } from "./tools/members";
 import { runDueReminders, runSelfCheck, isDailySelfCheckTick, runStallSweep, runTemplateSchedules } from "./cron";
 import { Env, MUTATING_TOOLS, PUSH_TOOLS } from "./env";
@@ -38,7 +39,7 @@ import { PROTOCOL_VERSION, SERVER_INFO, buildInstructions, instructionsAreStale,
 // 顧客台帳 (kotsukotsu-crm) のツールを同じ接続に並べて取り次ぐ。MCP の接続先を1本にするため。
 import { callCrmTool, crmInstructions, crmToolsList, isCrmTool } from "./crm";
 
-const tools: Record<string, ToolDef> = { ...goalsTools, ...todayTools, ...chatTools, ...miscTools, ...templatesTools, ...membersTools };
+const tools: Record<string, ToolDef> = { ...goalsTools, ...todayTools, ...chatTools, ...miscTools, ...templatesTools, ...membersTools, ...statusTools };
 
 const OWN_TOOLS = new Set(Object.keys(tools));
 

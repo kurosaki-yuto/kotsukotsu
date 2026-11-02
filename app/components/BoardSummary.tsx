@@ -3,57 +3,42 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  getMyTurn, getAttention, getDoneCounts, prefetchGoalBundle,
-  type MyTurnItem, type ClosableItem, type StalledItem, type DoneCounts,
+  getDoneCounts, prefetchGoalBundle,
+  type DoneCounts,
 } from "../lib/addness";
 import { useAutoRefresh } from "../lib/useAutoRefresh";
-import { MyTurnList } from "./MyTurn";
-import { StalledList, ClosableList } from "./Attention";
 import { DoneCountsBody, myDoneToday } from "./DoneCounts";
 
 // タスク画面の上の段 (2026-11-02 黒崎「開いた状態やからスクロールずっとしなあかんのがクソめんどい」)。
-// あなたの番・止まっている・閉じていい？・期限が近い・終えたタスクを、件数つきの札1行にまとめる。
+// 期限切れ・近い と 今日終えた を件数つきの札で出す (黒崎判断 2026-11-02: あなたの番・止まっている・閉じていい？ は盤に出さず、AI が status_report で会話で出す)。
 // 開いた直後は全部閉じていて、すぐ下にゴールのツリーが見える。札を押すとその1つだけ下に開き、もう一度押すと閉じる。
 // 開け閉めは覚えない (毎回閉じた状態から始める)。0件の札は出さない。
 // 読み込みに失敗したら api() が上部のバナーで知らせる (空と区別するため)。前の表示は残す。
 export type DeadlineItem = { id: string; name: string; emoji: string | null; daysLeft: number };
-type Key = "turn" | "stalled" | "closable" | "deadlines" | "done";
+type Key = "deadlines" | "done";
 type Tone = { fg: string; border: string; bg: string };
 
 const TONE: Record<Key, Tone> = {
-  turn: { fg: "var(--doing)", border: "var(--doing-border)", bg: "var(--doing-soft)" },
-  stalled: { fg: "var(--danger)", border: "var(--border-strong)", bg: "var(--surface)" },
-  closable: { fg: "var(--done-strong)", border: "var(--done-border)", bg: "var(--done-soft)" },
   deadlines: { fg: "var(--foreground-soft)", border: "var(--border-strong)", bg: "var(--surface)" },
   done: { fg: "var(--done-strong)", border: "var(--done-border)", bg: "var(--done-soft)" },
 };
 const HINT: Record<Key, string> = {
-  turn: "現状の「ボール」にあなたの名前があるタスク",
-  stalled: "進行中のまま24時間動かなかったタスク。開いて続けるか、確認したら消す",
-  closable: "終わったと書いてある・手順や配下が全部済んだのに開いたままのタスク",
   deadlines: "あなたの担当で、期限切れか3日以内のもの",
   done: "メンバー全員の今日・今週の完了数",
 };
 
 export default function BoardSummary({ myEmail, deadlines }: { myEmail: string | null; deadlines: DeadlineItem[] }) {
-  const [turn, setTurn] = useState<MyTurnItem[] | null>(null);
-  const [att, setAtt] = useState<{ closable: ClosableItem[]; stalled: StalledItem[] } | null>(null);
   const [done, setDone] = useState<DoneCounts | null>(null);
   const [open, setOpen] = useState<Key | null>(null);
 
-  const loadTurn = useCallback(async () => { try { setTurn(await getMyTurn()); } catch { /* バナー */ } }, []);
-  const loadAtt = useCallback(async () => { try { setAtt(await getAttention()); } catch { /* バナー */ } }, []);
   const loadDone = useCallback(async () => { try { setDone(await getDoneCounts()); } catch { /* バナー */ } }, []);
-  const loadAll = useCallback(() => { void loadTurn(); void loadAtt(); void loadDone(); }, [loadTurn, loadAtt, loadDone]);
+  const loadAll = useCallback(() => { void loadDone(); }, [loadDone]);
   useEffect(() => { loadAll(); }, [loadAll]);
   // 現状は AI が書き換えるので、戻ってきたとき・変更の知らせで読み直す (間隔は長め)
   useAutoRefresh(loadAll, { intervalMs: 60000 });
 
   const overdue = deadlines.filter((d) => d.daysLeft < 0).length;
   const chips: { key: Key; label: string; count: number; alert?: boolean }[] = [];
-  if (turn?.length) chips.push({ key: "turn", label: "あなたの番", count: turn.length });
-  if (att?.stalled.length) chips.push({ key: "stalled", label: "止まっている", count: att.stalled.length, alert: true });
-  if (att?.closable.length) chips.push({ key: "closable", label: "閉じていい？", count: att.closable.length });
   if (deadlines.length) chips.push({ key: "deadlines", label: overdue ? "期限切れ・近い" : "期限が近い", count: deadlines.length, alert: overdue > 0 });
   if (done && done.members.length) chips.push({ key: "done", label: "今日終えた", count: myDoneToday(done, myEmail) });
   if (!chips.length) return null;
@@ -94,9 +79,6 @@ export default function BoardSummary({ myEmail, deadlines }: { myEmail: string |
       {shown && tone && (
         <section id="board-summary-panel" role="tabpanel" className="card mt-2 px-4 py-1" style={{ borderColor: tone.border, background: tone.bg }} aria-label={chips.find((c) => c.key === shown)?.label}>
           <p className="pt-2.5 text-[11.5px] cjk" style={{ color: "var(--muted)" }}>{HINT[shown]}</p>
-          {shown === "turn" && turn && <MyTurnList items={turn} />}
-          {shown === "stalled" && att && <StalledList items={att.stalled} reload={loadAtt} />}
-          {shown === "closable" && att && <ClosableList items={att.closable} reload={loadAtt} />}
           {shown === "deadlines" && <DeadlineList items={deadlines} />}
           {shown === "done" && done && <DoneCountsBody data={done} myEmail={myEmail} />}
         </section>
