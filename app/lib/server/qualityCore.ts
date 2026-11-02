@@ -9,6 +9,9 @@
 
 // 成果物・数字・日付・場所など、○×を付けられる手がかり
 const CONCRETE = /([A-Za-z0-9-]+\.[a-z]{2,}\b|\b[A-Z]{3,}\b|\b[a-z]+_[a-z_]+\b|\b[a-z]+[A-Z]\w*\b|`|\d|[０-９]|https?:\/\/|\.(md|pdf|csv|xlsx?|docx?|pptx?|png|jpe?g|json|ts|tsx|py|html)\b|「|『|画面|シート|ファイル|フォルダ|一覧|表|PDF|URL|スレッド|チャット|コメント|現状|件|円|%|％|枚|本|社|人|通|回|ページ|リポジトリ|コミット|本番|テーブル|台帳|メール|返信|スクショ|画像|資料|提案書|見積|請求|契約|入金|承認|OK|ＯＫ|公開|送付|送信|登録|記録|デプロイ|PASS)/;
+// 「検討する」で終わる行は、残りに数字・ファイル・URL・「」・英数字の名前のどれかが無ければ曖昧とみなす
+// (「資料を検討する」「契約について確認する」は、名詞が入っていても終わったか判定できない)
+const STRONG = /([A-Za-z0-9-]+\.[a-z]{2,}\b|\b[A-Z]{3,}\b|\b[a-z]+_[a-z_]+\b|\b[a-z]+[A-Z]\w*\b|`|\d|[０-９]|https?:\/\/|「|『)/;
 // それだけでは終わったか判定できない言い方 (文の終わり)
 const VAGUE_END = /(検討|改善|整理|整備|調整|対応|確認|把握|推進|共有|強化|最適化|見直し|ブラッシュアップ|いい感じに|整える|磨く|よくする|良くする|高める)(する|します|を行う|を進める|を図る)?[。.]?$/;
 const VAGUE_STATE = /^(対応中|進行中|作業中|進めている|進めています|順調|未着手|検討中|確認中)[。.]?$/;
@@ -20,7 +23,8 @@ const STATE_EXAMPLE = "例: 「2026-11-02時点。提案書の下書きを作り
 function lines(text: string): string[] {
   return text
     .split(/\r?\n/)
-    .map((l) => l.replace(/^[\s□■・\-*●○◯✓✔]+/, "").trim())
+    // 行頭の記号と番号 (1. / 1) / (1) / （1） / ① など) は中身ではないので外す。外さないと番号の数字で「数字あり」になって素通りする
+    .map((l) => l.replace(/^[\s□■・\-*●○◯✓✔]+/, "").replace(/^(\d{1,2}[.)．）、]|[(（]\d{1,2}[)）]|[①-⑳])\s*/, "").trim())
     .filter((l) => l && !/^この状態になったら完了。?$/.test(l));
 }
 
@@ -34,7 +38,8 @@ export function criteriaProblem(text: string | null | undefined): string | null 
   if (weak.length === ls.length) {
     return `完了の基準に数字・日付・成果物名 (ファイル名・URL・画面名・シート名など) がありません。終わったかどうかを他人が判定できる形にしてください。直す行: ${weak.slice(0, 3).map((l) => `「${l.slice(0, 40)}」`).join(" ")}。${CRITERIA_EXAMPLE}`;
   }
-  const vague = ls.filter((l) => VAGUE_END.test(l) && !CONCRETE.test(l.replace(VAGUE_END, "")));
+  // 「〜が表示され、行の高さが変わらないことを確認」のように、確かめる中身が書いてある長い行は通す (15字以上)
+  const vague = ls.filter((l) => { if (!VAGUE_END.test(l)) return false; const rest = l.replace(VAGUE_END, ""); return !STRONG.test(rest) && rest.length < 15; });
   if (vague.length) {
     return `完了の基準が「検討する」「対応する」「確認する」のような、終わったか判定できない言い方で終わっています: ${vague.slice(0, 3).map((l) => `「${l.slice(0, 40)}」`).join(" ")}。何ができた状態か (何がどこにあるか・何件か・誰のOKが出たか) で書いてください。${CRITERIA_EXAMPLE}`;
   }
