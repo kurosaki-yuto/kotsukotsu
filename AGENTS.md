@@ -114,6 +114,13 @@ SQL 内で解決してバインドしない (`memberRelevantGoalIds` / `goalVisi
 
 誰が何を見られる/編集できるかの変更は、無断でやらない (2026-07-19 に一度差し戻し済み)。
 
+今の決まり (2026-11-03 黒崎指示で揃えた): メンバーに見えるのは「見える根」とその下だけ。根は
+管理者なら全部、招待の範囲 (`workspace_members.scope_goal_id`) があればそれ、無ければ担当
+(`goal_members`) のゴール。Web は `app/lib/server/workspace.ts` の `viewRoots` / `goalVisible` /
+`trimAncestors`、MCP は `mcp-worker/src/lib.ts` の `scopeRoots` / `goalInScope`。ゴールを読む・書く
+ルートは必ず `goalVisible` (か `requireGoalEdit`) を通す。上の親は名前も返さない (パンくず・一覧とも)。
+画面側の絞り込み (`tree.ts pruneToAssigned`) は見た目の都合で、門はサーバー側。
+
 ## 自己診断
 
 `GET /api/internal/selfcheck` (管理者セッション) で上記の症状を実データに対して検査できる。
