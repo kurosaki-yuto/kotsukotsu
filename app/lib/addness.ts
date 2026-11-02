@@ -528,21 +528,6 @@ export function officeKindOf(name: string): OfficeKind | null {
 }
 
 /** r2: のキーを画面で開くときの URL (Office はビューアー) */
-// ---------- 完了の基準・現状の「これでいい？」 ----------
-export type Confirmation = import("./server/queries/confirmations").ConfirmationRow;
-export async function getMyConfirmations(): Promise<Confirmation[]> {
-  return (await api("/api/confirmations")) as Confirmation[];
-}
-export async function getGoalConfirmations(goalId: string): Promise<Confirmation[]> {
-  return (await api(`/api/confirmations?goal=${encodeURIComponent(goalId)}`)) as Confirmation[];
-}
-export async function answerConfirmation(id: string, yes: boolean, note?: string): Promise<void> {
-  await api(`/api/confirmations/${id}`, { method: "POST", body: JSON.stringify({ answer: yes ? "yes" : "no", ...(note ? { note } : {}) }) });
-}
-export async function acceptAllConfirmations(): Promise<number> {
-  return ((await api("/api/confirmations", { method: "POST", body: JSON.stringify({ yes_all: true }) })) as { accepted: number }).accepted;
-}
-
 /** 上のゴール (親・その上) に付いた資料 (近い順)。このゴール自身の分は含めない */
 export async function getInheritedResources(goalId: string): Promise<import("./server/resourcesCore").InheritedResource[]> {
   return (await api(`/api/resources?goal=${encodeURIComponent(goalId)}&inherited=1`)) as import("./server/resourcesCore").InheritedResource[];

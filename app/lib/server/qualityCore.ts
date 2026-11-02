@@ -1,19 +1,23 @@
-// 完了の基準・現状の門と「これでいい？」の確認 (黒崎判断 2026-11-02)。Web と mcp-worker の両方から使う。
+// 完了の基準・現状の門 (黒崎判断 2026-11-02)。mcp-worker から使う。
 //
 // 必ず「目標 → 完了の基準 → 現状 → その差がタスク」になるようにする:
 // - AI が書く完了の基準・現状は、甘ければ受け付けずに理由を返す (MCP だけ。画面の手入力は止めない)
 // - タスクを足すときは、親の完了の基準のどの行を埋めるタスクか (closes) を持たせる
 // - タスクを終えるときは、親の現状も同じ呼び出しで書き直させる (タスクが動いたのに現状が古いまま、を作らない)
-// - AI が書き換えた完了の基準・現状は、書かせた本人に「これでいい？ はい / いいえ」を一度出す
-//   (既にある完了の基準の書き換えは「はい」まで反映しない。現状と新しく書いた基準はすぐ反映し、「いいえ」で戻す)
+// - 既にある完了の基準・現状を update_goal で書き換えるときは、保存せずに変更前後を返し、
+//   AI が本人に会話で「これでいいですか」と聞いて confirmed: true で呼び直したときだけ保存する (確認の画面は作らない)
 
-// 成果物・数字・日付・場所など、○×を付けられる手がかり
-const CONCRETE = /([A-Za-z0-9-]+\.[a-z]{2,}\b|\b[A-Z]{3,}\b|\b[a-z]+_[a-z_]+\b|\b[a-z]+[A-Z]\w*\b|`|\d|[０-９]|https?:\/\/|\.(md|pdf|csv|xlsx?|docx?|pptx?|png|jpe?g|json|ts|tsx|py|html)\b|「|『|画面|シート|ファイル|フォルダ|一覧|表|PDF|URL|スレッド|チャット|コメント|現状|件|円|%|％|枚|本|社|人|通|回|ページ|リポジトリ|コミット|本番|テーブル|台帳|メール|返信|スクショ|画像|資料|提案書|見積|請求|契約|入金|承認|OK|ＯＫ|公開|送付|送信|登録|記録|デプロイ|PASS)/;
-// 「検討する」で終わる行は、残りに数字・ファイル・URL・「」・英数字の名前のどれかが無ければ曖昧とみなす
+// 意味のある数: 単位つきの数・日付・時刻・コミットのような英数字。行頭の「1.」「【1】」「1-1」「Q1」のような番号の数字は数えない
+// (番号の書き方を一つずつ外す作りは、照合で2回すり抜けを見つけられたのでやめた)
+const QUANTITY = /(\d+(?:[.,]\d+)?\s*(?:件|円|%|枚|本|社|人|通|回|日|か月|ヶ月|カ月|月|年|週|時間|時|分|秒|行|ページ|頁|章|か所|ヶ所|箇所|名|個|台|万|千|億|点|項目|ケース|文字|字|倍|割|位|号|部|冊|席|組|株|期|kb|KB|mb|MB|gb|GB|px|ms)|20\d\d[-/年.]\d{1,2}|\d{1,2}\/\d{1,2}|\d{1,2}月\d{1,2}日|\d{1,2}:\d{2}|\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b)/;
+const NAMES = "[A-Za-z0-9-]+\\.[a-z]{2,}\\b|\\b[A-Z]{3,}\\b|\\b[a-z]+_[a-z_]+\\b|\\b[a-z]+[A-Z]\\w*\\b|\\x60|https?:\\/\\/|「|『";
+// 成果物・数・日付・場所など、○×を付けられる手がかり
+const CONCRETE = new RegExp(`(${QUANTITY.source}|${NAMES}|\\.(md|pdf|csv|xlsx?|docx?|pptx?|png|jpe?g|json|ts|tsx|py|html)\\b|画面|シート|ファイル|フォルダ|一覧|表|PDF|URL|スレッド|チャット|コメント|現状|リポジトリ|コミット|本番|テーブル|台帳|メール|返信|スクショ|画像|資料|提案書|見積|請求|契約|入金|承認|OK|公開|送付|送信|登録|記録|デプロイ|PASS)`);
+// 「検討する」で終わる行は、残りに意味のある数・ファイル・URL・「」・英数字の名前のどれかが無く短ければ曖昧とみなす
 // (「資料を検討する」「契約について確認する」は、名詞が入っていても終わったか判定できない)
-const STRONG = /([A-Za-z0-9-]+\.[a-z]{2,}\b|\b[A-Z]{3,}\b|\b[a-z]+_[a-z_]+\b|\b[a-z]+[A-Z]\w*\b|`|\d|[０-９]|https?:\/\/|「|『)/;
+const STRONG = new RegExp(`(${QUANTITY.source}|${NAMES})`);
 // それだけでは終わったか判定できない言い方 (文の終わり)
-const VAGUE_END = /(検討|改善|整理|整備|調整|対応|確認|把握|推進|共有|強化|最適化|見直し|ブラッシュアップ|いい感じに|整える|磨く|よくする|良くする|高める)(する|します|を行う|を進める|を図る)?[。.]?$/;
+const VAGUE_END = /(検討|改善|整理|整備|調整|対応|確認|把握|推進|共有|強化|最適化|見直し|ブラッシュアップ|いい感じに|整える|磨く|よくする|良くする|高める|考える|詰める|固める|深める|検証)(する|します|を行う|を進める|を図る)?[。.]?$/;
 const VAGUE_STATE = /^(対応中|進行中|作業中|進めている|進めています|順調|未着手|検討中|確認中)[。.]?$/;
 const DATE = /(20\d\d-\d{1,2}-\d{1,2}|20\d\d\/\d{1,2}\/\d{1,2}|\d{1,2}\/\d{1,2}|\d{1,2}月\d{1,2}日)/;
 
@@ -42,7 +46,8 @@ export function criteriaProblem(text: string | null | undefined): string | null 
   if (!t) return `完了の基準が空です。「何が満たされたら完了か」を、他人が○×を付けられる形で書いてください。${CRITERIA_EXAMPLE}`;
   const ls = lines(t);
   if (!ls.length) return `完了の基準に中身がありません。${CRITERIA_EXAMPLE}`;
-  const weak = ls.filter((l) => !CONCRETE.test(l));
+  // 手がかりの語が無くても、「〜検討する」で終わらず状態を25字以上で書いている行 (「人物を個別に保存・編集でき、適用しても会話ルールを変えない」など) は通す
+  const weak = ls.filter((l) => !CONCRETE.test(l) && (l.length < 25 || VAGUE_END.test(l)));
   if (weak.length === ls.length) {
     return `完了の基準に数字・日付・成果物名 (ファイル名・URL・画面名・シート名など) がありません。終わったかどうかを他人が判定できる形にしてください。直す行: ${weak.slice(0, 3).map((l) => `「${l.slice(0, 40)}」`).join(" ")}。${CRITERIA_EXAMPLE}`;
   }
@@ -96,40 +101,8 @@ export function numberedCriteria(parentCriteria: string | null | undefined): str
   return lines(parentCriteria ?? "").map((l, i) => `${i + 1}. ${l}`).join("\n");
 }
 
-// ---------- 「これでいい？」の確認 ----------
-export type ConfirmField = "completion_criteria" | "current_state";
-export type GoalConfirmation = {
-  id: string; workspace_id: string; goal_id: string; field: ConfirmField;
-  before_text: string | null; after_text: string; reason: string | null;
-  /** 1 = もう反映した (いいえで戻す) / 0 = はいで反映する */
-  applied: number;
-  status: "pending" | "accepted" | "rejected" | "superseded";
-  requested_by: string | null; requested_by_name: string | null; created_at: string;
-  decided_at: string | null; decided_by_name: string | null;
-};
-
-/**
- * 確認を 1 件積む。同じゴール・同じ欄でまだ答えていない確認は「新しいものに置き換え」(superseded) にする
- * (現状は何度も書き換わるので、最新の 1 件にだけ答えればよい)。
- */
-export async function requestConfirmation(
-  db: D1Database,
-  o: { wsId: string; goalId: string; field: ConfirmField; before: string | null; after: string; applied: boolean; reason?: string | null; userId: string | null; userName: string | null; now: string }
-): Promise<string> {
-  const id = crypto.randomUUID();
-  await db.batch([
-    db.prepare("UPDATE goal_confirmations SET status = 'superseded', decided_at = ? WHERE workspace_id = ? AND goal_id = ? AND field = ? AND status = 'pending'")
-      .bind(o.now, o.wsId, o.goalId, o.field),
-    db.prepare(
-      `INSERT INTO goal_confirmations (id, workspace_id, goal_id, field, before_text, after_text, reason, applied, status, requested_by, requested_by_name, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
-    ).bind(id, o.wsId, o.goalId, o.field, o.before, o.after, o.reason?.slice(0, 1000) ?? null, o.applied ? 1 : 0, o.userId, o.userName, o.now),
-  ]);
-  return id;
-}
-
-export const CONFIRM_NOTE_PENDING =
-  "完了の基準の書き換えは、まだ反映していない。依頼した本人の画面に「これでいい？ はい / いいえ」が出ていて、はいで反映される。" +
-  "本人と会話しているなら、変更前と変更後を並べて「完了の基準をこう変えます。これでいいですか」と一度聞く。いいえなら直して出し直す。";
-export const CONFIRM_NOTE_APPLIED =
-  "反映した。依頼した本人の画面に「これでいい？ はい / いいえ」が出ていて、いいえなら元に戻り、書き直しを頼むコメントが付く。";
+// ---------- 「これでいいですか」(会話で聞く) ----------
+export const CONFIRM_NOTE =
+  "まだ保存していない。needs_confirmation の変更前 (before) と変更後 (after) を本人に見せて、" +
+  "「完了の基準・現状をこう変えます。これでいいですか」と聞く。はいなら同じ内容に confirmed: true を付けて update_goal を呼び直す。" +
+  "いいえなら言われたとおりに直して、もう一度 confirmed なしで出す。本人がいない (定期実行など) ときは保存せず、send_chat で変更前と変更後を残して止まる";
