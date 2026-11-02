@@ -1,4 +1,4 @@
-import { requireWorkspace, goalInScope } from "../../../../lib/server/workspace";
+import { requireWorkspace, goalVisible } from "../../../../lib/server/workspace";
 import { json } from "../../../../lib/server/db";
 import { setProjectStarted, canEditGoal } from "../../../../lib/server/queries";
 
@@ -8,7 +8,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (!wctx) return json({ error: "unauthorized" }, { status: 401 });
   const { id } = await ctx.params;
   if (!(await canEditGoal({ id: wctx.user.id, email: wctx.user.email, role: wctx.role }, id, wctx.workspaceId))) return json({ error: "forbidden" }, { status: 403 });
-  if (!(await goalInScope(wctx.workspaceId, id, wctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await goalVisible(wctx, id))) return json({ error: "not found" }, { status: 404 });
   const body = (await req.json().catch(() => ({}))) as { started?: boolean };
   await setProjectStarted(id, body.started !== false, wctx.workspaceId, {
     userId: wctx.user.id,

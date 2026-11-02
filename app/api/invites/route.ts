@@ -1,5 +1,5 @@
 import { json, first } from "../../lib/server/db";
-import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
+import { requireWorkspace, goalVisible } from "../../lib/server/workspace";
 import { createInvite, listInvites } from "../../lib/server/queries";
 import { publicOrigin } from "@/app/lib/server/platform";
 
@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   if (goalId) {
     // Goal-scoped invite: the goal must be in this workspace and within the
     // caller's own scope, and the caller must be an admin or the goal's creator.
-    if (!(await goalInScope(ctx.workspaceId, goalId, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+    if (!(await goalVisible(ctx, goalId))) return json({ error: "not found" }, { status: 404 });
     const g = await first<{ created_by: string | null }>("SELECT created_by FROM projects WHERE id = ? AND workspace_id = ?", goalId, ctx.workspaceId);
     if (!g) return json({ error: "not found" }, { status: 404 });
     if (ctx.role !== "admin" && g.created_by !== ctx.user.id) return json({ error: "forbidden" }, { status: 403 });

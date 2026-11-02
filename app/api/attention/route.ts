@@ -1,4 +1,4 @@
-import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
+import { requireWorkspace, goalVisible } from "../../lib/server/workspace";
 import { json, bad } from "../../lib/server/db";
 import { listAttention, dismissClose, dismissStall, canEditGoal } from "../../lib/server/queries";
 
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { id?: string; action?: string };
   const id = String(body.id ?? "");
   if (!id) return bad("id がありません");
-  if (!(await goalInScope(ctx.workspaceId, id, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await goalVisible(ctx, id))) return json({ error: "not found" }, { status: 404 });
   if (!(await canEditGoal({ id: ctx.user.id, email: ctx.user.email, role: ctx.role }, id, ctx.workspaceId))) return json({ error: "forbidden" }, { status: 403 });
   const ok = body.action === "keep_open" ? await dismissClose(id, ctx.workspaceId)
     : body.action === "ack_stall" ? await dismissStall(id, ctx.workspaceId)

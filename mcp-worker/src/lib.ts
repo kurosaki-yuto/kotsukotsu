@@ -536,10 +536,10 @@ export function rpcResult(id: unknown, result: unknown) {
   return { jsonrpc: "2.0", id, result };
 }
 
-// args はツールごとに zod で検査したあとの値。型は各ツールの schema が持つので、ここは any でよい
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 /** workspaceGiven: 呼び出しで workspace を明示したか (list_my_tasks / list_my_turn は、明示が無ければ所属する全ワークスペースから集める) */
 export type ToolCtx = { workspaceGiven: boolean };
+// args はツールごとに zod で検査したあとの値。型は各ツールの schema が持つので、ここは any でよい
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ToolHandler = (args: any, env: Env, wsId: string, auth: McpAuth, ctx?: ToolCtx) => Promise<unknown>;
 export interface ToolDef {
   description: string;

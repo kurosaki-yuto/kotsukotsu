@@ -1,6 +1,6 @@
 import "server-only";
 import { json, db } from "./db";
-import { goalInScope, requireGoalEdit, type WorkspaceCtx } from "./workspace";
+import { goalVisible, viewRoots, requireGoalEdit, type WorkspaceCtx } from "./workspace";
 import { getTemplate, templateViewer } from "./queries";
 import { canReadTemplate } from "./templateCore";
 import { isAncestorOfAny } from "./resourcesCore";
@@ -32,8 +32,9 @@ export function targetOfKey(wsId: string, key: string): FileTarget | null {
  */
 export async function canReadTarget(ctx: WorkspaceCtx, t: FileTarget): Promise<boolean> {
   if (t.kind === "goal") {
-    if (await goalInScope(ctx.workspaceId, t.goalId, ctx.scopeGoalId)) return true;
-    return !!ctx.scopeGoalId && isAncestorOfAny(db(), ctx.workspaceId, t.goalId, [ctx.scopeGoalId]);
+    if (await goalVisible(ctx, t.goalId)) return true;
+    const roots = await viewRoots(ctx);
+    return !!roots && roots.length > 0 && isAncestorOfAny(db(), ctx.workspaceId, t.goalId, roots);
   }
   const tpl = await getTemplate(t.templateId, ctx.workspaceId);
   return !!tpl && canReadTemplate(db(), ctx.workspaceId, tpl.id, templateViewer(ctx));

@@ -1,5 +1,5 @@
 import "server-only";
-import { listGoals } from "./goals";
+import { listGoals, type GoalScope } from "./goals";
 import { createNotification } from "./notifications";
 import { all, first, run, uid } from "../db";
 
@@ -29,7 +29,7 @@ const MEMBER_COLS_SQL = `gm.goal_id, m.id, m.name, m.email,
          m.is_you, gm.can_edit`;
 // Every assignment on a non-archived goal of the workspace in ONE query (the
 // tree used to fetch these in 40〜50 sequential chunks of 50 ids).
-export async function listGoalMembersAll(wsId: string, scopeGoalId: string | null = null): Promise<Record<string, Omit<MemberRow, "goal_id">[]>> {
+export async function listGoalMembersAll(wsId: string, scope: GoalScope = null): Promise<Record<string, Omit<MemberRow, "goal_id">[]>> {
   const rows = await all<MemberRow>(
     `SELECT ${MEMBER_COLS_SQL}
        FROM goal_members gm
@@ -40,7 +40,7 @@ export async function listGoalMembersAll(wsId: string, scopeGoalId: string | nul
     wsId, wsId
   );
   let allowed: Set<string> | null = null;
-  if (scopeGoalId) allowed = new Set(((await listGoals(wsId, scopeGoalId)) as { id: string }[]).map((g) => g.id));
+  if (scope !== null) allowed = new Set(((await listGoals(wsId, scope)) as { id: string }[]).map((g) => g.id));
   const result: Record<string, Omit<MemberRow, "goal_id">[]> = {};
   for (const r of rows) {
     if (allowed && !allowed.has(r.goal_id)) continue;

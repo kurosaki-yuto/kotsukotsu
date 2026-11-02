@@ -1,5 +1,5 @@
 import { json, bad } from "../../../lib/server/db";
-import { requireWorkspace, goalInScope, type WorkspaceCtx } from "../../../lib/server/workspace";
+import { requireWorkspace, goalVisible, type WorkspaceCtx } from "../../../lib/server/workspace";
 import { getMessage, updateMessage, deleteMessage, getMyProfile } from "../../../lib/server/queries";
 
 // Only the comment's author may edit or delete it (admins can delete for
@@ -23,7 +23,7 @@ export async function PATCH(req: Request, route: { params: Promise<{ id: string 
   const body = (await req.json().catch(() => ({}))) as { body?: string };
   if (!body.body?.trim()) return bad("body required", 400);
   const msg = await getMessage(id, ctx.workspaceId);
-  if (!msg || !(await goalInScope(ctx.workspaceId, msg.goal_id ?? "", ctx.scopeGoalId))) {
+  if (!msg || !(await goalVisible(ctx, msg.goal_id ?? ""))) {
     return json({ error: "not found" }, { status: 404 });
   }
   if (!(await canTouch(ctx, msg, false))) return json({ error: "forbidden" }, { status: 403 });
@@ -35,7 +35,7 @@ export async function DELETE(req: Request, route: { params: Promise<{ id: string
   if (!ctx) return json({ error: "unauthorized" }, { status: 401 });
   const { id } = await route.params;
   const msg = await getMessage(id, ctx.workspaceId);
-  if (!msg || !(await goalInScope(ctx.workspaceId, msg.goal_id ?? "", ctx.scopeGoalId))) {
+  if (!msg || !(await goalVisible(ctx, msg.goal_id ?? ""))) {
     return json({ error: "not found" }, { status: 404 });
   }
   if (!(await canTouch(ctx, msg, true))) return json({ error: "forbidden" }, { status: 403 });

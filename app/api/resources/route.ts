@@ -1,6 +1,6 @@
 import { json, bad, first, db } from "../../lib/server/db";
 import { inheritedResources } from "../../lib/server/resourcesCore";
-import { requireWorkspace, goalInScope, requireGoalEdit } from "../../lib/server/workspace";
+import { requireWorkspace, goalVisible, requireGoalEdit } from "../../lib/server/workspace";
 import { listResources, createResource, updateResource, canEditGoal } from "../../lib/server/queries";
 
 // 画面から作れる種類。file は /api/files (アップロード) だけが作る
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   if (!ctx) return json({ error: "unauthorized" }, { status: 401 });
   const goal = new URL(req.url).searchParams.get("goal");
   if (!goal) return bad("goal required", 400);
-  if (!(await goalInScope(ctx.workspaceId, goal, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await goalVisible(ctx, goal))) return json({ error: "not found" }, { status: 404 });
   // ?inherited=1: 上のゴールに付いた資料 (このゴール自身の分は含めない)。タスクを見られる人は上の資料も読める
   if (new URL(req.url).searchParams.get("inherited") === "1") {
     return json((await inheritedResources(db(), ctx.workspaceId, goal)).filter((r) => r.depth > 0));
@@ -47,7 +47,7 @@ export async function PATCH(req: Request) {
   if (!body.id) return bad("id required", 400);
   const r = await first<{ goal_id: string | null }>("SELECT goal_id FROM resources WHERE id = ? AND workspace_id = ?", body.id, ctx.workspaceId);
   if (!r) return json({ error: "not found" }, { status: 404 });
-  if (r.goal_id && !(await goalInScope(ctx.workspaceId, r.goal_id, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (r.goal_id && !(await goalVisible(ctx, r.goal_id))) return json({ error: "not found" }, { status: 404 });
   if (r.goal_id && !(await canEditGoal(editor(ctx), r.goal_id, ctx.workspaceId))) return json({ error: "forbidden" }, { status: 403 });
   const patch: Record<string, unknown> = {};
   if (typeof body.name === "string") patch.name = body.name.slice(0, 200);

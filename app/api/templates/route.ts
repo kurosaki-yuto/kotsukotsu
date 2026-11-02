@@ -1,5 +1,5 @@
 import { json, bad } from "../../lib/server/db";
-import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
+import { requireWorkspace, goalVisible } from "../../lib/server/workspace";
 import { listTemplates, createTemplate, getGoal, canEditGoal, exportKata, templateViewer } from "../../lib/server/queries";
 import { snapshotGoalTree } from "../../lib/server/templateCore";
 import { db } from "../../lib/server/db";
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
 
   const fromGoalId = typeof body.from_goal_id === "string" ? body.from_goal_id : null;
   if (fromGoalId) {
-    if (!(await goalInScope(ctx.workspaceId, fromGoalId, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+    if (!(await goalVisible(ctx, fromGoalId))) return json({ error: "not found" }, { status: 404 });
     if (!(await canEditGoal({ id: ctx.user.id, email: ctx.user.email, role: ctx.role }, fromGoalId, ctx.workspaceId))) return json({ error: "forbidden" }, { status: 403 });
     const goal = (await getGoal(fromGoalId, ctx.workspaceId)) as { name: string; completion_criteria: string | null; current_state: string | null } | null;
     if (!goal) return json({ error: "not found" }, { status: 404 });

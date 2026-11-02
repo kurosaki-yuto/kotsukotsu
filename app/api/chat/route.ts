@@ -1,6 +1,6 @@
 import { limitOr429, MIN } from "../../lib/server/ratelimit";
 import { json, bad } from "../../lib/server/db";
-import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
+import { requireWorkspace, goalVisible } from "../../lib/server/workspace";
 import { listMessages, messageCount, sendMessage, getMyProfile } from "../../lib/server/queries";
 
 export async function GET(req: Request) {
@@ -9,7 +9,7 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const goal = sp.get("goal");
   if (!goal) return bad("goal required", 400);
-  if (!(await goalInScope(ctx.workspaceId, goal, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await goalVisible(ctx, goal))) return json({ error: "not found" }, { status: 404 });
   if (sp.get("count")) return json({ count: await messageCount(goal, ctx.workspaceId) });
   return json(await listMessages(goal, ctx.workspaceId));
 }
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     role?: string;
   };
   if (!body.goalId || !body.body) return bad("goalId and body required", 400);
-  if (!(await goalInScope(ctx.workspaceId, body.goalId, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await goalVisible(ctx, body.goalId))) return json({ error: "not found" }, { status: 404 });
   // author is always resolved from the authenticated session, never trusted
   // from the client — otherwise anyone can post as anyone (this is exactly
   // why every comment used to show up as "黒崎優斗" regardless of who wrote it).

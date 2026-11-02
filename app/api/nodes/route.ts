@@ -1,5 +1,5 @@
 import { json, bad } from "../../lib/server/db";
-import { requireWorkspace, goalInScope, requireGoalEdit } from "../../lib/server/workspace";
+import { requireWorkspace, goalVisible, requireGoalEdit } from "../../lib/server/workspace";
 import { listProjectNodes, insertNodeAfter, updateNodeText, toggleNodeComplete, deleteNode, indentNode, outdentNode, moveNode, updateNodeDue, nodeGoalId, getGoal } from "../../lib/server/queries";
 
 export async function GET(req: Request) {
@@ -8,7 +8,7 @@ export async function GET(req: Request) {
   const project = new URL(req.url).searchParams.get("project");
   if (!project) return bad("project required", 400);
   if (!(await getGoal(project, ctx.workspaceId))) return json({ error: "not found" }, { status: 404 });
-  if (!(await goalInScope(ctx.workspaceId, project, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await goalVisible(ctx, project))) return json({ error: "not found" }, { status: 404 });
   return json(await listProjectNodes(project, ctx.workspaceId));
 }
 

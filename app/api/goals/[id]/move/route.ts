@@ -1,4 +1,4 @@
-import { requireWorkspace, goalInScope, requireGoalEdit } from "../../../../lib/server/workspace";
+import { requireWorkspace, goalVisible, requireGoalEdit } from "../../../../lib/server/workspace";
 import { json } from "../../../../lib/server/db";
 import { moveGoal } from "../../../../lib/server/queries";
 
@@ -12,7 +12,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const parentId = body.parentId ?? null;
   const beforeId = body.beforeId ?? null;
   // a scoped member can only move within their subtree
-  if (parentId && !(await goalInScope(wctx.workspaceId, parentId, wctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (parentId && !(await goalVisible(wctx, parentId))) return json({ error: "not found" }, { status: 404 });
   const ok = await moveGoal(id, parentId, beforeId, wctx.workspaceId);
   return ok ? json({ ok: true }) : json({ error: "invalid move" }, { status: 400 });
 }

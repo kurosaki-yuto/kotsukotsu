@@ -58,6 +58,50 @@ export async function requireWorkspace(req: Request): Promise<WorkspaceCtx | nul
   return { user, workspaceId: wsId, role: wsRole, scopeGoalId: scope ?? null };
 }
 
+// 見える範囲の根。null = ワークスペース全体 (管理者)。招待で範囲が決まっている人はその1つ、
+// それ以外のメンバーは担当 (goal_members) のゴール。担当が無ければ [] (何も見えない)。
+// mcp-worker/src/lib.ts の scopeRoots と同じ決まり。画面のツリー (tree.ts pruneToAssigned) も
+// 同じ範囲しか出さないが、ツリーを絞るだけでは URL 直打ちやパンくずで上のゴールの中身が
+// 読めてしまう (2026-11-03 黒崎報告) ので、サーバー側の門もここで揃える。
+export async function viewRoots(ctx: WorkspaceCtx): Promise<string[] | null> {
+  if (ctx.role === "admin") return null;
+  if (ctx.scopeGoalId) return [ctx.scopeGoalId];
+  const rows = await all<{ goal_id: string }>(
+    `SELECT gm.goal_id FROM goal_members gm JOIN members m ON m.id = gm.member_id
+      WHERE m.workspace_id = ? AND m.email = ?`,
+    ctx.workspaceId, ctx.user.email.toLowerCase().trim()
+  );
+  return rows.map((r) => r.goal_id);
+}
+
+// この人に `goalId` が見えるか: 見える根のどれか、またはその下。自分で作ったゴールも見える
+// (作った人は担当に付くのが普通だが、付け替えで外れても自分の作ったものは読める)。
+export async function goalVisible(ctx: WorkspaceCtx, goalId: string): Promise<boolean> {
+  const roots = await viewRoots(ctx);
+  if (roots === null) return true;
+  let cur: string | null = goalId;
+  let guard = 0;
+  while (cur && guard++ < 50) {
+    if (roots.includes(cur)) return true;
+    const r: { parent_goal_id: string | null; created_by: string | null } | null = await first(
+      "SELECT parent_goal_id, created_by FROM projects WHERE id = ? AND workspace_id = ?",
+      cur, ctx.workspaceId
+    );
+    if (!r) return false;
+    if (r.created_by && r.created_by === ctx.user.id) return true;
+    cur = r.parent_goal_id;
+  }
+  return false;
+}
+
+// パンくず用。[root ... self] の鎖を、見える根から下だけに切る。上の親は名前も返さない。
+export async function trimAncestors<T extends { id: string }>(ctx: WorkspaceCtx, chain: T[]): Promise<T[]> {
+  const roots = await viewRoots(ctx);
+  if (roots === null) return chain;
+  const at = chain.findIndex((g) => roots.includes(g.id));
+  return at >= 0 ? chain.slice(at) : chain.slice(-1);
+}
+
 // Is `goalId` within the caller's scope? A null scope = the whole workspace.
 // Otherwise the goal must BE the scope goal or a descendant of it.
 export async function goalInScope(wsId: string, goalId: string, scopeGoalId: string | null): Promise<boolean> {
@@ -163,7 +207,7 @@ export async function createWorkspace(user: SessionUser, name: string, token?: s
 // 使い方: const denied = await requireGoalEdit(ctx, goalId); if (denied) return denied;
 export const editorOf = (ctx: WorkspaceCtx) => ({ id: ctx.user.id, email: ctx.user.email, role: ctx.role });
 export async function requireGoalEdit(ctx: WorkspaceCtx, goalId: string): Promise<Response | null> {
-  if (!(await goalInScope(ctx.workspaceId, goalId, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await goalVisible(ctx, goalId))) return json({ error: "not found" }, { status: 404 });
   if (!(await canEditGoal(editorOf(ctx), goalId, ctx.workspaceId))) return json({ error: "forbidden" }, { status: 403 });
   return null;
 }

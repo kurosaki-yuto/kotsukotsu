@@ -1,4 +1,4 @@
-import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
+import { requireWorkspace, goalVisible } from "../../lib/server/workspace";
 import { json, bad, first } from "../../lib/server/db";
 import { listNodeMembersByGoal, assignNodeMember, unassignNodeMember, nodeGoalId } from "../../lib/server/queries";
 
@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   if (!ctx) return json({ error: "unauthorized" }, { status: 401 });
   const goal = new URL(req.url).searchParams.get("goal");
   if (!goal) return bad("goal required", 400);
-  if (!(await goalInScope(ctx.workspaceId, goal, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await goalVisible(ctx, goal))) return json({ error: "not found" }, { status: 404 });
   const rows = (await listNodeMembersByGoal(goal, ctx.workspaceId)) as Array<Record<string, unknown>>;
   return json(rows.map((r) => ({ ...r, is_you: !!r.is_you })));
 }
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   const goalId = await nodeGoalId(body.nodeId, ctx.workspaceId);
   if (!goalId) return bad("node not found", 404);
   if (!(await canManageGoal({ id: ctx.user.id, role: ctx.role }, goalId, ctx.workspaceId))) return json({ error: "forbidden" }, { status: 403 });
-  if (!(await goalInScope(ctx.workspaceId, goalId, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await goalVisible(ctx, goalId))) return json({ error: "not found" }, { status: 404 });
   await assignNodeMember(body.nodeId, body.memberId);
   return json({ ok: true });
 }
@@ -40,7 +40,7 @@ export async function DELETE(req: Request) {
   const goalId = await nodeGoalId(body.nodeId, ctx.workspaceId);
   if (!goalId) return bad("node not found", 404);
   if (!(await canManageGoal({ id: ctx.user.id, role: ctx.role }, goalId, ctx.workspaceId))) return json({ error: "forbidden" }, { status: 403 });
-  if (!(await goalInScope(ctx.workspaceId, goalId, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  if (!(await goalVisible(ctx, goalId))) return json({ error: "not found" }, { status: 404 });
   await unassignNodeMember(body.nodeId, body.memberId);
   return json({ ok: true });
 }

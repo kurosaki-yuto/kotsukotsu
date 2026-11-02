@@ -1,5 +1,5 @@
 import { json, bad, first } from "../../lib/server/db";
-import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
+import { requireWorkspace, goalVisible } from "../../lib/server/workspace";
 import { listToday, setToday, clearToday } from "../../lib/server/queries";
 
 export async function GET(req: Request) {
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
     if (!key) continue;
     let ok = seen.get(key);
     if (ok === undefined) {
-      ok = await goalInScope(ctx.workspaceId, key, ctx.scopeGoalId);
+      ok = await goalVisible(ctx, key);
       seen.set(key, ok);
     }
     if (ok) out.push(r);
@@ -37,11 +37,11 @@ export async function POST(req: Request) {
   if (!id) return bad("id required", 400);
   const asGoal = await first<{ id: string }>("SELECT id FROM projects WHERE id = ? AND workspace_id = ?", id, ctx.workspaceId);
   if (asGoal) {
-    if (!(await goalInScope(ctx.workspaceId, id, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+    if (!(await goalVisible(ctx, id))) return json({ error: "not found" }, { status: 404 });
   } else {
     const n = await first<{ project_id: string | null }>("SELECT project_id FROM nodes WHERE id = ? AND workspace_id = ?", id, ctx.workspaceId);
     if (!n) return json({ error: "not found" }, { status: 404 });
-    if (n.project_id && !(await goalInScope(ctx.workspaceId, n.project_id, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+    if (n.project_id && !(await goalVisible(ctx, n.project_id))) return json({ error: "not found" }, { status: 404 });
   }
   await setToday(id, body.date ?? null, ctx.workspaceId);
   return json({ ok: true });

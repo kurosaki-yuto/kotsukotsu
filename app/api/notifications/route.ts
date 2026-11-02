@@ -1,5 +1,5 @@
 import { json, bad } from "../../lib/server/db";
-import { requireWorkspace, goalInScope } from "../../lib/server/workspace";
+import { requireWorkspace, goalVisible } from "../../lib/server/workspace";
 import { limitOr429, MIN } from "../../lib/server/ratelimit";
 
 const NOTIFICATION_KINDS = new Set(["info", "mention", "goal"]);
@@ -35,9 +35,9 @@ export async function POST(req: Request) {
   const text = typeof body.body === "string" ? body.body.slice(0, 2000) : null;
   const goalId = typeof body.goal_id === "string" && body.goal_id ? body.goal_id : null;
   if (goalId) {
-    // 自分のワークスペース・スコープの中のゴールにしか出せない (goalInScope はスコープ無しだと存在を見ないので、先に引く)
+    // 自分のワークスペース・スコープの中のゴールにしか出せない (goalVisible はスコープ無しだと存在を見ないので、先に引く)
     if (!(await getGoal(goalId, ctx.workspaceId))) return json({ error: "not found" }, { status: 404 });
-    if (!(await goalInScope(ctx.workspaceId, goalId, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+    if (!(await goalVisible(ctx, goalId))) return json({ error: "not found" }, { status: 404 });
   } else if (ctx.role !== "admin") {
     // ゴール無し = 全員のスマホに届く。管理者だけ
     return json({ error: "forbidden" }, { status: 403 });

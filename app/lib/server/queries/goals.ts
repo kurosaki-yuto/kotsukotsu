@@ -5,21 +5,26 @@ import { ballRank, ballText, personKeys } from "../../ball";
 import { CLEAR_STALL_SET } from "../../stall";
 
 // ---------------- goals (projects) ----------------
-export async function listGoals(wsId: string, scopeGoalId: string | null = null, activeOnly = false) {
+// scope: 見える範囲の根。null = ワークスペース全体、文字列か配列 = その根とその下だけ
+// (招待の範囲 1 つ、または担当 goal_members の複数。workspace.ts viewRoots)。[] は何も返さない。
+export type GoalScope = string | string[] | null;
+export const scopeRoots = (scope: GoalScope): string[] | null => (scope === null ? null : Array.isArray(scope) ? scope : [scope]);
+export async function listGoals(wsId: string, scope: GoalScope = null, activeOnly = false) {
   const statusClause = activeOnly ? "status NOT IN ('archived', 'done')" : "status != 'archived'";
-  if (!scopeGoalId) {
+  const roots = scopeRoots(scope);
+  if (roots === null) {
     return all(`SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id, started_at, started_by_name, started_via FROM projects WHERE ${statusClause} AND workspace_id = ? ORDER BY order_idx ASC, created_at ASC`, wsId);
   }
-  // scoped member: only the scope goal and its descendants
+  // scoped member: only the scope roots and their descendants
   return all(
     `WITH RECURSIVE sub(id) AS (
-       SELECT id FROM projects WHERE id = ? AND workspace_id = ?
+       SELECT p.id FROM projects p, json_each(?) j WHERE p.id = j.value AND p.workspace_id = ?
        UNION
        SELECT p.id FROM sub CROSS JOIN projects p ON p.parent_goal_id = sub.id WHERE p.workspace_id = ?
      )
      SELECT id, name, order_idx, created_at, emoji, deadline, owner, status, archived_at, parent_goal_id, created_by, workspace_id, started_at, started_by_name, started_via FROM projects WHERE workspace_id = ? AND ${statusClause} AND id IN (SELECT id FROM sub)
      ORDER BY order_idx ASC, created_at ASC`,
-    scopeGoalId, wsId, wsId, wsId
+    JSON.stringify(roots), wsId, wsId, wsId
   );
 }
 export async function getGoal(id: string, wsId: string) {
@@ -162,10 +167,14 @@ export async function goalProgress(goalId: string, wsId: string) {
 }
 
 // ---------------- recursive items (goal == task; subtasks are child goals) ----------------
-export async function listTopGoals(wsId: string, scopeGoalId: string | null = null) {
-  // a scoped member's "top" is their single scope goal
-  if (scopeGoalId) {
-    return all("SELECT * FROM projects WHERE id = ? AND workspace_id = ? AND status != 'archived'", scopeGoalId, wsId);
+export async function listTopGoals(wsId: string, scope: GoalScope = null) {
+  // a scoped member's "top" is their scope roots (招待の範囲、または担当のゴール)
+  const roots = scopeRoots(scope);
+  if (roots !== null) {
+    return all(
+      "SELECT * FROM projects WHERE workspace_id = ? AND status != 'archived' AND id IN (SELECT value FROM json_each(?)) ORDER BY order_idx ASC, created_at ASC",
+      wsId, JSON.stringify(roots)
+    );
   }
   return all("SELECT * FROM projects WHERE parent_goal_id IS NULL AND status != 'archived' AND workspace_id = ? ORDER BY order_idx ASC, created_at ASC", wsId);
 }
