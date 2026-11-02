@@ -25,6 +25,8 @@ export type Project = {
   // 進行中のまま24時間動かなかった (lib/stall.ts)。動かすか「確認した」で消える
   stalled_at?: string | null;
   stalled_note?: string | null;
+  // 親の完了の基準のうち、このタスクで埋める行 (0031。MCP の add_subtask の closes)
+  closes_criteria?: string | null;
 };
 export type Goal = Project;
 

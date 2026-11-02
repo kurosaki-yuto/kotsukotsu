@@ -5,7 +5,9 @@ import { kataForGoal, kataNote, templateIdForGoal } from "../kata";
 import { exportTemplate, kataExportConfig, kataExportTarget } from "../../../app/lib/server/templateCore";
 import { COMPLETION_CRITERIA_DOC, CURRENT_STATE_DOC } from "../instructions";
 import { CLEAR_STALL_SET } from "../../../app/lib/stall";
-import { GOAL_LIST_COLUMNS, SUBTREE_CTE, ToolDef, templateViewerOf, assertCanEdit, assertGoalInScope, assignCreatorAsHolder, clearStartedOnParent, formatFieldText, goalInScope, inheritAssigneeFromAncestors, nowIso, parentStateNote, recordRecipients, resolveCreator, taskProgress, uid } from "../lib";
+import { inheritedResources, FILES_NOTE } from "../../../app/lib/server/resourcesCore";
+import { criteriaProblem, stateProblem, resultProblem, matchCriteriaLine, numberedCriteria, requestConfirmation, CONFIRM_NOTE_PENDING, CONFIRM_NOTE_APPLIED } from "../../../app/lib/server/qualityCore";
+import { GOAL_LIST_COLUMNS, SUBTREE_CTE, ToolDef, templateViewerOf, canEditGoal, assertCanEdit, assertGoalInScope, assignCreatorAsHolder, clearStartedOnParent, formatFieldText, goalInScope, inheritAssigneeFromAncestors, nowIso, parentStateNote, recordRecipients, resolveCreator, taskProgress, uid } from "../lib";
 
 // 名前・現状・完了の基準の上限 (Web の編集 API の GOAL_TEXT_MAX と同じ)。
 // MCP だけ上限が無いと、ここで入った長文を画面が触っただけで切ってしまう。
@@ -24,6 +26,20 @@ async function listTaskSteps(env: { DB: D1Database }, wsId: string, taskId: stri
     "SELECT id, text, order_idx, done_at FROM task_steps WHERE task_id = ? AND workspace_id = ? ORDER BY order_idx, created_at"
   ).bind(taskId, wsId).all<StepRow>();
   return results ?? [];
+}
+
+// 親の完了の基準のどの行を埋めるタスクか (closes) を確かめる。親に基準が無い・行が見つからないときは理由を投げる。
+function closesOrThrow(parentCriteria: string | null, closes: string | undefined, parentId: string): string {
+  if (!parentCriteria?.trim()) {
+    throw new Error(`親 (${parentId}) に完了の基準がありません。タスクは「親の完了の基準」と「親の現状」の差から足すので、先に update_goal で親の完了の基準を書いてください`);
+  }
+  const list = numberedCriteria(parentCriteria);
+  if (!closes?.trim()) {
+    throw new Error(`closes が要ります。このタスクが埋める親の完了の基準の行を、行番号か文の一部で渡してください。親の完了の基準:\n${list}\nどの行にも当たらないタスクなら、足す前に親の完了の基準が足りていないかを考え、要るなら update_goal で基準を直してください (本人の確認が出ます)`);
+  }
+  const line = matchCriteriaLine(parentCriteria, closes);
+  if (!line) throw new Error(`closes「${closes.slice(0, 60)}」が親の完了の基準のどの行にも当たりません。行番号か、その行の文の一部で渡してください。親の完了の基準:\n${list}`);
+  return line;
 }
 
 export const goalsTools: Record<string, ToolDef> = {
@@ -56,7 +72,8 @@ export const goalsTools: Record<string, ToolDef> = {
       "Get a single goal (project) by id. task_progress summarizes its direct tasks as of now " +
       "(done/total, recent completions, next open tasks, overdue) and says whether current_state " +
       "is older than the latest task movement — if so, rewrite current_state with update_goal. " +
-      "kata が付いていたら、それがこの仕事の型 (資料・注意点・以前のやり方)。手を動かす前に読む。",
+      "kata が付いていたら、それがこの仕事の型 (資料・注意点・以前のやり方)。手を動かす前に読む。" +
+      "files はこのタスクと上のゴール (顧客の箱など) に付いた資料 (近い順)。探しに行く前にここを見る。",
     schema: z.object({ id: z.string().min(1).describe("Goal (project) id") }),
     handler: async (args, env, wsId, auth) => {
       await assertGoalInScope(env, auth, args.id);
@@ -71,9 +88,11 @@ export const goalsTools: Record<string, ToolDef> = {
       });
       const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...g }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>), templateViewerOf(auth));
       const steps = await listTaskSteps(env, wsId, args.id);
+      const files = await inheritedResources(env.DB, wsId, args.id, 30);
       return {
         ...(row as object),
         task_progress: p.text,
+        ...(files.length ? { files, files_note: FILES_NOTE } : {}),
         current_state_is_stale: p.stale,
         ...(steps.length ? { steps } : {}),
         ...((row as { stalled_at?: string | null }).stalled_at ? { stalled_note_for_ai: "このタスクは進行中のまま24時間以上動かず止まっていた (stalled_note)。続けるなら start_task、終わっているなら complete_subtask、やめるなら update_goal で archived。どれかをすると印は消える" } : {}),
@@ -92,14 +111,21 @@ export const goalsTools: Record<string, ToolDef> = {
         "Goal name。達成したい状態や対象を名前にする。[AI] / [人] などの担当プレフィックスは付けない (担当はアサインで表す)"
       ),
       parentId: z.string().optional().describe("Parent goal id; omitted = top level (or the scope goal for scoped sessions)"),
-      completion_criteria: z.string().optional().describe(COMPLETION_CRITERIA_DOC),
-      current_state: z.string().optional().describe(CURRENT_STATE_DOC),
+      completion_criteria: z.string().optional().describe(`${COMPLETION_CRITERIA_DOC}\n必須。甘いと受け付けない`),
+      current_state: z.string().optional().describe(`${CURRENT_STATE_DOC}\n必須 (日付とボールの行が無いと受け付けない)`),
+      closes: z.string().optional().describe("parentId を渡すとき必須。親の完了の基準のどの行を満たすためのゴールか (行番号か、その行の文の一部)"),
     }),
     handler: async (args, env, wsId, auth) => {
+      // 目標 → 完了の基準 → 現状 → 差がタスク。甘い基準・現状は受け付けない (qualityCore)
+      const cp = criteriaProblem(args.completion_criteria);
+      if (cp) throw new Error(cp);
+      const sp = stateProblem(args.current_state);
+      if (sp) throw new Error(sp);
       // a scoped session may only create inside its subtrees — default to the
       // scope root when there is exactly one, otherwise the caller must pick
       const parentId: string | null =
         args.parentId ?? (auth.scopeRoots && auth.scopeRoots.length === 1 ? auth.scopeRoots[0] : null);
+      let closesLine: string | null = null;
       if (auth.scopeRoots && !parentId) {
         throw new Error("parentId is required: 複数のゴールにアサインされているため、どのゴール配下に作成するか parentId で指定してください");
       }
@@ -107,8 +133,9 @@ export const goalsTools: Record<string, ToolDef> = {
       if (parentId) {
         await assertGoalInScope(env, auth, parentId);
         await assertCanEdit(env, wsId, auth, parentId);
-        const parent = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND status != 'archived'").bind(parentId, wsId).first();
+        const parent = await env.DB.prepare("SELECT id, completion_criteria FROM projects WHERE id = ? AND workspace_id = ? AND status != 'archived'").bind(parentId, wsId).first<{ id: string; completion_criteria: string | null }>();
         if (!parent) throw new Error(`parent goal not found: ${parentId}`);
+        closesLine = closesOrThrow(parent.completion_criteria, args.closes, parentId);
       }
       const id = uid();
       const created = nowIso();
@@ -134,12 +161,14 @@ export const goalsTools: Record<string, ToolDef> = {
           args.current_state === undefined ? null : created
         )
         .run();
+      if (closesLine) await env.DB.prepare("UPDATE projects SET closes_criteria = ? WHERE id = ? AND workspace_id = ?").bind(closesLine, id, wsId).run();
+      await requestConfirmation(env.DB, { wsId, goalId: id, field: "completion_criteria", before: null, after: formatFieldText(args.completion_criteria!), applied: true, reason: "新しく作ったゴールの完了の基準", userId: auth.actor?.userId ?? null, userName: auth.actor?.name ?? null, now: created });
       await clearStartedOnParent(env, wsId, parentId);
       const assignee =
         (await assignCreatorAsHolder(env, wsId, id, auth.actor)) ??
         (await inheritAssigneeFromAncestors(env, wsId, id, parentId));
       const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(id, wsId).first();
-      return { ...(row as object), assigned_member_id: assignee };
+      return { ...(row as object), assigned_member_id: assignee, confirmation_note: CONFIRM_NOTE_APPLIED };
     },
   },
 
@@ -184,6 +213,30 @@ export const goalsTools: Record<string, ToolDef> = {
       }
       if (args.current_state !== undefined) args.current_state = formatFieldText(args.current_state);
       if (args.completion_criteria !== undefined) args.completion_criteria = formatFieldText(args.completion_criteria);
+      // 甘い完了の基準・現状は受け付けない。既にある完了の基準の書き換えは、本人の「はい」まで反映しない
+      if (args.completion_criteria !== undefined) { const p = criteriaProblem(args.completion_criteria); if (p) throw new Error(p); }
+      if (args.current_state !== undefined) { const p = stateProblem(args.current_state); if (p) throw new Error(p); }
+      const before = await env.DB.prepare("SELECT completion_criteria, current_state FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId)
+        .first<{ completion_criteria: string | null; current_state: string | null }>();
+      if (!before) throw new Error(`goal not found: ${args.id}`);
+      const now0 = nowIso();
+      const who = { userId: auth.actor?.userId ?? null, userName: auth.actor?.name ?? null };
+      const notes: Record<string, string> = {};
+      if (args.completion_criteria !== undefined && args.completion_criteria !== (before.completion_criteria ?? "")) {
+        if (before.completion_criteria?.trim()) {
+          const cid = await requestConfirmation(env.DB, { wsId, goalId: args.id, field: "completion_criteria", before: before.completion_criteria, after: args.completion_criteria, applied: false, ...who, now: now0 });
+          notes.completion_criteria_pending = cid;
+          notes.confirmation_note = CONFIRM_NOTE_PENDING;
+          args.completion_criteria = undefined; // はいで反映する
+        } else {
+          await requestConfirmation(env.DB, { wsId, goalId: args.id, field: "completion_criteria", before: null, after: args.completion_criteria, applied: true, ...who, now: now0 });
+          notes.confirmation_note = CONFIRM_NOTE_APPLIED;
+        }
+      }
+      if (args.current_state !== undefined && args.current_state !== (before.current_state ?? "")) {
+        await requestConfirmation(env.DB, { wsId, goalId: args.id, field: "current_state", before: before.current_state, after: args.current_state, applied: true, ...who, now: now0 });
+        notes.confirmation_note = notes.confirmation_note ? `${notes.confirmation_note}\n${CONFIRM_NOTE_APPLIED}` : CONFIRM_NOTE_APPLIED;
+      }
       const fields: string[] = [];
       const binds: unknown[] = [];
       for (const key of ["name", "current_state", "completion_criteria", "deadline", "status"] as const) {
@@ -210,7 +263,13 @@ export const goalsTools: Record<string, ToolDef> = {
         fields.push("archived_at = ?");
         binds.push(nowIso());
       }
-      if (fields.length === 0) throw new Error("no fields to update");
+      if (fields.length === 0) {
+        if (notes.completion_criteria_pending) {
+          const cur = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first();
+          return { ...(cur as object), ...notes };
+        }
+        throw new Error("no fields to update");
+      }
       binds.push(args.id, wsId);
       const res = await env.DB.prepare(`UPDATE projects SET ${fields.join(", ")} WHERE id = ? AND workspace_id = ?`)
         .bind(...binds)
@@ -229,7 +288,8 @@ export const goalsTools: Record<string, ToolDef> = {
             WHERE workspace_id = ? AND status != 'archived' AND id IN (SELECT id FROM sub)`
         ).bind(args.id, wsId, wsId, nowIso(), wsId).run();
       }
-      return env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first();
+      const out = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId).first();
+      return { ...(out as object), ...notes };
     },
   },
 
@@ -346,17 +406,24 @@ export const goalsTools: Record<string, ToolDef> = {
         "Subtask text。1タスク=1アクションで登録する (複数アクションを1個に詰めない)。[AI] / [人+AI] / [人] のプレフィックスは付けない (担当はアサインで表す)"
       ),
       completion_criteria: z.string().optional().describe(
-        "この小タスクの完了の基準。1〜2行で「何ができたら終わりか」を、他人が○×を付けられる形で書く (成果物名・数値・確認方法のどれかを入れる)。例: 「原稿3本を 20_法務/ に置き、本番ビルドで 404 になることを確認」"
+        "必須。この小タスクの完了の基準。1〜2行で「何ができたら終わりか」を、他人が○×を付けられる形で書く (成果物名・数値・確認方法のどれかを入れる)。例: 「原稿3本を 20_法務/ に置き、本番ビルドで 404 になることを確認」。甘いと受け付けない"
       ),
-      current_state: z.string().optional().describe("作る時点で分かっている前提があれば1〜2行。無ければ省く"),
+      current_state: z.string().optional().describe("必須。作る時点の現状。何日時点か・分かっている前提・「ボール: 次に動く人」を書く。例: 「2026-11-02時点。未着手。先方の資料は受領済み。ボール: こちら」"),
+      closes: z.string().optional().describe("必須。このタスクが埋める、親の完了の基準の行 (行番号か、その行の文の一部)。タスクは「親の完了の基準 − 親の現状」の差を埋めるものだけ足す"),
     }),
     handler: async (args, env, wsId, auth) => {
       await assertGoalInScope(env, auth, args.goalId);
       await assertCanEdit(env, wsId, auth, args.goalId);
       assertTextLen({ text: args.text, completion_criteria: args.completion_criteria, current_state: args.current_state });
       // 削除 (アーカイブ) 済みの親には足さない。親が一覧に無いので子だけがトップに浮く
-      const goal = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND status != 'archived'").bind(args.goalId, wsId).first();
+      const goal = await env.DB.prepare("SELECT id, completion_criteria, current_state FROM projects WHERE id = ? AND workspace_id = ? AND status != 'archived'").bind(args.goalId, wsId)
+        .first<{ id: string; completion_criteria: string | null; current_state: string | null }>();
       if (!goal) throw new Error(`goal not found: ${args.goalId}`);
+      // 目標 → 完了の基準 → 現状 → 差がタスク。親の基準・現状が無いところにタスクは足せない
+      if (!goal.current_state?.trim()) throw new Error(`親 (${args.goalId}) の現状が空です。タスクは「親の完了の基準」と「親の現状」の差から足すので、先に update_goal で親の現状 (日付・済んだこと・ボール・残り) を書いてください`);
+      const closesLine = closesOrThrow(goal.completion_criteria, args.closes, args.goalId);
+      { const p = criteriaProblem(args.completion_criteria); if (p) throw new Error(p); }
+      { const p = stateProblem(args.current_state); if (p) throw new Error(p); }
       const id = uid();
       const created = nowIso();
       const max = await env.DB.prepare(
@@ -368,12 +435,13 @@ export const goalsTools: Record<string, ToolDef> = {
       const state = args.current_state?.trim() || null;
       await env.DB.prepare(
         `INSERT INTO projects (id, name, parent_goal_id, order_idx, created_at, status, workspace_id,
-                               completion_criteria, current_state, criteria_updated_at, state_updated_at)
-         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`
+                               completion_criteria, current_state, criteria_updated_at, state_updated_at, closes_criteria)
+         VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`
       )
         .bind(id, args.text.trim(), args.goalId, orderIdx, created, wsId,
-          criteria, state, criteria ? created : null, state ? created : null)
+          criteria, state, criteria ? created : null, state ? created : null, closesLine)
         .run();
+      await requestConfirmation(env.DB, { wsId, goalId: id, field: "completion_criteria", before: null, after: criteria!, applied: true, reason: `親の基準「${closesLine.slice(0, 80)}」を埋めるタスク`, userId: auth.actor?.userId ?? null, userName: auth.actor?.name ?? null, now: created });
       await clearStartedOnParent(env, wsId, args.goalId);
       const assignee =
         (await assignCreatorAsHolder(env, wsId, id, auth.actor)) ??
@@ -388,6 +456,7 @@ export const goalsTools: Record<string, ToolDef> = {
       return {
         ...(row as object),
         assigned_member_id: assignee,
+        confirmation_note: CONFIRM_NOTE_APPLIED,
         ...(await parentStateNote(env, wsId, args.goalId)),
         ...(precedents.length ? { precedents, precedents_note: PRECEDENTS_NOTE } : {}),
       };
@@ -432,7 +501,8 @@ export const goalsTools: Record<string, ToolDef> = {
         : "進行中。終わったら complete_subtask で完了にする。";
       // 始めるときに型を読ませる (取り消し・完了済みでは出さない)
       const kata = args.started !== false && row.status === "active" ? await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>), templateViewerOf(auth)) : null;
-      return { ...(row as object), note, ...(kata ? { kata, kata_note: kataNote(kata, "start") } : {}) };
+      const files = args.started !== false && row.status === "active" ? await inheritedResources(env.DB, wsId, args.id, 30) : [];
+      return { ...(row as object), note, ...(files.length ? { files, files_note: FILES_NOTE } : {}), ...(kata ? { kata, kata_note: kataNote(kata, "start") } : {}) };
     },
   },
 
@@ -504,11 +574,35 @@ export const goalsTools: Record<string, ToolDef> = {
       id: z.string().min(1).describe("Subtask (goal) id"),
       completed: z.boolean().describe("true = complete, false = reopen"),
       current_state: z.string().optional().describe("この小タスクの結果。何をして・何が確認できたか・未確認は何か (コミットや成果物の場所があれば添える)"),
+      parent_current_state: z.string().optional().describe(
+        "完了にするとき、親があるなら必須。このタスクが終わった後の親の現状を丸ごと書き直したもの (日付・済んだこと・ボール・残り)。" +
+        "タスクが動いたのに親の現状が古いままだと、次に何をするか誰にも分からなくなるため、同じ呼び出しで書き直す。親の完了の基準を満たしたならそれも書く"
+      ),
     }),
     handler: async (args, env, wsId, auth) => {
       await assertGoalInScope(env, auth, args.id);
       await assertCanEdit(env, wsId, auth, args.id);
-      assertTextLen({ current_state: args.current_state });
+      assertTextLen({ current_state: args.current_state, parent_current_state: args.parent_current_state });
+      const pre = await env.DB.prepare("SELECT parent_goal_id, status FROM projects WHERE id = ? AND workspace_id = ?").bind(args.id, wsId)
+        .first<{ parent_goal_id: string | null; status: string }>();
+      if (!pre) throw new Error(`subtask not found: ${args.id}`);
+      let parentStateBefore: string | null = null;
+      if (args.completed) {
+        { const p = resultProblem(args.current_state); if (p) throw new Error(p); }
+        if (pre.parent_goal_id) {
+          if (!args.parent_current_state?.trim()) {
+            throw new Error("parent_current_state が要ります。このタスクを終えたあとの親の現状 (日付・済んだこと・ボール・残り) を書き直して、同じ呼び出しで渡してください。タスクが動いたのに親の現状が古いままだと、次に何をするか分からなくなります");
+          }
+          const p = stateProblem(args.parent_current_state);
+          if (p) throw new Error(`parent_current_state: ${p}`);
+          if (await goalInScope(env, auth, pre.parent_goal_id) && await canEditGoal(env, wsId, auth, pre.parent_goal_id)) {
+            const pr = await env.DB.prepare("SELECT current_state FROM projects WHERE id = ? AND workspace_id = ?").bind(pre.parent_goal_id, wsId).first<{ current_state: string | null }>();
+            parentStateBefore = pr?.current_state ?? null;
+          } else {
+            args.parent_current_state = undefined; // 親を直せない人 (子だけ担当) は、親の現状を書き換えない
+          }
+        }
+      }
       const status = args.completed ? "done" : "active";
       // completed_at を残す。projects には status='done' しか無かったため
       // 「いつ終わったか」が一切残らず、速度も「提案は実行されたか」も測れなかった
@@ -524,6 +618,14 @@ export const goalsTools: Record<string, ToolDef> = {
       if (args.current_state?.trim()) {
         await env.DB.prepare("UPDATE projects SET current_state = ?, state_updated_at = ? WHERE id = ? AND workspace_id = ?")
           .bind(args.current_state.trim(), nowIso(), args.id, wsId).run();
+      }
+      // 親の現状を同じ呼び出しで書き直し、本人に「これでいい？」を出す
+      if (args.completed && pre.parent_goal_id && args.parent_current_state?.trim()) {
+        const ps = formatFieldText(args.parent_current_state);
+        const t = nowIso();
+        await env.DB.prepare(`UPDATE projects SET current_state = ?, state_updated_at = ?, ${CLEAR_STALL_SET} WHERE id = ? AND workspace_id = ?`)
+          .bind(ps, t, pre.parent_goal_id, wsId).run();
+        await requestConfirmation(env.DB, { wsId, goalId: pre.parent_goal_id, field: "current_state", before: parentStateBefore, after: ps, applied: true, reason: "子タスクを終えたので親の現状を書き直した", userId: auth.actor?.userId ?? null, userName: auth.actor?.name ?? null, now: t });
       }
       if (args.completed) {
         // 親を完了したら配下も完了にする (queries.ts の cascadeGoalDone と同じ挙動)。

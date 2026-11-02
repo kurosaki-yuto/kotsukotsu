@@ -1,7 +1,9 @@
 import "server-only";
-import { json } from "./db";
+import { json, db } from "./db";
 import { goalInScope, requireGoalEdit, type WorkspaceCtx } from "./workspace";
-import { getTemplate } from "./queries";
+import { getTemplate, templateViewer } from "./queries";
+import { canReadTemplate } from "./templateCore";
+import { isAncestorOfAny } from "./resourcesCore";
 
 // R2 のキーの決まりと、誰が読めて誰が書けるか。
 //   ゴールのファイル: <ワークスペース>/<ゴールid>/<uuid>-<名前>
@@ -22,11 +24,19 @@ export function targetOfKey(wsId: string, key: string): FileTarget | null {
   return parts.length >= 3 ? { kind: "goal", goalId: parts[1] } : null;
 }
 
-/** 読めるか: ゴールのファイルはそのゴールが見える人、型のファイルはワークスペースの全員 (型の一覧は全員に見える)。 */
+/**
+ * 読めるか:
+ * - ゴールのファイル: そのゴールが見える人。加えて、その下のタスクを見られる人も読める
+ *   (上のゴールの資料はタスクに要る情報。黒崎判断 2026-11-02)
+ * - 型のファイル: その型を読める人 (型の見える範囲。templates.visibility)
+ */
 export async function canReadTarget(ctx: WorkspaceCtx, t: FileTarget): Promise<boolean> {
-  if (t.kind === "goal") return goalInScope(ctx.workspaceId, t.goalId, ctx.scopeGoalId);
+  if (t.kind === "goal") {
+    if (await goalInScope(ctx.workspaceId, t.goalId, ctx.scopeGoalId)) return true;
+    return !!ctx.scopeGoalId && isAncestorOfAny(db(), ctx.workspaceId, t.goalId, [ctx.scopeGoalId]);
+  }
   const tpl = await getTemplate(t.templateId, ctx.workspaceId);
-  return !!tpl;
+  return !!tpl && canReadTemplate(db(), ctx.workspaceId, tpl.id, templateViewer(ctx));
 }
 
 /** 書けるか: ゴールは編集できる人、型は管理者と型を作った本人。だめなら応答を返す。 */

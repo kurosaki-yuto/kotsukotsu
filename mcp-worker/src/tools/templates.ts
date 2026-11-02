@@ -1,8 +1,9 @@
 // MCP ツール (templates)。index.ts の tools から切り出し。
 import { z } from "zod";
 import { applyTemplate, snapshotGoalTree, parseTemplateRow, normalizeInputs, normalizeTasks, normalizeResources, normalizeCautions, normalizeValues, missingRequiredInputs, substitute, outlineToTasks, tasksToOutline, countTasks, saveTemplate, listTemplateRevisions, revertTemplateRevision, exportTemplate, kataExportConfig, kataExportTarget, kataExportPath, kataExportUrl, buildKataMarkdown, RESOURCE_KINDS, LIMITS as TEMPLATE_LIMITS, TEMPLATE_FUNCTIONS, TEMPLATE_VISIBILITIES, VISIBILITY_LABEL, DEFAULT_VISIBILITY, LIMIT_PRIVATE_NOTE, templateReadableSql, templateReadableBinds, redactTemplate, describeSchedule, routineSetupText, normalizeScheduleTarget, checkScheduleSettings, saveTemplateSettings, type Template, type TemplateCaution, type TemplatePatch, type TemplateRow } from "../../../app/lib/server/templateCore";
-import { ToolDef, assertAdmin, assertCanEdit, assertGoalInScope, assertTemplateManager, findTemplate, templateViewerOf, nowIso, recordRecipients, resolveWho, uid, decodeBase64, safeFileName, MAX_FILE_BYTES, type McpAuth } from "../lib";
+import { ToolDef, assertAdmin, assertCanEdit, assertGoalInScope, assertTemplateManager, findTemplate, templateViewerOf, goalInScope, nowIso, recordRecipients, resolveWho, uid, decodeBase64, safeFileName, MAX_FILE_BYTES, type McpAuth } from "../lib";
 import { safeContentType } from "../../../app/lib/server/filesCore";
+import { isAncestorOfAny } from "../../../app/lib/server/resourcesCore";
 import type { Env } from "../env";
 import { playbooksForTemplate, templateIdForGoal } from "../kata";
 
@@ -265,8 +266,9 @@ export const templatesTools: Record<string, ToolDef> = {
       if (parts[0] !== wsId || parts.some((p: string) => !p || p === "..")) throw new Error("file not found");
       if (parts[1] === "templates") {
         await findTemplate(env, wsId, parts[2], auth); // 型のファイルは型を読める人だけ (見える範囲)
-      } else {
-        await assertGoalInScope(env, auth, parts[1]);
+      } else if (!(await goalInScope(env, auth, parts[1])) && !(auth.scopeRoots && await isAncestorOfAny(env.DB, wsId, parts[1], auth.scopeRoots))) {
+        // 上のゴールのファイルは、その下のタスクを見られる人も読める (黒崎判断 2026-11-02)
+        throw new Error("file not found");
       }
       if (!env.FILES) throw new Error("ファイル置き場 (R2) が設定されていません");
       const obj = await env.FILES.get(key);

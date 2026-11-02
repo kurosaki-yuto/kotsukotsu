@@ -1,5 +1,6 @@
 // MCP ツール (chat)。index.ts の tools から切り出し。
 import { z } from "zod";
+import { inheritedResources } from "../../../app/lib/server/resourcesCore";
 import { resolveMentionedMembers } from "../../../app/lib/server/mentions";
 import { ToolDef, assertGoalInScope, assertOwnMessage, goalWatcherEmails, notifyPush, nowIso, recordRecipients, uid } from "../lib";
 
@@ -152,10 +153,14 @@ export const chatTools: Record<string, ToolDef> = {
 
   // ---- resources ----
   list_resources: {
-    description: "List resources attached to a goal, newest first.",
-    schema: z.object({ goalId: z.string().min(1).describe("Goal (project) id") }),
+    description: "List resources attached to a goal, newest first. include_ancestors=true で上のゴール (顧客の箱など) に付いた資料も近い順に返す (depth 0 がこのゴール)。",
+    schema: z.object({
+      goalId: z.string().min(1).describe("Goal (project) id"),
+      include_ancestors: z.boolean().optional().describe("上のゴールの資料も含める"),
+    }),
     handler: async (args, env, wsId, auth) => {
       await assertGoalInScope(env, auth, args.goalId);
+      if (args.include_ancestors) return inheritedResources(env.DB, wsId, args.goalId, 100);
       const { results } = await env.DB.prepare(
         "SELECT * FROM resources WHERE goal_id = ? AND workspace_id = ? ORDER BY updated_at DESC"
       )

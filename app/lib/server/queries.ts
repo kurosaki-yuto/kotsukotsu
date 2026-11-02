@@ -11,3 +11,4 @@ export * from "./queries/invites";
 export * from "./queries/goalMembers";
 export * from "./queries/templates";
 export * from "./queries/attention";
+export * from "./queries/confirmations";

@@ -14,6 +14,8 @@ import { CommentsPanel } from "../../components/goal/CommentsPanel";
 import { AssignPanel } from "../../components/goal/AssignPanel";
 import { MetaSection } from "../../components/goal/MetaSection";
 import { KataPanel } from "../../components/goal/KataPanel";
+import { InheritedResources } from "../../components/goal/InheritedResources";
+import { GoalConfirmations } from "../../components/goal/GoalConfirmations";
 import { StepsPanel } from "../../components/goal/StepsPanel";
 import { InProgressBadge, StartButton, TaskCheck, isInProgress } from "../../components/InProgress";
 import { Assignees } from "../../components/Assignees";
@@ -461,9 +463,17 @@ export default function GoalDetail() {
 
         <StepsPanel goal={goal} steps={steps} onChanged={refreshBundle} />
 
+        <GoalConfirmations goalId={goal.id} onAnswered={refreshBundle} />
+        {goal.closes_criteria && (
+          <p className="mt-3 text-[12.5px] leading-relaxed break-words" style={{ color: "var(--muted)" }}>
+            親の完了の基準のうち、このタスクで埋める行: <span style={{ color: "var(--foreground-soft)" }}>{goal.closes_criteria}</span>
+          </p>
+        )}
+
         <MetaSection goal={goal} showMeta={showMeta} setShowMeta={setShowMeta} patch={patch} />
 
         <KataPanel goalId={goal.id} />
+        <InheritedResources goalId={goal.id} />
 
         {/* ===== タスク (recursive child items) ===== */}
         <div className="mt-6">

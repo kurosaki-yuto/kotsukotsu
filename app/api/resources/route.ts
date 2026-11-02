@@ -1,4 +1,5 @@
-import { json, bad, first } from "../../lib/server/db";
+import { json, bad, first, db } from "../../lib/server/db";
+import { inheritedResources } from "../../lib/server/resourcesCore";
 import { requireWorkspace, goalInScope, requireGoalEdit } from "../../lib/server/workspace";
 import { listResources, createResource, updateResource, canEditGoal } from "../../lib/server/queries";
 
@@ -19,6 +20,10 @@ export async function GET(req: Request) {
   const goal = new URL(req.url).searchParams.get("goal");
   if (!goal) return bad("goal required", 400);
   if (!(await goalInScope(ctx.workspaceId, goal, ctx.scopeGoalId))) return json({ error: "not found" }, { status: 404 });
+  // ?inherited=1: 上のゴールに付いた資料 (このゴール自身の分は含めない)。タスクを見られる人は上の資料も読める
+  if (new URL(req.url).searchParams.get("inherited") === "1") {
+    return json((await inheritedResources(db(), ctx.workspaceId, goal)).filter((r) => r.depth > 0));
+  }
   return json(await listResources(goal, ctx.workspaceId));
 }
 

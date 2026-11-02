@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  getMyTurn, getAttention, getDoneCounts, prefetchGoalBundle,
-  type MyTurnItem, type ClosableItem, type StalledItem, type DoneCounts,
+  getMyTurn, getAttention, getDoneCounts, getMyConfirmations, acceptAllConfirmations, prefetchGoalBundle,
+  type MyTurnItem, type ClosableItem, type StalledItem, type DoneCounts, type Confirmation,
 } from "../lib/addness";
 import { useAutoRefresh } from "../lib/useAutoRefresh";
 import { MyTurnList } from "./MyTurn";
 import { StalledList, ClosableList } from "./Attention";
 import { DoneCountsBody, myDoneToday } from "./DoneCounts";
+import { ConfirmList } from "./ConfirmList";
 
 // タスク画面の上の段 (2026-11-02 黒崎「開いた状態やからスクロールずっとしなあかんのがクソめんどい」)。
 // あなたの番・止まっている・閉じていい？・期限が近い・終えたタスクを、件数つきの札1行にまとめる。
@@ -17,10 +18,11 @@ import { DoneCountsBody, myDoneToday } from "./DoneCounts";
 // 開け閉めは覚えない (毎回閉じた状態から始める)。0件の札は出さない。
 // 読み込みに失敗したら api() が上部のバナーで知らせる (空と区別するため)。前の表示は残す。
 export type DeadlineItem = { id: string; name: string; emoji: string | null; daysLeft: number };
-type Key = "turn" | "stalled" | "closable" | "deadlines" | "done";
+type Key = "confirm" | "turn" | "stalled" | "closable" | "deadlines" | "done";
 type Tone = { fg: string; border: string; bg: string };
 
 const TONE: Record<Key, Tone> = {
+  confirm: { fg: "var(--accent)", border: "var(--border-strong)", bg: "var(--surface)" },
   turn: { fg: "var(--doing)", border: "var(--doing-border)", bg: "var(--doing-soft)" },
   stalled: { fg: "var(--danger)", border: "var(--border-strong)", bg: "var(--surface)" },
   closable: { fg: "var(--done-strong)", border: "var(--done-border)", bg: "var(--done-soft)" },
@@ -28,6 +30,7 @@ const TONE: Record<Key, Tone> = {
   done: { fg: "var(--done-strong)", border: "var(--done-border)", bg: "var(--done-soft)" },
 };
 const HINT: Record<Key, string> = {
+  confirm: "あなたの AI が書き換えた完了の基準・現状。これでいいか、はい / いいえ で答える",
   turn: "現状の「ボール」にあなたの名前があるタスク",
   stalled: "進行中のまま24時間動かなかったタスク。開いて続けるか、確認したら消す",
   closable: "終わったと書いてある・手順や配下が全部済んだのに開いたままのタスク",
@@ -39,18 +42,22 @@ export default function BoardSummary({ myEmail, deadlines }: { myEmail: string |
   const [turn, setTurn] = useState<MyTurnItem[] | null>(null);
   const [att, setAtt] = useState<{ closable: ClosableItem[]; stalled: StalledItem[] } | null>(null);
   const [done, setDone] = useState<DoneCounts | null>(null);
+  const [conf, setConf] = useState<Confirmation[] | null>(null);
+  const [acceptingAll, setAcceptingAll] = useState(false);
   const [open, setOpen] = useState<Key | null>(null);
 
   const loadTurn = useCallback(async () => { try { setTurn(await getMyTurn()); } catch { /* バナー */ } }, []);
   const loadAtt = useCallback(async () => { try { setAtt(await getAttention()); } catch { /* バナー */ } }, []);
   const loadDone = useCallback(async () => { try { setDone(await getDoneCounts()); } catch { /* バナー */ } }, []);
-  const loadAll = useCallback(() => { void loadTurn(); void loadAtt(); void loadDone(); }, [loadTurn, loadAtt, loadDone]);
+  const loadConf = useCallback(async () => { try { setConf(await getMyConfirmations()); } catch { /* バナー */ } }, []);
+  const loadAll = useCallback(() => { void loadConf(); void loadTurn(); void loadAtt(); void loadDone(); }, [loadConf, loadTurn, loadAtt, loadDone]);
   useEffect(() => { loadAll(); }, [loadAll]);
   // 現状は AI が書き換えるので、戻ってきたとき・変更の知らせで読み直す (間隔は長め)
   useAutoRefresh(loadAll, { intervalMs: 60000 });
 
   const overdue = deadlines.filter((d) => d.daysLeft < 0).length;
   const chips: { key: Key; label: string; count: number; alert?: boolean }[] = [];
+  if (conf?.length) chips.push({ key: "confirm", label: "これでいい？", count: conf.length });
   if (turn?.length) chips.push({ key: "turn", label: "あなたの番", count: turn.length });
   if (att?.stalled.length) chips.push({ key: "stalled", label: "止まっている", count: att.stalled.length, alert: true });
   if (att?.closable.length) chips.push({ key: "closable", label: "閉じていい？", count: att.closable.length });
@@ -94,6 +101,17 @@ export default function BoardSummary({ myEmail, deadlines }: { myEmail: string |
       {shown && tone && (
         <section id="board-summary-panel" role="tabpanel" className="card mt-2 px-4 py-1" style={{ borderColor: tone.border, background: tone.bg }} aria-label={chips.find((c) => c.key === shown)?.label}>
           <p className="pt-2.5 text-[11.5px] cjk" style={{ color: "var(--muted)" }}>{HINT[shown]}</p>
+          {shown === "confirm" && conf && (
+            <>
+              {conf.length > 1 && (
+                <button type="button" className="chip chip-done-on mt-2" disabled={acceptingAll}
+                  onClick={async () => { setAcceptingAll(true); try { await acceptAllConfirmations(); await loadConf(); } catch { /* バナー */ } finally { setAcceptingAll(false); } }}>
+                  {acceptingAll ? "反映中…" : `${conf.length} 件まとめて はい`}
+                </button>
+              )}
+              <ConfirmList items={conf} reload={loadConf} />
+            </>
+          )}
           {shown === "turn" && turn && <MyTurnList items={turn} />}
           {shown === "stalled" && att && <StalledList items={att.stalled} reload={loadAtt} />}
           {shown === "closable" && att && <ClosableList items={att.closable} reload={loadAtt} />}
