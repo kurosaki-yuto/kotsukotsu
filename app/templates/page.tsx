@@ -12,6 +12,8 @@ import { useAutoRefresh } from "../lib/useAutoRefresh";
 // 終えたゴールの「…」→「型にする」で作り、ここから「この型で振る」でメンバーに丸ごと渡す。
 // 機能 (経営・財務・法務・集客・営業・CS・その他) ごとの見出しで並べる。読める型だけが返ってくる (見える範囲)。
 
+const CLOSED_KEY = "kk:tpl:groups-closed";
+
 function fmtDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -23,6 +25,23 @@ export default function TemplatesPage() {
   const [items, setItems] = useState<TemplateSummary[] | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [creating, setCreating] = useState(false);
+  // 閉じている大枠 (機能名)。端末に覚える (11/3 黒崎「型の大枠をいい感じに開閉」)
+  const [closed, setClosed] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(CLOSED_KEY) ?? "[]");
+      if (Array.isArray(v)) setClosed(new Set(v.filter((x) => typeof x === "string")));
+    } catch { /* private mode */ }
+  }, []);
+  const saveClosed = (next: Set<string>) => {
+    setClosed(next);
+    try { localStorage.setItem(CLOSED_KEY, JSON.stringify([...next])); } catch { /* private mode */ }
+  };
+  const toggleGroup = (key: string) => {
+    const next = new Set(closed);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    saveClosed(next);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -70,17 +89,66 @@ export default function TemplatesPage() {
             まだ型がありません。終えたゴールを開き、右上の「…」→「型にする」で作れます。
           </div>
         ) : (
-          <div className="flex flex-col gap-7">
+          <div className="flex flex-col gap-5">
+            {(() => {
+              const keys = [...TEMPLATE_FUNCTIONS, null]
+                .filter((fn) => items.some((t) => (t.function ?? null) === fn))
+                .map((fn) => fn ?? "未分類");
+              const allClosed = keys.every((k) => closed.has(k));
+              return (
+                <div className="-mb-2 flex justify-end">
+                  <button
+                    type="button"
+                    className="text-[12px] underline underline-offset-2"
+                    style={{ color: "var(--muted)" }}
+                    onClick={() => saveClosed(allClosed ? new Set() : new Set(keys))}
+                  >
+                    {allClosed ? "すべて開く" : "すべて閉じる"}
+                  </button>
+                </div>
+              );
+            })()}
             {[...TEMPLATE_FUNCTIONS, null].map((fn) => {
               const group = items.filter((t) => (t.function ?? null) === fn);
               if (!group.length) return null;
+              const key = fn ?? "未分類";
+              const open = !closed.has(key);
               return (
-                <section key={fn ?? "none"} aria-label={fn ?? "未分類"}>
-                  <h2 className="mb-2.5 flex items-baseline gap-2 text-[14px] font-bold cjk">
-                    {fn ?? "未分類"}
-                    <span className="text-[12px] font-normal" style={{ color: "var(--muted)" }}>{group.length}</span>
-                  </h2>
-                  <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <section key={key} aria-label={key} className="border-b pb-5 last:border-0" style={{ borderColor: "var(--border)" }}>
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(key)}
+                    aria-expanded={open}
+                    className="group/fold flex w-full items-center gap-2 rounded-lg py-1 text-left hover:opacity-80"
+                  >
+                    <span style={{ display: "inline-flex", flex: "none", transform: open ? "rotate(90deg)" : "none", transition: "transform .2s" }} aria-hidden>
+                      <svg viewBox="0 0 16 16" className="w-3 h-3" fill="currentColor"><path d="M6 3l5 5-5 5V3z" /></svg>
+                    </span>
+                    <h2 className="text-[15px] font-bold cjk">{key}</h2>
+                    <span className="rounded-full px-2 text-[11.5px] font-normal" style={{ background: "var(--hover)", color: "var(--muted)" }}>{group.length}</span>
+                  </button>
+                  {!open && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5 pl-5">
+                      {group.map((t) => (
+                        <Link
+                          key={t.id}
+                          href={`/templates/${t.id}`}
+                          className="max-w-full truncate rounded-full border px-2.5 py-0.5 text-[12px] hover:shadow-sm"
+                          style={{ borderColor: "var(--border)", color: "var(--foreground-soft)" }}
+                        >
+                          {t.name}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                  <div
+                    className="grid transition-[grid-template-rows] duration-200 ease-out"
+                    style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+                    aria-hidden={!open}
+                    inert={!open}
+                  >
+                  <div className="min-h-0 overflow-hidden -mx-1 px-1 pb-1">
+                  <ul className="grid gap-3 pt-2.5 md:grid-cols-2 xl:grid-cols-3">
                     {group.map((t) => (
                       <li key={t.id}>
                         <Link
@@ -117,6 +185,8 @@ export default function TemplatesPage() {
                       </li>
                     ))}
                   </ul>
+                  </div>
+                  </div>
                 </section>
               );
             })}

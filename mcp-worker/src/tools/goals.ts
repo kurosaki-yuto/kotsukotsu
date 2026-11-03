@@ -2,7 +2,7 @@
 import { z } from "zod";
 import { findPrecedents, PRECEDENTS_NOTE, privacyProblem, upsertPlaybook, shouldRecordPlaybook, recordPlaybookAction } from "../playbooks";
 import { kataForGoal, kataNote, templateIdForGoal } from "../kata";
-import { exportTemplate, kataExportConfig, kataExportTarget } from "../../../app/lib/server/templateCore";
+import { exportTemplate } from "../../../app/lib/server/templateCore";
 import { COMPLETION_CRITERIA_DOC, CURRENT_STATE_DOC } from "../instructions";
 import { CLEAR_STALL_SET } from "../../../app/lib/stall";
 import { inheritedResources, FILES_NOTE } from "../../../app/lib/server/resourcesCore";
@@ -86,7 +86,7 @@ export const goalsTools: Record<string, ToolDef> = {
         excludeSourceIds: [args.id],
         canSee: (id) => goalInScope(env, auth, id),
       });
-      const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...g }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>), templateViewerOf(auth));
+      const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...g }, env.AI, templateViewerOf(auth));
       const steps = await listTaskSteps(env, wsId, args.id);
       const files = await inheritedResources(env.DB, wsId, args.id, 30);
       return {
@@ -488,7 +488,7 @@ export const goalsTools: Record<string, ToolDef> = {
         : hasKids ? "子を持つタスクなので進行中にしていない。進行中は一番下の小タスクにだけ付ける。今から手を付ける小タスク (list_subtasks で見る) に start_task する。"
         : "進行中。終わったら complete_subtask で完了にする。";
       // 始めるときに型を読ませる (取り消し・完了済みでは出さない)
-      const kata = args.started !== false && row.status === "active" ? await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>), templateViewerOf(auth)) : null;
+      const kata = args.started !== false && row.status === "active" ? await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, templateViewerOf(auth)) : null;
       const files = args.started !== false && row.status === "active" ? await inheritedResources(env.DB, wsId, args.id, 30) : [];
       return { ...(row as object), note, ...(files.length ? { files, files_note: FILES_NOTE } : {}), ...(kata ? { kata, kata_note: kataNote(kata, "start") } : {}) };
     },
@@ -661,7 +661,7 @@ export const goalsTools: Record<string, ToolDef> = {
       }
       // 終えるときは型の注意点で照合させる (サーバー側で渡すので、どのメンバーの AI にも効く)
       if (args.completed && row) {
-        const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, kataExportTarget(env as unknown as Record<string, unknown>), templateViewerOf(auth));
+        const kata = await kataForGoal(env.DB, wsId, { id: args.id, ...row }, env.AI, templateViewerOf(auth));
         if (kata && (kata.how === "from_template" || kata.cautions.length)) { note.kata = kata; note.kata_note = kataNote(kata, "complete"); }
       }
       return { ...(row as object), ...note };
@@ -710,7 +710,7 @@ export const goalsTools: Record<string, ToolDef> = {
       if (tplId) {
         await env.DB.prepare("UPDATE playbooks SET template_id = ? WHERE id = ? AND workspace_id = ? AND template_id IS NULL").bind(tplId, r.id, wsId).run();
         // 型の中身 (前例) が増えたので外の Markdown も書き直す。失敗しても前例の保存は済んでいる
-        const ex = await exportTemplate(env.DB, wsId, tplId, kataExportConfig(env as unknown as Record<string, unknown>), nowIso());
+        const ex = await exportTemplate(env.DB, wsId, tplId, env.FILES, nowIso());
         if (ex.error) console.log(`[record_playbook] 型の書き出しに失敗: ${ex.error}`);
       }
       return { playbook_id: r.id, created: r.created, ...(tplId ? { template_id: tplId } : {}) };

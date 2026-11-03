@@ -1,8 +1,8 @@
 import "server-only";
 import { listGoalMembersBatch } from "./goalMembers";
 import { all, first, run, uid, nowIso, db } from "../db";
-import { platformEnv } from "../platform";
-import { parseTemplateRow, templateReadableSql, templateReadableBinds, canReadTemplate, redactTemplate, normalizeFunction, normalizeVisibility, DEFAULT_VISIBILITY, TEMPLATE_FUNCTIONS, type TemplateViewer, normalizeInputs, normalizeTasks, normalizeResources, normalizeCautions, outlineToTasks, countTasks, saveTemplate, listTemplateRevisions, revertTemplateRevision, exportTemplate, kataExportConfig, LIMITS as TEMPLATE_LIMITS, type Template, type TemplateRow, type TemplatePatch } from "../templateCore";
+import { bucket } from "../files";
+import { parseTemplateRow, templateReadableSql, templateReadableBinds, canReadTemplate, redactTemplate, normalizeFunction, normalizeVisibility, DEFAULT_VISIBILITY, TEMPLATE_FUNCTIONS, type TemplateViewer, normalizeInputs, normalizeTasks, normalizeResources, normalizeCautions, outlineToTasks, countTasks, saveTemplate, listTemplateRevisions, revertTemplateRevision, exportTemplate, LIMITS as TEMPLATE_LIMITS, type Template, type TemplateRow, type TemplatePatch } from "../templateCore";
 
 // ---------------- 型 (テンプレート) ----------------
 // 中身の変換・適用は templateCore.ts (mcp-worker と共有)。ここは Web 向けの読み書きだけ。
@@ -76,10 +76,9 @@ export async function createTemplate(wsId: string, d: TemplateDraft, user: { id:
   return (await getTemplate(id, wsId))!;
 }
 
-// 型を外 (GitHub) に書き出す。設定が無ければ何もしない。失敗は返して画面に出す (保存は済んでいる)
+// 型の Markdown の写しを型のファイルとして置き直す。置き場所が無ければ何もしない。失敗は返して画面に出す (保存は済んでいる)
 export async function exportKata(templateId: string, wsId: string): Promise<string | null> {
-  const env = { ...process.env, ...platformEnv<Record<string, unknown>>() };
-  const r = await exportTemplate(db(), wsId, templateId, kataExportConfig(env), nowIso());
+  const r = await exportTemplate(db(), wsId, templateId, bucket(), nowIso());
   if (r.error) console.log(`[exportKata] ${templateId}: ${r.error}`);
   return r.error ?? null;
 }

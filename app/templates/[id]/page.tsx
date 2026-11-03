@@ -650,17 +650,16 @@ export default function TemplateDetailPage() {
               )}
             </Fold>
 
-            {tpl.export_url && (
+            {tpl.export_url?.startsWith("r2:") && (
               <section className="card px-5 py-4">
-                <h2 className="text-[14px] font-bold">型の置き場所 (外)</h2>
+                <h2 className="text-[14px] font-bold">型の写し (Markdown)</h2>
                 <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
-                  型を直すたびに書き出しています。こつこつが止まっても、ここから資料と注意点に辿れます。
+                  型の中身を1枚にまとめたファイル。型を直すたびに自動で書き直します。この型を見られる人なら誰でも開けます。
                 </p>
-                <a href={tpl.export_url} target="_blank" rel="noopener noreferrer" className="mt-2 block text-[12.5px] underline underline-offset-2 break-all" style={{ color: "var(--accent)" }}>{tpl.export_url}</a>
-                {tpl.exported_at && <div className="mt-1 text-[11px]" style={{ color: "var(--muted)" }}>最後に書き出した日時: {tpl.exported_at.slice(0, 16).replace("T", " ")}</div>}
-                {tpl.exported_at && tpl.exported_at < tpl.updated_at && (
-                  <div className="mt-1 text-[11px]" style={{ color: "var(--muted)" }}>型を直したあと、まだ書き出していません。次に AI がこの型に触れたときに書き直します。</div>
-                )}
+                <a href={fileHref(tpl.export_url)} target="_blank" rel="noopener noreferrer" className="chip mt-2 inline-flex">
+                  {tpl.export_url.split("/").pop()} を開く
+                </a>
+                {tpl.exported_at && <div className="mt-1.5 text-[11px]" style={{ color: "var(--muted)" }}>最後に書き直した日時: {new Date(tpl.exported_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>}
               </section>
             )}
 

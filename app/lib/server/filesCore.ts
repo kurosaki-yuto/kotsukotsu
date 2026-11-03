@@ -9,6 +9,8 @@
 export const INLINE_TYPES = new Set([
   "image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf",
   "video/mp4", "video/webm", "video/quicktime", "audio/mpeg", "audio/mp4", "audio/wav", "audio/webm",
+  // 型の Markdown の写し (11/3)。nosniff と sandbox の CSP で、文字として見せるだけ
+  "text/plain",
 ]);
 
 // ---------- 大きいファイル ----------
@@ -58,7 +60,7 @@ export function fileResponseHeaders(contentType: string, filename: string, extra
   const disposition = INLINE_TYPES.has(ct) ? "inline" : "attachment";
   const ascii = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_").slice(0, 120) || "file";
   return {
-    "content-type": ct,
+    "content-type": ct === "text/plain" ? "text/plain; charset=utf-8" : ct,
     "content-disposition": `${disposition}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename).slice(0, 400)}`,
     "x-content-type-options": "nosniff",
     // 万一スクリプトが混ざっていても、このオリジンの cookie・ストレージ・親ページには触れない
