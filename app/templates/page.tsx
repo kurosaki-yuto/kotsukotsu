@@ -33,15 +33,20 @@ export default function TemplatesPage() {
       if (Array.isArray(v)) setClosed(new Set(v.filter((x) => typeof x === "string")));
     } catch { /* private mode */ }
   }, []);
-  const saveClosed = (next: Set<string>) => {
-    setClosed(next);
-    try { localStorage.setItem(CLOSED_KEY, JSON.stringify([...next])); } catch { /* private mode */ }
+  // 続けて押しても前の操作を消さないよう、直前の状態から作る
+  const updateClosed = (f: (prev: Set<string>) => Set<string>) => {
+    setClosed((prev) => {
+      const next = f(prev);
+      try { localStorage.setItem(CLOSED_KEY, JSON.stringify([...next])); } catch { /* private mode */ }
+      return next;
+    });
   };
-  const toggleGroup = (key: string) => {
-    const next = new Set(closed);
+  const saveClosed = (next: Set<string>) => updateClosed(() => next);
+  const toggleGroup = (key: string) => updateClosed((prev) => {
+    const next = new Set(prev);
     if (next.has(key)) next.delete(key); else next.add(key);
-    saveClosed(next);
-  };
+    return next;
+  });
 
   const load = useCallback(async () => {
     try {
