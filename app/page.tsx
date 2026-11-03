@@ -20,6 +20,7 @@ import {
 } from "./lib/addness";
 import type { Goal } from "./lib/db";
 import { useAutoRefresh } from "./lib/useAutoRefresh";
+import { useRowFx } from "./lib/useRowFx";
 import BoardSummary from "./components/BoardSummary";
 import { ItemRow } from "./components/tasks/ItemRow";
 import { daysUntil, useIndent, countChildren, buildItemTree, pruneToAssigned, type DropPos, type DropHint } from "./components/tasks/tree";
@@ -179,6 +180,9 @@ export default function TasksPage() {
     return ids;
   }, [stats]);
   const showDone = doneShown.size > 0; // 上のトグルの見た目 (1件でも出していれば ON)
+  // 押した直後の手応え。完了にした行は取り消し線で1秒ほど見せてから消え、開始した行は一瞬光る
+  // (押した行がすぐ消えると効いたのか・何を消したのかが分からない。11/3 黒崎)
+  const { fresh: recentlyDone, markDone, markStarted, rowClass: fxRowClass } = useRowFx();
 
   const toggleDoneChildren = (id: string) =>
     setDoneShown((prev) => {
@@ -209,7 +213,7 @@ export default function TasksPage() {
   // している完了だけ。親のいない完了 (階層化される前に作られた分が2000件以上ある)
   // を混ぜると最上位が完了で埋まって、今やることが読めなくなる。
   const shownItems = useMemo(() => {
-    const alive = items.filter((it) => it.status !== "done");
+    const alive = items.filter((it) => it.status !== "done" || recentlyDone.has(it.id));
     if (doneShown.size === 0) return alive;
     const included = new Set(alive.map((it) => it.id));
     const pending = items.filter((it) => it.status === "done" && it.parent_goal_id != null);
@@ -224,7 +228,7 @@ export default function TasksPage() {
       if (!added) break;
     }
     return items.filter((it) => included.has(it.id));
-  }, [items, doneShown]);
+  }, [items, doneShown, recentlyDone]);
 
   const tree = useMemo(() => buildItemTree(shownItems), [shownItems]);
   // ツリーに出ない完了 (親のいない単発の完了タスク)。常に畳んだまま下に置く
@@ -282,6 +286,7 @@ export default function TasksPage() {
   };
 
   const handleToggleDone = async (id: string, done: boolean) => {
+    markDone(id, done);
     try {
       await toggleItemDone(id, done);
     } catch {
@@ -291,6 +296,7 @@ export default function TasksPage() {
   };
 
   const handleStart = async (id: string, started: boolean) => {
+    markStarted(id, started);
     try {
       await setItemStarted(id, started);
     } catch {
@@ -432,6 +438,7 @@ export default function TasksPage() {
                     onArchive={handleArchive}
                     onToggleDone={handleToggleDone}
                     onStart={handleStart}
+                    rowFxClass={(n) => fxRowClass(n.id, !!n.parent_goal_id && doneShown.has(n.parent_goal_id))}
                     onMove={handleMove}
                     onDragStartRow={onDragStartRow}
                     onDragEndRow={onDragEndRow}

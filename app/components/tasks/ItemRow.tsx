@@ -184,6 +184,7 @@ export function ItemRow({
   onDragEndRow,
   onDragOverRow,
   onDropRow,
+  rowFxClass,
 }: {
   node: ItemNode;
   depth: number;
@@ -212,6 +213,7 @@ export function ItemRow({
   onDragEndRow: () => void;
   onDragOverRow: (id: string, pos: DropPos) => void;
   onDropRow: () => void;
+  rowFxClass?: (node: ItemNode) => string; // 押した直後の手応え (完了の見せてから消す・開始の光り方)。app/lib/useRowFx.ts
 }) {
   const done = node.status === "done";
   const mine = members[node.id] ?? [];
@@ -235,7 +237,7 @@ export function ItemRow({
   return (
     <>
       <div
-        className={`group/row relative flex flex-wrap items-center gap-x-2 gap-y-1 md:gap-x-2.5 py-2 lg:py-1.5${done ? " done-row" : ""}`}
+        className={`group/row relative flex flex-wrap items-center gap-x-2 gap-y-1 md:gap-x-2.5 py-2 lg:py-1.5${done ? " done-row" : ""}${rowFxClass?.(node) ?? ""}`}
         style={{
           paddingLeft: depth * indent,
           opacity: dragging ? 0.4 : 1,
@@ -404,7 +406,7 @@ export function ItemRow({
         <div className="ml-auto flex items-center gap-1 md:gap-2 flex-none">
           {/* single holder indicator (primary permission-holder) — left of the actions */}
           {canEdit && !isContext && (
-            <StartButton t={node} parent={isParentRow} onToggle={(on) => onStart(node.id, on)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover/row:opacity-100" />
+            <StartButton t={node} parent={isParentRow} onToggle={(on) => onStart(node.id, on)} wrapClass="hidden sm:inline-flex lg:opacity-60 lg:group-hover/row:opacity-100 transition-opacity" />
           )}
           <HolderAvatar holder={pickHolder(mine, node.created_by)} others={Math.max(0, mine.length - 1)} />
           {canEdit && !isContext && (
@@ -448,6 +450,7 @@ export function ItemRow({
           onDragStartRow={onDragStartRow}
           onDragEndRow={onDragEndRow}
           onDragOverRow={onDragOverRow}
+          rowFxClass={rowFxClass}
           onDropRow={onDropRow}
         />
       ))}

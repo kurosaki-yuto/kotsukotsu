@@ -131,6 +131,30 @@ input, textarea, select {
 .done-row { background: var(--done-soft); }
 .done-row:hover { background: var(--done-soft-hover) !important; }
 .done-label { text-decoration: line-through; color: var(--done-text); }
+/* 押したときの手応え (app/lib/useRowFx.ts)。
+   完了: 丸チェックが弾み、行が緑に染まる → 1.1秒見せる → 右へ滑って縮んで消える (kk-leave)。
+   開始: 進行中の印が弾んで出て、行が一瞬だけ橙に光る。 */
+.done-fresh .kk-check { animation: kk-pop .32s cubic-bezier(.2, 1.4, .4, 1) both; }
+.done-fresh.done-row { animation: kk-done-in .3s ease-out both; }
+.done-leave {
+  overflow: hidden; pointer-events: none;
+  animation: kk-leave .36s cubic-bezier(.4, 0, 1, 1) both;
+}
+li.done-leave { border-bottom-color: transparent !important; }
+.start-fresh { animation: kk-start-flash .9s ease-out both; }
+.start-fresh .doing-badge { animation: kk-pop .36s cubic-bezier(.2, 1.4, .4, 1) both; }
+@keyframes kk-pop { 0% { transform: scale(.55); } 55% { transform: scale(1.25); } 100% { transform: scale(1); } }
+@keyframes kk-done-in { 0% { background-color: var(--surface); } 100% { background-color: var(--done-soft); } }
+@keyframes kk-leave {
+  0%   { opacity: 1; transform: translateX(0); max-height: 96px; }
+  55%  { opacity: 0; transform: translateX(22px); max-height: 96px; }
+  100% { opacity: 0; transform: translateX(22px); max-height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; }
+}
+@keyframes kk-start-flash { 0% { background-color: var(--doing-soft); } 100% { background-color: transparent; } }
+@media (prefers-reduced-motion: reduce) {
+  .done-fresh .kk-check, .done-fresh.done-row, .start-fresh, .start-fresh .doing-badge { animation: none; }
+  .done-leave { animation: none; opacity: 0; }
+}
 /* 「完了 3/8」。全部終わっていれば塗りつぶしにして、開かなくても分かるようにする */
 .done-badge {
   display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;

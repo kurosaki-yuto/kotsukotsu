@@ -19,6 +19,7 @@ import { StepsPanel } from "../../components/goal/StepsPanel";
 import { InProgressBadge, StartButton, TaskCheck, isInProgress } from "../../components/InProgress";
 import { Assignees } from "../../components/Assignees";
 import { useAutoRefresh } from "../../lib/useAutoRefresh";
+import { useRowFx } from "../../lib/useRowFx";
 
 const PLACEHOLDER = "ここをタップして、達成したいゴールを入力しましょう！";
 
@@ -43,6 +44,9 @@ export default function GoalDetail() {
   const [children, setChildren] = useState<Goal[]>([]);
   const [steps, setSteps] = useState<TaskStep[]>([]);
   const [showDoneChildren, setShowDoneChildren] = useState(false);
+  // 押した直後の手応え。完了にした子タスクは取り消し線で1秒ほど見せてから消え、開始した行は一瞬光る
+  // (押した行がすぐ消えると「効いたのか・何を消したのか」が分からない。11/3 黒崎)
+  const { fresh: recentlyDone, markDone, markStarted, rowClass: fxRowClass } = useRowFx();
   const [childAssignees, setChildAssignees] = useState<Record<string, GoalMember[]>>({});
   const [childProgress, setChildProgress] = useState<Record<string, { done: number; total: number }>>({});
   const [expandedTop, setExpandedTop] = useState<Set<string>>(new Set());
@@ -216,15 +220,17 @@ export default function GoalDetail() {
   // ----- child item actions -----
   const toggleChildDone = useCallback(async (childId: string, done: boolean) => {
     setChildren((cs) => cs.map((c) => (c.id === childId ? { ...c, status: done ? "done" : "active" } : c)));
+    markDone(childId, done);
     try { await toggleItemDone(childId, done); } catch (e) { console.error(e); }
     loadChildren();
-  }, [loadChildren]);
+  }, [loadChildren, markDone]);
 
   const startChild = useCallback(async (childId: string, started: boolean) => {
     setChildren((cs) => cs.map((c) => (c.id === childId ? { ...c, started_at: started ? new Date().toISOString() : null, started_by_name: started ? (me?.name || me?.email || null) : null, started_via: started ? "app" : null } : c)));
+    markStarted(childId, started);
     try { await setItemStarted(childId, started); } catch (e) { console.error(e); }
     loadChildren();
-  }, [loadChildren, me]);
+  }, [loadChildren, me, markStarted]);
 
   const addChild = useCallback(async () => {
     try {
@@ -266,7 +272,7 @@ export default function GoalDetail() {
     const ass = childAssignees[c.id] ?? [];
     const editing = editingChild === c.id;
     return (
-      <li key={c.id} className="border-b last:border-0" style={{ borderColor: "var(--border)" }}>
+      <li key={c.id} className={`border-b last:border-0${fxRowClass(c.id, showDoneChildren)}`} style={{ borderColor: "var(--border)" }}>
       <div className={`flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--hover)] group${done ? " done-row" : ""}`} onMouseEnter={() => prefetchGoalBundle(c.id)}>
         {/* expand toggle — visible when this task has sub-tasks */}
         {prog && prog.total > 0 ? (
@@ -318,7 +324,7 @@ export default function GoalDetail() {
         )}
         {/* 進行中の印 / 未着手なら「開始」(PC はホバー時だけ。スマホはタスクを開いた先のボタンで) */}
         <InProgressBadge t={c} wrapClass="hidden sm:inline-flex" parent={!!prog && prog.total > prog.done} />
-        {!editing && <StartButton t={c} parent={!!prog && prog.total > prog.done} onToggle={(on) => startChild(c.id, on)} wrapClass="hidden lg:inline-flex lg:opacity-0 lg:group-hover:opacity-100" />}
+        {!editing && <StartButton t={c} parent={!!prog && prog.total > prog.done} onToggle={(on) => startChild(c.id, on)} wrapClass="hidden sm:inline-flex lg:opacity-60 lg:group-hover:opacity-100 transition-opacity" />}
         {/* assignee avatars */}
         <Assignees members={ass} size={22} max={3} />
         {/* delete */}
@@ -485,9 +491,10 @@ export default function GoalDetail() {
             {children.length === 0 && editingChild === null ? (
               <div className="px-4 py-8 text-center text-[13px] text-[var(--muted-soft)]">まだタスクがありません</div>
             ) : (
-              <ul>{(showDoneChildren ? children : children.filter((c) => c.status !== "done")).map(renderChildRow)}</ul>
+              <ul>{(showDoneChildren ? children : children.filter((c) => c.status !== "done" || recentlyDone.has(c.id))).map(renderChildRow)}</ul>
             )}
-            {children.some((c) => c.status === "done") && (
+            {/* 今押した分は上に取り消し線で残っているので、ここで出す/隠すのはそれ以外の完了 */}
+            {children.some((c) => c.status === "done" && !recentlyDone.has(c.id)) && (
               <button
                 type="button"
                 onClick={() => setShowDoneChildren((v) => !v)}
@@ -497,8 +504,8 @@ export default function GoalDetail() {
               >
                 <svg viewBox="0 0 16 16" className="w-3 h-3 flex-shrink-0 transition-transform" style={{ transform: showDoneChildren ? "rotate(90deg)" : "none" }} fill="currentColor"><path d="M6 3l5 5-5 5V3z" /></svg>
                 {showDoneChildren
-                  ? `完了を隠す (${children.filter((c) => c.status === "done").length})`
-                  : `完了を表示 (${children.filter((c) => c.status === "done").length})`}
+                  ? `完了を隠す (${children.filter((c) => c.status === "done" && !recentlyDone.has(c.id)).length})`
+                  : `完了を表示 (${children.filter((c) => c.status === "done" && !recentlyDone.has(c.id)).length})`}
               </button>
             )}
             <button onClick={addChild} className="flex items-center gap-2 w-full px-4 py-2.5 text-[13.5px] text-[var(--muted)] hover:bg-[var(--hover)] border-t" style={{ borderColor: "var(--border)" }}>

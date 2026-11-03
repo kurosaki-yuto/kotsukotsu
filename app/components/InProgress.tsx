@@ -61,7 +61,7 @@ export function TaskCheck({ t, onToggle, onStop, square = false, idleBorder = "v
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); if (doing) onStop(); else onToggle(!done); }}
-      className={`w-5 h-5 shrink-0 ${square ? "rounded-md" : "rounded-full"} border flex items-center justify-center transition-colors`}
+      className={`kk-check w-5 h-5 shrink-0 ${square ? "rounded-md" : "rounded-full"} border flex items-center justify-center transition-colors`}
       style={
         done ? { background: "var(--done)", borderColor: "var(--done)" }
         : doing ? { borderColor: "var(--doing)", borderWidth: 2, background: "var(--doing-soft)" }
