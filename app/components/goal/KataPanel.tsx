@@ -58,6 +58,14 @@ export function KataPanel({ goalId }: { goalId: string }) {
           </ul>
         </>
       )}
+      {open && tpl.export_url?.startsWith("r2:") && (
+        <div className="mt-3 text-[12.5px]">
+          <a href={fileHref(tpl.export_url)} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" style={{ color: "var(--accent)" }}>
+            型の写し (Markdown) を開く
+          </a>
+          <span className="ml-2 text-[12px]" style={{ color: "var(--muted)" }}>手順・注意点・タスクを1枚にまとめたもの</span>
+        </div>
+      )}
       {open && tpl.resources.length > 0 && (
         <>
           <div className="mt-3 text-[11px] font-bold tracking-wide" style={{ color: "var(--muted)" }}>資料</div>
