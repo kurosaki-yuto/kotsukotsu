@@ -25,6 +25,7 @@ import AutoGrowTextarea from "../../components/AutoGrowTextarea";
 import { tasksToOutline, outlineToTasks, countTasks, RESOURCE_KINDS } from "../../lib/server/templateCore";
 import { useAutoRefresh } from "../../lib/useAutoRefresh";
 import TemplateSettings from "./TemplateSettings";
+import { Fold } from "./Fold";
 
 const inputCls = "w-full rounded-lg px-3 py-2 text-[14px] focus:outline-none border";
 const inputStyle = { background: "var(--hover)", borderColor: "var(--border)", color: "var(--foreground)" } as const;
@@ -100,8 +101,7 @@ function PrecedentsSection({ templateId, canManage }: { templateId: string; canM
     </li>
   );
   return (
-    <section className="card px-5 py-4 mb-4">
-      <h2 className="text-[14px] font-bold">前例 ({linked.length})</h2>
+    <Fold id="precedents" defaultOpen={false} className="card px-5 py-4 mb-4" title={`前例 (${linked.length})`}>
       <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
         以前この種類の仕事をしたときのやり方。この型から作ったタスクで残した前例は自動で結ばれます。
       </p>
@@ -121,7 +121,7 @@ function PrecedentsSection({ templateId, canManage }: { templateId: string; canM
           {q.trim() && candidates.length === 0 && <div className="mt-2 text-[12px]" style={{ color: "var(--muted)" }}>Enter で検索します。結ばれていない前例だけが出ます。</div>}
         </div>
       )}
-    </section>
+    </Fold>
   );
 }
 
@@ -393,13 +393,14 @@ export default function TemplateDetailPage() {
             </div>
 
             {/* 必要な入力 */}
-            <section className="card px-5 py-4 mb-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[14px] font-bold">必要な入力 ({inputs.length})</h2>
-                {!ro && (
-                  <button type="button" className="chip" onClick={() => setInputs((p) => [...p, { label: "", hint: "", required: true }])}>+ 入力を足す</button>
-                )}
-              </div>
+            <Fold
+              id="inputs"
+              className="card px-5 py-4 mb-4"
+              title={`必要な入力 (${inputs.length})`}
+              actions={!ro && (
+                <button type="button" className="chip" onClick={() => setInputs((p) => [...p, { label: "", hint: "", required: true }])}>+ 入力を足す</button>
+              )}
+            >
               <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
                 振るときに毎回変わる値 (顧客名・対象URL・件数など)。タスク名や完了の基準に {"{{ラベル}}"} と書くと差し込まれます。
               </p>
@@ -434,22 +435,23 @@ export default function TemplateDetailPage() {
                   ))}
                 </ul>
               )}
-            </section>
+            </Fold>
 
             {/* 資料 */}
-            <section className="card px-5 py-4 mb-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[14px] font-bold">資料 ({resources.length})</h2>
-                {!ro && (
-                  <div className="flex items-center gap-2">
-                    <input ref={fileInput} type="file" className="hidden" onChange={(e) => void onPickFile(e)} />
-                    <button type="button" className="chip" disabled={uploadPct !== null} onClick={() => fileInput.current?.click()}>
-                      {uploadPct !== null ? `アップロード中 ${uploadPct}%` : "+ ファイルを足す"}
-                    </button>
-                    <button type="button" className="chip" onClick={() => setResources((p) => [...p, { kind: "やり方", name: "", url: "", why: "" }])}>+ リンクを足す</button>
-                  </div>
-                )}
-              </div>
+            <Fold
+              id="resources"
+              className="card px-5 py-4 mb-4"
+              title={`資料 (${resources.length})`}
+              actions={!ro && (
+                <div className="flex items-center gap-2">
+                  <input ref={fileInput} type="file" className="hidden" onChange={(e) => void onPickFile(e)} />
+                  <button type="button" className="chip" disabled={uploadPct !== null} onClick={() => fileInput.current?.click()}>
+                    {uploadPct !== null ? `アップロード中 ${uploadPct}%` : "+ ファイルを足す"}
+                  </button>
+                  <button type="button" className="chip" onClick={() => setResources((p) => [...p, { kind: "やり方", name: "", url: "", why: "" }])}>+ リンクを足す</button>
+                </div>
+              )}
+            >
               <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
                 本文はこつこつに入れず外 (手順書・実物・参考) に置き、ここには「どこを見ればいいか」だけを書きます。
                 種類は やり方 (前回どうやったか) / 実物 (実際に出した成果物) / 置き場所 (型の本文の正本) / 情報源 (参考)。「何のために見るか」は必須です。リンクでもファイル (動画・画像・PDF など、2GB まで) でも入れられます。振ると新しいゴールのリソースに付きます。
@@ -480,16 +482,18 @@ export default function TemplateDetailPage() {
                   ))}
                 </ul>
               )}
-            </section>
+            </Fold>
 
             {/* 注意点 */}
-            <section className="card px-5 py-4 mb-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[14px] font-bold">注意点 ({cautions.length})</h2>
-                {!ro && (
-                  <button type="button" className="chip" onClick={() => setCautions((p) => [...p, { text: "" }])}>+ 注意点を足す</button>
-                )}
-              </div>
+            <Fold
+              id="cautions"
+              defaultOpen={false}
+              className="card px-5 py-4 mb-4"
+              title={`注意点 (${cautions.length})`}
+              actions={!ro && (
+                <button type="button" className="chip" onClick={() => setCautions((p) => [...p, { text: "" }])}>+ 注意点を足す</button>
+              )}
+            >
               <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
                 守らないと差し戻される所を 1 件 1 行で。差し戻しや照合の×が出ると、AI がここに自動で足します (履歴から戻せます)。
               </p>
@@ -513,13 +517,12 @@ export default function TemplateDetailPage() {
                   ))}
                 </ul>
               )}
-            </section>
+            </Fold>
 
             <PrecedentsSection templateId={tpl.id} canManage={canManage} />
 
             {/* タスクの木 */}
-            <section className="card px-5 py-4 mb-4">
-              <h2 className="text-[14px] font-bold">タスク ({countTasks(previewTasks)})</h2>
+            <Fold id="tasks" className="card px-5 py-4 mb-4" title={`タスク (${countTasks(previewTasks)})`}>
               <p className="mt-1 text-[12px]" style={{ color: "var(--muted)" }}>
                 1 行 1 タスク。行頭の空白 2 つで 1 段深くなります。「 :: 」の後ろは完了の基準。{"{{ラベル}}"} で入力値を差し込めます。
               </p>
@@ -538,7 +541,7 @@ export default function TemplateDetailPage() {
                   <TaskTreePreview tasks={previewTasks} />
                 </div>
               )}
-            </section>
+            </Fold>
 
             {canManage && (
               <div className="flex justify-end">
@@ -620,8 +623,7 @@ export default function TemplateDetailPage() {
               )}
             </section>
 
-            <section className="card px-5 py-4">
-              <h2 className="text-[14px] font-bold">この型から作ったゴール ({tpl.goals.length})</h2>
+            <Fold id="goals" title={`この型から作ったゴール (${tpl.goals.length})`}>
               {tpl.goals.length === 0 ? (
                 <div className="mt-2 text-[12.5px]" style={{ color: "var(--muted)" }}>まだありません</div>
               ) : (
@@ -646,7 +648,7 @@ export default function TemplateDetailPage() {
                   ))}
                 </ul>
               )}
-            </section>
+            </Fold>
 
             {tpl.export_url && (
               <section className="card px-5 py-4">
@@ -662,8 +664,7 @@ export default function TemplateDetailPage() {
               </section>
             )}
 
-            <section className="card px-5 py-4">
-              <h2 className="text-[14px] font-bold">直した履歴 ({tpl.revisions.length})</h2>
+            <Fold id="revisions" defaultOpen={false} title={`直した履歴 (${tpl.revisions.length})`}>
               {tpl.revisions.length === 0 ? (
                 <div className="mt-2 text-[12.5px]" style={{ color: "var(--muted)" }}>まだありません</div>
               ) : (
@@ -704,7 +705,7 @@ export default function TemplateDetailPage() {
                   ))}
                 </ul>
               )}
-            </section>
+            </Fold>
           </aside>
         </div>
       </div>
