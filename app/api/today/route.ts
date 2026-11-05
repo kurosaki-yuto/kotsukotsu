@@ -1,5 +1,5 @@
 import { json, bad, first } from "../../lib/server/db";
-import { requireWorkspace, goalVisible } from "../../lib/server/workspace";
+import { requireWorkspace, goalVisible, viewRoots } from "../../lib/server/workspace";
 import { listToday, setToday, clearToday } from "../../lib/server/queries";
 
 export async function GET(req: Request) {
@@ -8,8 +8,9 @@ export async function GET(req: Request) {
   const date = new URL(req.url).searchParams.get("date");
   if (!date) return bad("date required", 400);
   const rows = await listToday(date, ctx.workspaceId);
-  if (!ctx.scopeGoalId) return json(rows);
-  // scoped member: keep only items within the scope subtree.
+  // 管理者だけ全部。招待の範囲の無いメンバーも担当の範囲で絞る (scopeGoalId だけ見ていたので全部見えていた。2026-11-05 監査)
+  if ((await viewRoots(ctx)) === null) return json(rows);
+  // member: keep only items within the visible subtrees.
   // ゴール行 (type: "goal") は自分自身の id で判定する。親 (project_id) で見ると
   // 最上位のゴールが today に入ったときに project_id が null になり、黙って
   // 落ちる — 「自分には何も無い」に化ける典型 (AGENTS.md 冒頭)。

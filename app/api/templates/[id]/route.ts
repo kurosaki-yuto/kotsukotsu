@@ -1,6 +1,6 @@
 import { json, bad, db, nowIso } from "../../../lib/server/db";
-import { requireWorkspace } from "../../../lib/server/workspace";
-import { getTemplate, updateTemplate, archiveTemplate, listGoalsFromTemplate, listRevisions, templateViewer, canEditGoal } from "../../../lib/server/queries";
+import { requireWorkspace, viewRoots } from "../../../lib/server/workspace";
+import { getTemplate, updateTemplate, archiveTemplate, listGoalsFromTemplate, listGoals, listRevisions, templateViewer, canEditGoal } from "../../../lib/server/queries";
 import {
   normalizeResources, resourcesMissingWhy, canReadTemplate, canManageTemplate, redactTemplate, routineSetupText,
   saveTemplateSettings, checkScheduleSettings, normalizeScheduleTarget, type TemplateSettingsPatch,
@@ -14,7 +14,13 @@ export async function GET(req: Request, c: { params: Promise<{ id: string }> }) 
   const t = await getTemplate(id, ctx.workspaceId);
   // 見える範囲の外の型は「無い」と同じに返す (あることも知らせない)
   if (!t || t.archived_at || !(await canReadTemplate(db(), ctx.workspaceId, id, viewer))) return json({ error: "not found" }, { status: 404 });
-  const [goals, revisions] = await Promise.all([listGoalsFromTemplate(id, ctx.workspaceId), listRevisions(id, ctx.workspaceId)]);
+  const [allGoals, revisions, roots] = await Promise.all([listGoalsFromTemplate(id, ctx.workspaceId), listRevisions(id, ctx.workspaceId), viewRoots(ctx)]);
+  // この型から作られたゴールも、見える範囲のものだけ (2026-11-05 監査: 範囲外の案件名と担当が見えていた)
+  let goals = allGoals;
+  if (roots !== null) {
+    const visible = new Set(((await listGoals(ctx.workspaceId, roots)) as { id: string }[]).map((g) => g.id));
+    goals = allGoals.filter((g) => visible.has(g.id));
+  }
   const view = redactTemplate(t, viewer);
   return json({ ...view, goals, revisions, routine_setup: view.can_manage ? routineSetupText(t) : null });
 }
