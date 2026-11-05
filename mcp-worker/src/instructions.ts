@@ -204,7 +204,9 @@ export function buildInstructions(auth: McpAuth): string {
   if (auth.actor) {
     instructions += `\n\n## このセッションの権限\nあなたは「${auth.actor.name}」のAIとして接続しています (役割: ${auth.actor.role})。`;
     instructions += `\n本人が複数のワークスペースに所属しているときは、この1本の接続で全部を扱えます。list_workspaces で一覧を見て、既定以外のワークスペースを触るツール呼び出しには workspace (id か名前) を毎回渡してください。省略すると既定のワークスペースになります。どのワークスペースの話か分からないときは推測せず本人に聞いてください。`;
-    if (auth.scopeRoots) {
+    if (auth.scopeRoots && auth.scopeRoots.length === 0) {
+      instructions += `\nまだ担当のゴールがありません。管理者にゴールへアサインしてもらうまで、ゴールやタスクは見えません。`;
+    } else if (auth.scopeRoots) {
       instructions += `\nアクセスはアサインされたゴール (id: ${auth.scopeRoots.join(", ")}) とその配下の部分木に限定されています。範囲外のゴールは見えず、作成・移動も範囲内のみ可能です。メンバー管理・招待は使えません。この範囲の中で上記の基本ループを全力で回してください。`;
     }
   }

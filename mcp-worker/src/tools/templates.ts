@@ -247,7 +247,10 @@ export const templatesTools: Record<string, ToolDef> = {
       const parts = key.split("/");
       if (parts[0] !== wsId || parts.some((p: string) => !p || p === "..")) throw new Error("file not found");
       if (parts[1] === "templates") {
-        await findTemplate(env, wsId, parts[2], auth); // 型のファイルは型を読める人だけ (見える範囲)
+        // 型のファイルは型を読める人だけ (見える範囲)。findTemplate は名前でも当てるので、
+        // 自分の型に他の型の id を名前として付けると読めてしまう。id が一致したときだけ通す (2026-11-05 監査)
+        const t = await findTemplate(env, wsId, parts[2], auth);
+        if (t.id !== parts[2]) throw new Error("file not found");
       } else if (!(await goalInScope(env, auth, parts[1])) && !(auth.scopeRoots && await isAncestorOfAny(env.DB, wsId, parts[1], auth.scopeRoots))) {
         // 上のゴールのファイルは、その下のタスクを見られる人も読める (黒崎判断 2026-11-02)
         throw new Error("file not found");

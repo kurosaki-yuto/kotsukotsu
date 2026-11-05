@@ -227,7 +227,7 @@ export function formatFieldText(text: string): string {
  *   the subtrees the member may work in. scopeRoots comes from the membership's
  *   scope_goal_id (goal-scoped invite) or, failing that, the member's actual
  *   goal assignments (goal_members) — "アサインされている範囲". A non-admin
- *   member with neither gets full workspace access (mirrors the app UI).
+ *   member with neither sees nothing (scopeRoots = []), mirroring the app's viewRoots.
  */
 export type McpAuth = {
   wsId: string;
@@ -242,15 +242,20 @@ export async function membershipAuth(env: Env, mem: Membership): Promise<McpAuth
   let scopeRoots: string[] | null = null;
   if (mem.scope_goal_id) {
     scopeRoots = [mem.scope_goal_id];
-  } else if (mem.role !== "admin" && mem.email) {
-    // the member's actual assignments (roster row matched by email)
-    const { results } = await env.DB.prepare(
-      `SELECT gm.goal_id FROM goal_members gm
-         JOIN members m ON m.id = gm.member_id
-        WHERE m.workspace_id = ? AND lower(m.email) = lower(?)`
-    ).bind(mem.workspace_id, mem.email).all<{ goal_id: string }>();
-    const ids = (results ?? []).map((r) => r.goal_id);
-    if (ids.length) scopeRoots = ids;
+  } else if (mem.role !== "admin") {
+    // the member's actual assignments (roster row matched by email). No assignment = nothing visible,
+    // the same as the app's viewRoots (2026-11-03 rule). Before 2026-11-05 an empty list fell back to
+    // the whole workspace here, so a freshly invited member could read everything over MCP.
+    let ids: string[] = [];
+    if (mem.email) {
+      const { results } = await env.DB.prepare(
+        `SELECT gm.goal_id FROM goal_members gm
+           JOIN members m ON m.id = gm.member_id
+          WHERE m.workspace_id = ? AND lower(m.email) = lower(?)`
+      ).bind(mem.workspace_id, mem.email).all<{ goal_id: string }>();
+      ids = (results ?? []).map((r) => r.goal_id);
+    }
+    scopeRoots = ids;
   }
   return {
     wsId: mem.workspace_id,
@@ -483,13 +488,14 @@ export function assertTemplateManager(auth: McpAuth, t: { created_by: string | n
 }
 
 // A comment may only be edited/deleted by whoever posted it: member tokens
-// match on author_email (fallback: display name for pre-author_email rows),
+// match on author_email only (a display-name fallback let same-named people and
+// "退会したメンバー" rows be edited by others — removed 2026-11-05 audit),
 // the workspace key matches its own shared-key persona posts. Editing someone
 // else's words through MCP is never allowed — that's speech in their name.
 export function assertOwnMessage(auth: McpAuth, msg: { author: string | null; author_email: string | null }): void {
   if (auth.actor) {
     const email = auth.actor.email?.toLowerCase().trim();
-    const ok = (msg.author_email && email && msg.author_email === email) || (!msg.author_email && msg.author === auth.actor.name);
+    const ok = !!(msg.author_email && email && msg.author_email.toLowerCase().trim() === email);
     if (!ok) throw new Error("自分が投稿したコメントのみ編集・取り消しできます");
     return;
   }

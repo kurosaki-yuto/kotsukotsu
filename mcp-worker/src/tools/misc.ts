@@ -52,9 +52,9 @@ export const miscTools: Record<string, ToolDef> = {
       const author = auth.actor?.name ?? "AI(共有ワークスペーストークン経由)";
       const chatBody = `ファイルを追加しました: ${args.filename}`;
       await env.DB.prepare(
-        "INSERT INTO chat_messages (id, goal_id, scope, role, author, body, created_at, workspace_id) VALUES (?, ?, 'goal', 'user', ?, ?, ?, ?)"
+        "INSERT INTO chat_messages (id, goal_id, scope, role, author, author_email, body, created_at, workspace_id) VALUES (?, ?, 'goal', 'user', ?, ?, ?, ?, ?)"
       )
-        .bind(uid(), args.goalId, author, chatBody, nowIso(), wsId)
+        .bind(uid(), args.goalId, author, auth.actor?.email?.toLowerCase().trim() ?? null, chatBody, nowIso(), wsId)
         .run();
       const fileNotifId = uid();
       await env.DB.prepare(
