@@ -66,7 +66,7 @@ async function myTasksIn(env: Env, wsId: string, auth: McpAuth, who: string, lim
       SELECT p.id FROM sub s CROSS JOIN projects p ON p.parent_goal_id = s.id)`;
   const sql = `${scoped ? cte : ""}
     SELECT p.id, p.name, p.deadline, p.today_date, p.started_at, p.started_via,
-           p.parent_goal_id, par.name AS parent_name,
+           p.parent_goal_id, ${scoped ? "CASE WHEN par.id IN (SELECT id FROM sub) THEN par.name END" : "par.name"} AS parent_name,
            substr(p.completion_criteria, 1, 300) AS completion_criteria,
            substr(p.current_state, 1, 300) AS current_state,
            CASE WHEN p.today_date = ?1 THEN 'today'
@@ -113,7 +113,7 @@ async function myTurnIn(env: Env, wsId: string, auth: McpAuth, who: string) {
       UNION
       SELECT p.id FROM sub s CROSS JOIN projects p ON p.parent_goal_id = s.id)`;
   const sql = `${scoped ? cte : ""}
-    SELECT p.id, p.name, par.name AS parent_name, p.deadline, p.state_updated_at, p.current_state
+    SELECT p.id, p.name, ${scoped ? "CASE WHEN par.id IN (SELECT id FROM sub) THEN par.name END" : "par.name"} AS parent_name, p.deadline, p.state_updated_at, p.current_state
       FROM projects p LEFT JOIN projects par ON par.id = p.parent_goal_id
      WHERE p.workspace_id = ?1 AND p.status NOT IN ('done', 'archived') AND p.archived_at IS NULL
        AND p.current_state LIKE '%ボール%'
@@ -155,7 +155,7 @@ export const todayTools: Record<string, ToolDef> = {
       const goalSql = scoped
         ? `${SUBTREE_CTE}
            SELECT 'goal' AS type, p.id, p.name AS text, p.status, p.completed_at, p.deadline,
-                  p.parent_goal_id AS project_id, par.name AS project_name, p.order_idx
+                  p.parent_goal_id AS project_id, CASE WHEN par.id IN (SELECT id FROM sub) THEN par.name END AS project_name, p.order_idx
              FROM projects p LEFT JOIN projects par ON par.id = p.parent_goal_id
             WHERE p.today_date = ? AND p.workspace_id = ? AND p.id IN (SELECT id FROM sub)
             ORDER BY p.order_idx`

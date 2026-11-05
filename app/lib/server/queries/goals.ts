@@ -3,6 +3,7 @@ import { createNotification } from "./notifications";
 import { all, first, run, runChanges, batch, uid, nowIso } from "../db";
 import { ballRank, ballText, personKeys } from "../../ball";
 import { CLEAR_STALL_SET } from "../../stall";
+import { visibility } from "./attention";
 
 // ---------------- goals (projects) ----------------
 // scope: 見える範囲の根。null = ワークスペース全体、文字列か配列 = その根とその下だけ
@@ -317,20 +318,24 @@ export async function toggleProjectDone(id: string, done: boolean, wsId: string,
   }
   return true;
 }
-export async function listMyAssignedItems(user: { email: string }, wsId: string) {
+export async function listMyAssignedItems(user: { email: string }, wsId: string, opts: { admin: boolean; scopeGoalId: string | null }) {
   const email = user.email.toLowerCase().trim();
   const m = await first<{ id: string }>("SELECT id FROM members WHERE email = ? AND workspace_id = ?", email, wsId);
   if (!m) return [];
+  // 担当のゴールは見える根なので、その親は見える範囲の中のときだけ名前を返す
+  const vis = await visibility(user.email, wsId, opts);
+  if (!vis) return [];
+  const parentName = vis.parentName("parent");
   return all(
     `SELECT p.id, p.name, p.emoji, p.status, p.parent_goal_id, p.started_at, p.started_by_name, p.started_via,
             (SELECT COUNT(*) FROM projects c WHERE c.parent_goal_id = p.id AND c.workspace_id = p.workspace_id AND c.status = 'active') AS open_children,
-            parent.name AS parent_name, parent.emoji AS parent_emoji
+            ${parentName} AS parent_name, CASE WHEN ${parentName} IS NOT NULL THEN parent.emoji END AS parent_emoji
      FROM goal_members gm
      JOIN projects p ON p.id = gm.goal_id
      LEFT JOIN projects parent ON parent.id = p.parent_goal_id
      WHERE gm.member_id = ? AND p.status != 'archived' AND p.workspace_id = ?
-     ORDER BY (p.status = 'done') ASC, parent.name ASC, p.order_idx ASC`,
-    m.id, wsId
+     ORDER BY (p.status = 'done') ASC, parent_name ASC, p.order_idx ASC`,
+    ...vis.args, ...vis.args, m.id, wsId
   );
 }
 
@@ -353,22 +358,31 @@ export async function listMyTurn(
     "p.workspace_id = ?", "p.status NOT IN ('done', 'archived')", "p.archived_at IS NULL", "p.current_state LIKE '%ボール%'",
   ];
   const args: unknown[] = [wsId];
+  // 親の名前は見える範囲の中のときだけ返す (見える根の親は名前も出さない)。判定の引数は SELECT 側なので頭に置く
+  let parentName = "par.name";
+  const parentArgs: unknown[] = [];
   // 再帰は `down CROSS JOIN projects` の順 (goalVisibilityClause のコメント参照。逆にすると全件走査になる)
   if (opts.scopeGoalId) {
-    where.push(`p.id IN (WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT c.id FROM down CROSS JOIN projects c ON c.parent_goal_id = down.id WHERE c.workspace_id = ?) SELECT id FROM down)`);
+    const set = `(WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT c.id FROM down CROSS JOIN projects c ON c.parent_goal_id = down.id WHERE c.workspace_id = ?) SELECT id FROM down)`;
+    where.push(`p.id IN ${set}`);
     args.push(opts.scopeGoalId, wsId);
+    parentName = `CASE WHEN par.id IN ${set} THEN par.name END`;
+    parentArgs.push(opts.scopeGoalId, wsId);
   } else if (!opts.admin) {
     if (!m) return [];
-    where.push(`p.id IN (WITH RECURSIVE down(id) AS (
+    const set = `(WITH RECURSIVE down(id) AS (
         SELECT gm.goal_id FROM goal_members gm WHERE gm.member_id = ?
-        UNION SELECT c.id FROM down CROSS JOIN projects c ON c.parent_goal_id = down.id WHERE c.workspace_id = ?) SELECT id FROM down)`);
+        UNION SELECT c.id FROM down CROSS JOIN projects c ON c.parent_goal_id = down.id WHERE c.workspace_id = ?) SELECT id FROM down)`;
+    where.push(`p.id IN ${set}`);
     args.push(m.id, wsId);
+    parentName = `CASE WHEN par.id IN ${set} THEN par.name END`;
+    parentArgs.push(m.id, wsId);
   }
   const rows = await all<{ id: string; name: string; parent_name: string | null; deadline: string | null; state_updated_at: string | null; current_state: string }>(
-    `SELECT p.id, p.name, par.name AS parent_name, p.deadline, p.state_updated_at, p.current_state
+    `SELECT p.id, p.name, ${parentName} AS parent_name, p.deadline, p.state_updated_at, p.current_state
        FROM projects p LEFT JOIN projects par ON par.id = p.parent_goal_id
       WHERE ${where.join(" AND ")}`,
-    ...args
+    ...parentArgs, ...args
   );
   const items: MyTurnItem[] = [];
   for (const r of rows) {

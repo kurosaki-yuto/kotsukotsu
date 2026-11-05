@@ -31,22 +31,20 @@ export async function addStep(taskId: string, text: string, wsId: string, by: st
 // ---------------- タスク画面の「片付け」: 閉じていい？ / 止まっている ----------------
 // 見える範囲は「あなたの番」(listMyTurn) と同じ: 管理者はワークスペース全体、それ以外は担当しているタスクとその配下、
 // 招待で範囲が決まっている人はその範囲だけ (権限の仕様は変えない)。
-async function visibility(viewerEmail: string, wsId: string, opts: { admin: boolean; scopeGoalId: string | null }): Promise<{ sql: string; args: unknown[] } | null> {
+export async function visibility(viewerEmail: string, wsId: string, opts: { admin: boolean; scopeGoalId: string | null }): Promise<{ sql: string; args: unknown[]; parentName: (alias: string) => string } | null> {
+  // 上の親は見える範囲の中のときだけ名前を返す (見える根の親は名前も出さない)
+  const within = (set: string) => (alias: string) => `CASE WHEN ${alias}.id IN ${set} THEN ${alias}.name END`;
   if (opts.scopeGoalId) {
-    return {
-      sql: `p.id IN (WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT c.id FROM down CROSS JOIN projects c ON c.parent_goal_id = down.id WHERE c.workspace_id = ?) SELECT id FROM down)`,
-      args: [opts.scopeGoalId, wsId],
-    };
+    const set = `(WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT c.id FROM down CROSS JOIN projects c ON c.parent_goal_id = down.id WHERE c.workspace_id = ?) SELECT id FROM down)`;
+    return { sql: `p.id IN ${set}`, args: [opts.scopeGoalId, wsId], parentName: within(set) };
   }
-  if (opts.admin) return { sql: "1 = 1", args: [] };
+  if (opts.admin) return { sql: "1 = 1", args: [], parentName: (alias) => `${alias}.name` };
   const m = await first<{ id: string }>("SELECT id FROM members WHERE email = ? AND workspace_id = ?", viewerEmail.toLowerCase().trim(), wsId);
   if (!m) return null;
-  return {
-    sql: `p.id IN (WITH RECURSIVE down(id) AS (
+  const set = `(WITH RECURSIVE down(id) AS (
         SELECT gm.goal_id FROM goal_members gm WHERE gm.member_id = ?
-        UNION SELECT c.id FROM down CROSS JOIN projects c ON c.parent_goal_id = down.id WHERE c.workspace_id = ?) SELECT id FROM down)`,
-    args: [m.id, wsId],
-  };
+        UNION SELECT c.id FROM down CROSS JOIN projects c ON c.parent_goal_id = down.id WHERE c.workspace_id = ?) SELECT id FROM down)`;
+  return { sql: `p.id IN ${set}`, args: [m.id, wsId], parentName: within(set) };
 }
 
 // 現状に「終わった」と書いてあるのに開いたままのもの。完了の関門 (照合) に止められたまま、
@@ -75,7 +73,8 @@ export async function listAttention(
   const openKids = `(SELECT COUNT(*) FROM projects c WHERE c.parent_goal_id = p.id AND c.workspace_id = p.workspace_id AND c.status = 'active')`;
   const steps = `(SELECT COUNT(*) FROM task_steps s WHERE s.task_id = p.id)`;
   const openSteps = `(SELECT COUNT(*) FROM task_steps s WHERE s.task_id = p.id AND s.done_at IS NULL)`;
-  const cols = "p.id, p.name, par.name AS parent_name, p.state_updated_at, p.current_state";
+  // 親の名前の判定 (SELECT 側) の引数が先に来るので、各クエリは vis.args を頭にも渡す
+  const cols = `p.id, p.name, ${vis.parentName("par")} AS parent_name, p.state_updated_at, p.current_state`;
   const from = "FROM projects p LEFT JOIN projects par ON par.id = p.parent_goal_id";
 
   type Row = { id: string; name: string; parent_name: string | null; state_updated_at: string | null; current_state: string | null; n?: number };
@@ -85,19 +84,19 @@ export async function listAttention(
     all<Row>(
       `SELECT ${cols}, ${kids} AS n ${from} WHERE ${base} AND p.parent_goal_id IS NOT NULL AND ${kids} > 0 AND ${openKids} = 0
          AND ${COMPANY_WORDS.map(() => "p.name NOT LIKE ?").join(" AND ")}`,
-      wsId, ...vis.args, ...COMPANY_WORDS
+      ...vis.args, wsId, ...vis.args, ...COMPANY_WORDS
     ),
-    all<Row>(`SELECT ${cols}, ${steps} AS n ${from} WHERE ${base} AND ${steps} > 0 AND ${openSteps} = 0 AND ${openKids} = 0`, wsId, ...vis.args),
+    all<Row>(`SELECT ${cols}, ${steps} AS n ${from} WHERE ${base} AND ${steps} > 0 AND ${openSteps} = 0 AND ${openKids} = 0`, ...vis.args, wsId, ...vis.args),
     all<Row>(
       `SELECT ${cols} ${from} WHERE ${base} AND ${openKids} = 0 AND p.current_state NOT LIKE '%FAIL%'
          AND (${DONE_WORDS.map(() => "p.current_state LIKE ?").join(" OR ")})`,
-      wsId, ...vis.args, ...DONE_WORDS
+      ...vis.args, wsId, ...vis.args, ...DONE_WORDS
     ),
     all<{ id: string; name: string; parent_name: string | null; stalled_at: string; stalled_note: string | null }>(
-      `SELECT p.id, p.name, par.name AS parent_name, p.stalled_at, p.stalled_note ${from}
+      `SELECT p.id, p.name, ${vis.parentName("par")} AS parent_name, p.stalled_at, p.stalled_note ${from}
         WHERE p.workspace_id = ? AND p.status = 'active' AND p.stalled_at IS NOT NULL AND ${vis.sql}
         ORDER BY p.stalled_at DESC`,
-      wsId, ...vis.args
+      ...vis.args, wsId, ...vis.args
     ),
   ]);
 

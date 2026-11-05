@@ -40,14 +40,15 @@ function scope(auth: McpAuth, wsId: string): { cte: string; where: string; binds
   };
 }
 
-// 上のゴールの名前を「一番上 / … / 親」でつなぐ (最大 6 段)
-const PARENTS = `(SELECT group_concat(name, ' / ') FROM (
+// 上のゴールの名前を「一番上 / … / 親」でつなぐ (最大 6 段)。担当の範囲があるときは範囲の中 (sub) だけたどる
+const parents = (scoped: boolean) => `(SELECT group_concat(name, ' / ') FROM (
   WITH RECURSIVE up(id, parent, name, depth) AS (
-    SELECT p0.id, p0.parent_goal_id, p0.name, 0 FROM projects p0 WHERE p0.id = p.parent_goal_id
+    SELECT p0.id, p0.parent_goal_id, p0.name, 0 FROM projects p0 WHERE p0.id = p.parent_goal_id${scoped ? " AND p0.id IN (SELECT id FROM sub)" : ""}
     UNION ALL
-    SELECT q.id, q.parent_goal_id, q.name, up.depth + 1 FROM up JOIN projects q ON q.id = up.parent WHERE up.depth < 6)
+    SELECT q.id, q.parent_goal_id, q.name, up.depth + 1 FROM up JOIN projects q ON q.id = up.parent WHERE up.depth < 6${scoped ? " AND q.id IN (SELECT id FROM sub)" : ""})
   SELECT name FROM up ORDER BY depth DESC))`;
-const COLS = `p.id, p.name, p.deadline, p.state_updated_at, p.current_state, p.stalled_at, p.stalled_note, ${PARENTS} AS parents`;
+const cols = (scoped: boolean) =>
+  `p.id, p.name, p.deadline, p.state_updated_at, p.current_state, p.stalled_at, p.stalled_note, ${parents(scoped)} AS parents`;
 
 function item(r: Row, ask: string): StatusItem {
   return {
@@ -65,6 +66,7 @@ export async function statusReport(env: Env, wsId: string, auth: McpAuth, who: s
   const { email, name } = await resolveWho(env, wsId, auth, who);
   const keys = personKeys(name || "");
   const s = scope(auth, wsId);
+  const COLS = cols(!!auth.scopeRoots);
   const base = `p.workspace_id = ?1 AND p.status = 'active' AND p.archived_at IS NULL ${s.where}`;
   const from = "FROM projects p";
   const openKids = `(SELECT COUNT(*) FROM projects c WHERE c.parent_goal_id = p.id AND c.workspace_id = p.workspace_id AND c.status = 'active')`;
