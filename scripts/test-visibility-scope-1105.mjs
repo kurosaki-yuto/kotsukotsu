@@ -27,7 +27,8 @@ fs.writeFileSync(entry, [
   `export { GET as todayGET } from ${JSON.stringify(path.join(ROOT, "app/api/today/route.ts"))};`,
   `export { GET as memberGoalsGET } from ${JSON.stringify(path.join(ROOT, "app/api/members/[id]/goals/route.ts"))};`,
   `export { GET as templateGET } from ${JSON.stringify(path.join(ROOT, "app/api/templates/[id]/route.ts"))};`,
-  `export { membershipAuth, goalInScope } from ${JSON.stringify(path.join(ROOT, "mcp-worker/src/lib.ts"))};`,
+  `export { membershipAuth, goalInScope, assertOwnMessage } from ${JSON.stringify(path.join(ROOT, "mcp-worker/src/lib.ts"))};`,
+  `export { templatesTools } from ${JSON.stringify(path.join(ROOT, "mcp-worker/src/tools/templates.ts"))};`,
 ].join("\n"));
 const stub = path.join(tmp, "stub.js");
 fs.writeFileSync(stub, "export const getCloudflareContext = () => { throw new Error('not in Cloudflare'); };\n");
@@ -107,6 +108,30 @@ if (tr.status === 200) {
 } else {
   check("Web 型の詳細: 型が読める", false, `status ${tr.status}`);
 }
+
+// MCP get_file: 見られない型のファイルを、自分の型の名前を同じ id にして読めない
+await exec("INSERT INTO templates (id, workspace_id, name, visibility, created_by, created_at, updated_at) VALUES ('priv-tpl', ?, '見られない型', 'private', 'u-other', '2026-11-05', '2026-11-05')", ws);
+await exec("INSERT INTO templates (id, workspace_id, name, visibility, created_by, created_at, updated_at) VALUES ('my-tpl', ?, 'priv-tpl', 'private', 'u-yamada', '2026-11-05', '2026-11-05')", ws);
+const authYamada = await mod.membershipAuth({ DB }, { workspace_id: ws, user_id: "u-yamada", role: "member", scope_goal_id: null, name: "山田", email: "yamada@example.test" });
+const FILES = { get: async () => ({ size: 3, httpMetadata: { contentType: "application/pdf" }, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }) };
+let readPriv = false;
+try {
+  await mod.templatesTools.get_file.handler({ key: `r2:${ws}/templates/priv-tpl/x.pdf` }, { DB, FILES }, ws, authYamada);
+  readPriv = true;
+} catch { /* 断られた */ }
+check("MCP get_file: 見られない型のファイルは、名前を同じ id にした自分の型経由でも読めない", !readPriv, "読めた");
+let readOwn = false;
+try {
+  await mod.templatesTools.get_file.handler({ key: `r2:${ws}/templates/my-tpl/x.pdf` }, { DB, FILES }, ws, authYamada);
+  readOwn = true;
+} catch { /* 断られた */ }
+check("MCP get_file: 自分の型のファイルは読める", readOwn, "読めない");
+
+// MCP コメントの本人判定: メールが一致したときだけ
+const tryOwn = (msg) => { try { mod.assertOwnMessage(authYamada, msg); return true; } catch { return false; } };
+check("MCP コメント: 自分のメールの投稿は直せる", tryOwn({ author: "山田", author_email: "yamada@example.test" }), "断られた");
+check("MCP コメント: 同じ表示名でメールの無い投稿は直せない", !tryOwn({ author: "山田", author_email: null }), "直せた");
+check("MCP コメント: 退会したメンバーの投稿は直せない", !tryOwn({ author: "退会したメンバー", author_email: null }), "直せた");
 
 console.log(fail ? `\n${fail} 件 FAIL` : "\n全部 PASS");
 process.exit(fail ? 1 : 0);
